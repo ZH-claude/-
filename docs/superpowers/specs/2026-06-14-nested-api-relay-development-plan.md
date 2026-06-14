@@ -292,7 +292,7 @@ Loki/Prometheus/Grafana
 | [x] | T01 | 初始化项目骨架 | monorepo、前端、后端、Docker Compose、README | `docker compose up` 能启动空壳前后端 |
 | [x] | T02 | 冻结 MVP 需求与接口范围 | PRD、接口清单、数据字典 | 明确首期支持的 `/v1/*` 接口和不做的功能 |
 | [x] | T03 | 用户认证与账户基础 | 登录、注册、会话、用户表 | 用户可注册、登录、退出、修改密码 |
-| [ ] | T04 | 管理后台基础 | 管理员登录、用户列表、公告管理入口 | 管理员可查看用户并发布公告 |
+| [x] | T04 | 管理后台基础 | 管理员登录、用户列表、公告管理入口 | 管理员可查看用户并发布公告 |
 | [ ] | T05 | 上游中转站配置 | 上游配置表、Base URL、Key 加密、健康检查 | 可配置一个上游并验证连通 |
 | [ ] | T06 | 模型与分组配置 | 模型表、分组倍率、用户分组 | 用户能看到自己分组可用模型 |
 | [ ] | T07 | API 令牌管理 | 创建、复制、禁用、删除、额度、过期时间、备注 | 创建令牌后可用于 API 鉴权 |
@@ -314,7 +314,7 @@ Loki/Prometheus/Grafana
 
 ## 11. 下一次对话建议任务
 
-建议下一次从 T04 开始：管理后台基础。
+建议下一次从 T05 开始：上游中转站配置。
 
 T01 的边界：
 
@@ -357,6 +357,15 @@ T03 完成记录（2026-06-14）：
 - 已实现前端 `/register`、`/login`、`/account`，支持注册后进入账户、登录、退出、修改密码、展示分组和余额基础信息。
 - 已让 Compose API 启动前执行 `prisma migrate deploy`，云服务器空库启动时可自动应用迁移。
 - 已创建 `docs/quality/t03-self-check.md`，记录类型检查、构建、依赖审计、Docker、API 链路和浏览器链路验证。
+
+T04 完成记录（2026-06-14）：
+
+- 已新增 `announcements` 与 `admin_audit_logs` 数据表，并创建 Prisma migration `20260614120000_t04_admin_announcements_audit`。
+- 已实现后端 `/admin/users`、`/admin/announcements`，所有后台接口由 `AuthGuard + AdminGuard` 保护，仅 `admin` 角色可访问。
+- 已实现可选管理员引导配置：`ADMIN_BOOTSTRAP_USERNAME` 与 `ADMIN_BOOTSTRAP_PASSWORD`，只通过环境变量提供，不写真实密码进仓库。
+- 已实现前端 `/admin`，管理员可查看用户列表、发布公告、查看公告记录。
+- 已实现前端同源 `/api/admin/*` 代理，继续使用 HttpOnly Cookie 会话。
+- 已创建 `docs/quality/t04-self-check.md`，记录类型检查、构建、依赖审计、Docker 迁移、API 权限链路、审计日志和浏览器链路验证。
 
 ## 12. 待你确认的一个关键决策
 

@@ -45,6 +45,8 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgresql://nested_relay:change-me@postgres:5432/nested_relay?schema=public}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
+      ADMIN_BOOTSTRAP_USERNAME: ${ADMIN_BOOTSTRAP_USERNAME:-}
+      ADMIN_BOOTSTRAP_PASSWORD: ${ADMIN_BOOTSTRAP_PASSWORD:-}
     command: sh -c "npm --prefix apps/api run db:migrate && npm run start:api"
     ports:
       - "${API_PORT:-3001}:3001"

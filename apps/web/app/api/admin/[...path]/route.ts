@@ -1,0 +1,53 @@
+import { NextRequest, NextResponse } from 'next/server';
+
+const INTERNAL_API_BASE_URL =
+  process.env.INTERNAL_API_BASE_URL ?? process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:3001';
+
+type RouteContext = {
+  params: Promise<{
+    path: string[];
+  }>;
+};
+
+export async function GET(request: NextRequest, context: RouteContext) {
+  return proxyAdminRequest(request, context);
+}
+
+export async function POST(request: NextRequest, context: RouteContext) {
+  return proxyAdminRequest(request, context);
+}
+
+async function proxyAdminRequest(request: NextRequest, context: RouteContext) {
+  const { path } = await context.params;
+  const query = request.nextUrl.search;
+  const targetUrl = `${INTERNAL_API_BASE_URL}/admin/${path.map(encodeURIComponent).join('/')}${query}`;
+  const headers = new Headers({
+    Accept: request.headers.get('accept') ?? 'application/json'
+  });
+
+  const contentType = request.headers.get('content-type');
+  if (contentType) {
+    headers.set('Content-Type', contentType);
+  }
+
+  const cookie = request.headers.get('cookie');
+  if (cookie) {
+    headers.set('Cookie', cookie);
+  }
+
+  const upstream = await fetch(targetUrl, {
+    method: request.method,
+    headers,
+    body: request.method === 'GET' ? undefined : await request.text(),
+    cache: 'no-store',
+    redirect: 'manual'
+  });
+
+  const responseBody = await upstream.text();
+  return new NextResponse(responseBody || null, {
+    status: upstream.status,
+    headers: {
+      'Content-Type': upstream.headers.get('content-type') ?? 'application/json'
+    }
+  });
+}

@@ -9,6 +9,7 @@ import {
   KeyOutlined,
   LineChartOutlined,
   SettingOutlined,
+  ToolOutlined,
   UserOutlined
 } from '@ant-design/icons';
 import { Card, Col, Layout, Menu, Row, Space, Statistic, Tag, Typography } from 'antd';
@@ -23,7 +24,8 @@ const menuItems = [
   { key: 'logs', icon: <FileTextOutlined />, label: '日志' },
   { key: 'billing', icon: <CreditCardOutlined />, label: '余额充值' },
   { key: 'status', icon: <LineChartOutlined />, label: '服务状态' },
-  { key: 'settings', icon: <SettingOutlined />, label: '通知设置' }
+  { key: 'settings', icon: <SettingOutlined />, label: '通知设置' },
+  { key: 'admin', icon: <ToolOutlined />, label: <Link href="/admin">管理后台</Link> }
 ];
 
 export default function HomePage() {
@@ -56,7 +58,7 @@ export default function HomePage() {
           </Space>
           <Space>
             <BellOutlined />
-            <Tag color="blue">T03 Auth</Tag>
+            <Tag color="blue">T04 Admin</Tag>
           </Space>
         </Header>
 
@@ -65,17 +67,17 @@ export default function HomePage() {
             <Card>
               <Space orientation="vertical" size={12}>
                 <Typography.Title level={3} style={{ margin: 0 }}>
-                  账户基础已接入
+                  管理后台基础已接入
                 </Typography.Title>
                 <Typography.Text type="secondary">
-                  当前阶段支持注册、登录、服务端会话、退出和修改密码。充值、令牌和 API 转发在后续任务接入。
+                  当前阶段支持管理员查看用户、发布公告和审计公告创建操作。充值、令牌和 API 转发在后续任务接入。
                 </Typography.Text>
                 <Space>
                   <Link className="primary-link-button" href="/login">
                     登录
                   </Link>
-                  <Link className="secondary-link-button" href="/register">
-                    注册
+                  <Link className="secondary-link-button" href="/admin">
+                    管理后台
                   </Link>
                 </Space>
               </Space>
@@ -94,7 +96,7 @@ export default function HomePage() {
               </Col>
               <Col xs={24} md={8}>
                 <Card>
-                  <Statistic title="当前任务" value="T03" suffix="账户基础" />
+                  <Statistic title="当前任务" value="T04" suffix="管理后台" />
                 </Card>
               </Col>
             </Row>
