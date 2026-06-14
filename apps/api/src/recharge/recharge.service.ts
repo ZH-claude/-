@@ -115,10 +115,32 @@ export class RechargeService {
     }
 
     const code = await this.prisma.$transaction(async (tx) => {
-      const updated = await tx.rechargeCode.update({
-        where: { id },
+      const updateResult = await tx.rechargeCode.updateMany({
+        where: {
+          id,
+          status: RechargeCodeStatus.UNUSED
+        },
         data: { status: RechargeCodeStatus.DISABLED }
       });
+
+      if (updateResult.count !== 1) {
+        const current = await tx.rechargeCode.findUnique({ where: { id } });
+
+        if (!current) {
+          throw new NotFoundException('Recharge code not found');
+        }
+
+        if (current.status === RechargeCodeStatus.DISABLED) {
+          return current;
+        }
+
+        throw new ConflictException('Recharge code has already been used');
+      }
+
+      const updated = {
+        ...existing,
+        status: RechargeCodeStatus.DISABLED
+      };
 
       await tx.adminAuditLog.create({
         data: {

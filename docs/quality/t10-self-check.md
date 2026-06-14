@@ -11,6 +11,7 @@
 | 兑换码数据模型 | `apps/api/prisma/schema.prisma` | 完成 |
 | 数据库迁移 | `apps/api/prisma/migrations/20260615120000_t10_recharge_codes/migration.sql` | 完成 |
 | 充值后端模块 | `apps/api/src/recharge/*` | 完成 |
+| 真实接口 QA 脚本 | `apps/api/scripts/t10-recharge-qa.ts` | 完成 |
 | 用户充值页 | `apps/web/app/account/topup/recharge/page.tsx` | 完成 |
 | 管理后台卡密面板 | `apps/web/app/admin/page.tsx` | 完成 |
 | 任务记录 | `docs/superpowers/specs/2026-06-14-nested-api-relay-development-plan.md` | 完成 |
@@ -26,6 +27,7 @@
 | 核销禁用码 | 返回错误，不增加余额 |
 | 核销错误码 | 返回错误，不增加余额 |
 | 并发核销同一码 | 只有 1 次成功，只有 1 条充值流水 |
+| 管理员禁用与用户核销并发 | 不返回 500，最终只会落到 `disabled` 或 `used` 业务状态 |
 
 ## 验证记录
 
@@ -39,7 +41,8 @@
 | `prisma migrate deploy` | 通过，应用 `20260615120000_t10_recharge_codes` |
 | `GET http://127.0.0.1:3001/health` | `status: ok` |
 | `GET http://127.0.0.1:3000/account/topup/recharge` | HTTP 200 |
-| 自检数据清理 | `qa_users=0`、`qa_recharge_codes=0`、`qa_recharge_wallet_transactions=0` |
+| `npm run qa:t10:recharge` | 通过，真实 HTTP + 真实 Postgres，13 项检查 |
+| 自检数据清理 | `users=0`、`sessions=0`、`recharge_codes=0`、`wallet_transactions=0`、`admin_audit_logs=0` |
 
 真实充值 QA 摘要：
 
@@ -50,23 +53,28 @@
     "admin_guard_blocks_user",
     "admin_generates_codes_once",
     "database_stores_hash_not_plain_code",
+    "audit_logs_hide_plain_code_and_hash",
     "admin_list_hides_plain_code",
     "user_redeems_code_wallet_and_ledger",
     "duplicate_redeem_no_balance_change",
+    "disable_used_code_returns_business_conflict",
     "disabled_code_no_balance_change",
     "invalid_code_no_balance_change",
     "concurrent_same_code_single_success",
+    "concurrent_disable_or_redeem_no_server_error",
     "user_recharge_records_are_real_recharge_transactions"
   ],
-  "codeCount": 3,
+  "codeCount": 5,
   "residualBeforeCleanup": {
     "users": 2,
-    "recharge_codes": 3,
+    "sessions": 2,
+    "recharge_codes": 5,
     "wallet_transactions": 2,
-    "admin_audit_logs": 4
+    "admin_audit_logs": 7
   },
   "residualAfterCleanup": {
     "users": 0,
+    "sessions": 0,
     "recharge_codes": 0,
     "wallet_transactions": 0,
     "admin_audit_logs": 0
@@ -78,8 +86,8 @@
 
 - 用户价值：用户可以用卡密充值余额，充值后立即反映到账户余额。
 - 财务正确性：充值与钱包余额、钱包流水同事务，成功充值形成可追踪 `RECHARGE` 流水。
-- 安全边界：数据库不保存明文兑换码；管理列表不返回明文码；审计日志不写明文码。
-- 并发边界：同一兑换码并发核销只成功一次，重复请求不会重复入账。
+- 安全边界：数据库不保存明文兑换码；管理列表不返回明文码；审计日志不写明文码和 hash。
+- 并发边界：同一兑换码并发核销只成功一次，重复请求不会重复入账；管理员禁用与用户核销并发不会退化成 500。
 - 兼容性：T09 消费流水仍使用 `usage:` 幂等前缀，T10 充值流水使用 `recharge:` 前缀；不改变 Relay 扣费语义。
 
 ## 剩余边界

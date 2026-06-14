@@ -436,7 +436,8 @@ T10 完成记录（2026-06-15）：
 - 已实现用户 `/recharge/redeem` 和 `/recharge/records`，核销成功会在同一事务内更新兑换码状态、增加钱包余额、写入 `RECHARGE` 钱包流水。
 - 已新增前端 `/account/topup/recharge` 充值页、`/account/recharge` 兼容跳转、个人中心充值入口，以及管理后台兑换码生成/列表/禁用面板。
 - 已修复 UUID 校验兼容性：后台、令牌、充值模块不再只允许 v1-v5 UUID，避免 Prisma 生成的新版本 UUID 被误拒。
-- 已验证真实接口 QA：非管理员不能生成兑换码、管理员生成后数据库不保存明文、用户核销增加余额、重复核销/禁用码/错误码不增加余额、并发同码只有一次成功、充值记录来自真实 `wallet_transactions`。
+- 已验证真实接口 QA：非管理员不能生成兑换码、管理员生成后数据库不保存明文、审计日志不泄露明文或 hash、用户核销增加余额、重复核销/禁用码/错误码不增加余额、并发同码只有一次成功、管理员禁用与用户核销并发不返回 500、充值记录来自真实 `wallet_transactions`。
+- 已创建 `apps/api/scripts/t10-recharge-qa.ts` 和 `npm run qa:t10:recharge`，用于复跑 T10 真实 HTTP + 真实 Postgres 验收，并在结束后清理临时 QA 数据。
 - 已创建 `docs/quality/t10-self-check.md`，记录类型检查、构建、迁移、Docker 重建、真实充值 QA、残留数据清理和剩余边界。
 
 ## 12. 待你确认的一个关键决策

@@ -8,6 +8,7 @@
     "dev:web": "npm --prefix apps/web run dev",
     "build": "npm --prefix apps/api run build && npm --prefix apps/web run build",
     "typecheck": "npm --prefix apps/api run typecheck && npm --prefix apps/web run typecheck",
+    "qa:t10:recharge": "npm --prefix apps/api run qa:t10:recharge",
     "start:api": "npm --prefix apps/api run start",
     "start:web": "npm --prefix apps/web run start"
   },
