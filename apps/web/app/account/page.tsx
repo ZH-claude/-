@@ -2,6 +2,7 @@
 
 import {
   ApiOutlined,
+  GiftOutlined,
   KeyOutlined,
   LogoutOutlined,
   ReloadOutlined,
@@ -104,6 +105,10 @@ export default function AccountPage() {
           <span>余额</span>
           <strong>{formatCents(user?.wallet.balanceCents ?? 0)}</strong>
           <small>累计消费 {formatCents(user?.wallet.totalSpendCents ?? 0)}</small>
+          <Link className="secondary-link-button metric-action" href="/account/topup/recharge">
+            <GiftOutlined />
+            充值
+          </Link>
         </div>
         <div className="metric-panel">
           <span>状态</span>

@@ -563,6 +563,20 @@ button {
   min-width: 720px;
 }
 
+.recharge-table,
+.recharge-code-table {
+  min-width: 820px;
+}
+
+.metric-action {
+  margin-top: 6px;
+  width: fit-content;
+}
+
+.recharge-code-box {
+  margin-bottom: 18px;
+}
+
 .form-row,
 .mapping-form {
   display: grid;

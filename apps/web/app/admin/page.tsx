@@ -6,6 +6,7 @@ import {
   CloudServerOutlined,
   DashboardOutlined,
   ExperimentOutlined,
+  GiftOutlined,
   LeftOutlined,
   LogoutOutlined,
   ReloadOutlined,
@@ -22,15 +23,27 @@ import {
   checkUpstreamHealth,
   createAnnouncement,
   createModelPrice,
+  createRechargeCodes,
   createUpstreamModel,
   createUpstreamProvider,
   createUserGroup,
+  disableRechargeCode,
   listAdminUsers,
   listAnnouncements,
   listModelConfiguration,
+  listRechargeCodes,
   listUpstreamProviders
 } from '../lib/admin-api';
-import type { AdminGroup, AdminModelPrice, AdminUser, Announcement, UpstreamModelMapping, UpstreamProvider } from '../lib/admin-api';
+import type {
+  AdminGroup,
+  AdminModelPrice,
+  AdminRechargeCode,
+  AdminUser,
+  Announcement,
+  CreatedRechargeCode,
+  UpstreamModelMapping,
+  UpstreamProvider
+} from '../lib/admin-api';
 import { logout } from '../lib/auth-api';
 
 const UPSTREAM_MAPPING_PAGE_LIMIT = 100;
@@ -49,6 +62,8 @@ export default function AdminPage() {
   const [groups, setGroups] = useState<AdminGroup[]>([]);
   const [models, setModels] = useState<AdminModelPrice[]>([]);
   const [upstreamModels, setUpstreamModels] = useState<UpstreamModelMapping[]>([]);
+  const [rechargeCodes, setRechargeCodes] = useState<AdminRechargeCode[]>([]);
+  const [createdRechargeCodes, setCreatedRechargeCodes] = useState<CreatedRechargeCode[]>([]);
   const [upstreamModelPagination, setUpstreamModelPagination] = useState(DEFAULT_UPSTREAM_MODEL_PAGINATION);
   const [totalUsers, setTotalUsers] = useState(0);
   const [title, setTitle] = useState('');
@@ -76,6 +91,8 @@ export default function AdminPage() {
   const [upstreamModelName, setUpstreamModelName] = useState('');
   const [upstreamModelStatus, setUpstreamModelStatus] = useState<'active' | 'disabled'>('active');
   const [supportsStream, setSupportsStream] = useState(true);
+  const [rechargeAmountCents, setRechargeAmountCents] = useState('1000');
+  const [rechargeCodeCount, setRechargeCodeCount] = useState('1');
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [isLoading, setIsLoading] = useState(true);
@@ -84,6 +101,7 @@ export default function AdminPage() {
   const [isGroupSubmitting, setIsGroupSubmitting] = useState(false);
   const [isModelSubmitting, setIsModelSubmitting] = useState(false);
   const [isMappingSubmitting, setIsMappingSubmitting] = useState(false);
+  const [isRechargeSubmitting, setIsRechargeSubmitting] = useState(false);
   const [isMappingPageLoading, setIsMappingPageLoading] = useState(false);
   const [isAssigningGroup, setIsAssigningGroup] = useState(false);
   const [checkingUpstreamId, setCheckingUpstreamId] = useState<string | null>(null);
@@ -97,20 +115,22 @@ export default function AdminPage() {
     setError('');
 
     try {
-      const [userResult, announcementResult, upstreamResult, modelConfigResult] = await Promise.all([
+      const [userResult, announcementResult, upstreamResult, modelConfigResult, rechargeCodeResult] = await Promise.all([
         listAdminUsers(),
         listAnnouncements(),
         listUpstreamProviders(),
         listModelConfiguration({
           upstreamModelsPage: 1,
           upstreamModelsLimit: UPSTREAM_MAPPING_PAGE_LIMIT
-        })
+        }),
+        listRechargeCodes()
       ]);
       setUsers(userResult.items);
       setTotalUsers(userResult.total);
       setAnnouncements(announcementResult.items);
       setUpstreams(upstreamResult.items);
       applyModelConfiguration(modelConfigResult, upstreamResult.items);
+      setRechargeCodes(rechargeCodeResult.items);
     } catch (nextError) {
       const nextMessage = nextError instanceof Error ? nextError.message : '后台数据加载失败';
       setError(nextMessage);
@@ -308,6 +328,49 @@ export default function AdminPage() {
     }
   }
 
+  async function handleCreateRechargeCodes(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError('');
+    setMessage('');
+    setCreatedRechargeCodes([]);
+    setIsRechargeSubmitting(true);
+
+    try {
+      const result = await createRechargeCodes({
+        amountCents: Number(rechargeAmountCents),
+        count: Number(rechargeCodeCount)
+      });
+      setCreatedRechargeCodes(result.items);
+      setRechargeCodeCount('1');
+      setMessage(`已生成 ${result.items.length} 张兑换码`);
+      const rechargeCodeResult = await listRechargeCodes();
+      setRechargeCodes(rechargeCodeResult.items);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : '兑换码生成失败');
+    } finally {
+      setIsRechargeSubmitting(false);
+    }
+  }
+
+  async function handleDisableRechargeCode(codeId: string) {
+    setError('');
+    setMessage('');
+
+    try {
+      await disableRechargeCode(codeId);
+      setMessage('兑换码已禁用');
+      const rechargeCodeResult = await listRechargeCodes();
+      setRechargeCodes(rechargeCodeResult.items);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : '兑换码禁用失败');
+    }
+  }
+
+  async function handleCopyRechargeCode(code: string) {
+    await navigator.clipboard.writeText(code);
+    setMessage('兑换码已复制');
+  }
+
   async function handleCheckUpstream(providerId: string) {
     setError('');
     setMessage('');
@@ -394,6 +457,106 @@ export default function AdminPage() {
               <small>{groups.length} groups configured</small>
             </section>
           </div>
+
+          <section className="admin-panel">
+            <div className="panel-title">
+              <GiftOutlined />
+              <h2>兑换码</h2>
+            </div>
+            <form className="auth-form mapping-form" onSubmit={handleCreateRechargeCodes}>
+              <label>
+                金额
+                <input
+                  min="1"
+                  max="100000000"
+                  onChange={(event) => setRechargeAmountCents(event.target.value)}
+                  required
+                  step="1"
+                  type="number"
+                  value={rechargeAmountCents}
+                />
+              </label>
+              <label>
+                数量
+                <input
+                  min="1"
+                  max="100"
+                  onChange={(event) => setRechargeCodeCount(event.target.value)}
+                  required
+                  step="1"
+                  type="number"
+                  value={rechargeCodeCount}
+                />
+              </label>
+              <button className="primary-button" disabled={isRechargeSubmitting} type="submit">
+                <GiftOutlined />
+                {isRechargeSubmitting ? '生成中' : '生成兑换码'}
+              </button>
+            </form>
+
+            {createdRechargeCodes.length ? (
+              <div className="one-time-key-box recharge-code-box">
+                <div>
+                  <strong>本次生成</strong>
+                  {createdRechargeCodes.map((entry) => (
+                    <code key={entry.id}>{entry.code}</code>
+                  ))}
+                </div>
+                <button
+                  className="ghost-button compact-button"
+                  onClick={() => void handleCopyRechargeCode(createdRechargeCodes.map((entry) => entry.code).join('\n'))}
+                  type="button"
+                >
+                  复制全部
+                </button>
+              </div>
+            ) : null}
+
+            <div className="admin-table-wrap compact-table">
+              <table className="admin-table recharge-code-table">
+                <thead>
+                  <tr>
+                    <th>金额</th>
+                    <th>状态</th>
+                    <th>创建人</th>
+                    <th>使用人</th>
+                    <th>使用时间</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rechargeCodes.map((entry) => (
+                    <tr key={entry.id}>
+                      <td>{formatCents(entry.amountCents)}</td>
+                      <td>
+                        <span className={`status-pill ${getRechargeStatusClass(entry.status)}`}>
+                          {entry.status}
+                        </span>
+                      </td>
+                      <td>{entry.createdBy ?? '-'}</td>
+                      <td>{entry.usedBy ?? '-'}</td>
+                      <td>{formatOptionalDate(entry.usedAt)}</td>
+                      <td>
+                        <button
+                          className="ghost-button compact-button"
+                          disabled={entry.status !== 'unused'}
+                          onClick={() => void handleDisableRechargeCode(entry.id)}
+                          type="button"
+                        >
+                          禁用
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {!rechargeCodes.length && !isLoading ? (
+                    <tr>
+                      <td colSpan={6}>暂无兑换码</td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
+          </section>
 
           <section className="admin-grid">
             <section className="admin-panel">
@@ -1025,6 +1188,18 @@ function getHealthClass(status: string) {
   }
 
   return 'status-pill-muted';
+}
+
+function getRechargeStatusClass(status: string) {
+  if (status === 'unused') {
+    return 'status-pill-success';
+  }
+
+  if (status === 'used') {
+    return 'status-pill-muted';
+  }
+
+  return 'status-pill-danger';
 }
 
 function formatCents(value: number) {

@@ -96,6 +96,26 @@ export type UpstreamModelMapping = {
   updatedAt: string;
 };
 
+export type AdminRechargeCode = {
+  id: string;
+  amountCents: number;
+  status: string;
+  createdBy?: string;
+  usedBy?: string | null;
+  usedByUserId?: string | null;
+  usedAt: string | null;
+  walletTransactionId?: string | null;
+  createdAt: string;
+};
+
+export type CreatedRechargeCode = {
+  id: string;
+  code: string;
+  amountCents: number;
+  status: string;
+  createdAt: string;
+};
+
 type UserListResponse = {
   items: AdminUser[];
   total: number;
@@ -127,6 +147,14 @@ type UpstreamHealthCheckResponse = {
   reachable: boolean;
   checkedAt: string;
   provider: UpstreamProvider;
+};
+
+type RechargeCodeListResponse = {
+  items: AdminRechargeCode[];
+};
+
+type CreateRechargeCodesResponse = {
+  items: CreatedRechargeCode[];
 };
 
 const API_BASE_URL = '/api';
@@ -224,6 +252,23 @@ export async function createUpstreamModel(payload: {
 
 export async function checkUpstreamHealth(providerId: string) {
   return request<UpstreamHealthCheckResponse>(`/admin/upstreams/${encodeURIComponent(providerId)}/health-check`, {
+    method: 'POST'
+  });
+}
+
+export async function listRechargeCodes() {
+  return request<RechargeCodeListResponse>('/admin/recharge-codes');
+}
+
+export async function createRechargeCodes(payload: { amountCents: number; count: number }) {
+  return request<CreateRechargeCodesResponse>('/admin/recharge-codes', {
+    method: 'POST',
+    body: payload
+  });
+}
+
+export async function disableRechargeCode(codeId: string) {
+  return request<AdminRechargeCode>(`/admin/recharge-codes/${encodeURIComponent(codeId)}/disable`, {
     method: 'POST'
   });
 }

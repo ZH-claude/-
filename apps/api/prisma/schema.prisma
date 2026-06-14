@@ -66,6 +66,12 @@ enum WalletTransactionType {
   ADMIN_ADJUST
 }
 
+enum RechargeCodeStatus {
+  UNUSED
+  USED
+  DISABLED
+}
+
 model UserGroup {
   id            String             @id @default(uuid()) @db.Uuid
   code          String             @unique
@@ -106,6 +112,8 @@ model User {
   announcements      Announcement[]      @relation("AnnouncementCreator")
   adminActions       AdminAuditLog[]     @relation("AdminAuditActor")
   upstreamProviders  UpstreamProvider[]  @relation("UpstreamProviderCreator")
+  createdRechargeCodes RechargeCode[]    @relation("RechargeCodeCreator")
+  usedRechargeCodes    RechargeCode[]    @relation("RechargeCodeUser")
 
   @@index([groupId], map: "users_group_id_idx")
   @@index([invitedByUserId], map: "users_invited_by_user_id_idx")
@@ -171,12 +179,34 @@ model WalletTransaction {
   balanceAfterCents Int                   @map("balance_after_cents")
   usageEventId      String?               @unique @map("usage_event_id") @db.Uuid
   usageEvent        UsageEvent?           @relation(fields: [usageEventId], references: [id], onDelete: Restrict)
+  rechargeCodeId    String?               @unique @map("recharge_code_id") @db.Uuid
+  rechargeCode      RechargeCode?         @relation(fields: [rechargeCodeId], references: [id], onDelete: Restrict)
   idempotencyKey    String                @unique @map("idempotency_key")
   createdAt         DateTime              @default(now()) @map("created_at")
 
   @@index([userId, createdAt], map: "wallet_transactions_user_created_at_idx")
   @@index([type], map: "wallet_transactions_type_idx")
   @@map("wallet_transactions")
+}
+
+model RechargeCode {
+  id                String              @id @default(uuid()) @db.Uuid
+  codeHash          String              @unique @map("code_hash")
+  amountCents       Int                 @map("amount_cents")
+  status            RechargeCodeStatus  @default(UNUSED)
+  createdByAdminId  String              @map("created_by_admin_id") @db.Uuid
+  createdByAdmin    User                @relation("RechargeCodeCreator", fields: [createdByAdminId], references: [id], onDelete: Restrict)
+  usedByUserId      String?             @map("used_by_user_id") @db.Uuid
+  usedByUser        User?               @relation("RechargeCodeUser", fields: [usedByUserId], references: [id], onDelete: Restrict)
+  usedAt            DateTime?           @map("used_at")
+  walletTransaction WalletTransaction?
+  createdAt         DateTime            @default(now()) @map("created_at")
+  updatedAt         DateTime            @updatedAt @map("updated_at")
+
+  @@index([status, createdAt], map: "recharge_codes_status_created_at_idx")
+  @@index([createdByAdminId, createdAt], map: "recharge_codes_created_by_admin_id_idx")
+  @@index([usedByUserId, usedAt], map: "recharge_codes_used_by_user_id_idx")
+  @@map("recharge_codes")
 }
 
 model Session {

@@ -150,6 +150,7 @@
 | `amount_cents` | bigint | not null | 正数入账，负数扣费 |
 | `balance_after_cents` | bigint | not null | 交易后余额 |
 | `usage_event_id` | uuid | nullable FK | 关联调用事件 |
+| `recharge_code_id` | uuid | nullable FK | 关联兑换码 |
 | `idempotency_key` | text | unique, not null | 幂等键 |
 | `created_at` | timestamp | not null | 创建时间 |
 
@@ -157,6 +158,7 @@
 
 - 流水不可更新、不可删除，只能追加冲正流水。
 - 每次成功扣费必须有一条 `debit`。
+- 每次成功兑换码充值必须有一条 `recharge`，`amount_cents` 为正数，且关联 `recharge_code_id`。
 
 ### `usage_events`
 
@@ -210,8 +212,16 @@
 | `code_hash` | text | unique, not null | 卡密 hash |
 | `amount_cents` | bigint | not null | 金额 |
 | `status` | enum | not null | `unused`、`used`、`disabled` |
+| `created_by_admin_id` | uuid | FK `users.id` | 创建管理员 |
 | `used_by_user_id` | uuid | nullable FK | 使用人 |
 | `used_at` | timestamp | nullable | 使用时间 |
+
+规则：
+
+- 明文卡密只在生成接口响应中返回一次，数据库只保存 `code_hash`。
+- `amount_cents > 0`。
+- `used` 状态必须同时记录 `used_by_user_id` 和 `used_at`。
+- 核销必须与钱包余额增加和 `wallet_transactions` 充值流水写在同一事务内。
 
 ### `announcements`
 
