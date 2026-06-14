@@ -202,7 +202,10 @@ export class TokensService {
     this.assertActiveUser(token.user.status);
 
     if (token.quotaCents !== null && token.usedCents >= token.quotaCents) {
-      throw new ForbiddenException('API Key 额度已用尽');
+      throw new ForbiddenException({
+        code: 'insufficient_balance',
+        message: 'API token quota exceeded'
+      });
     }
 
     const availableModels = await this.modelCatalogService.listAvailableModelsForGroup(token.user.group.id);

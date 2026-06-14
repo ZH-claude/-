@@ -296,7 +296,7 @@ Loki/Prometheus/Grafana
 | [x] | T05 | 上游中转站配置 | 上游配置表、Base URL、Key 加密、健康检查 | 可配置一个上游并验证连通 |
 | [x] | T06 | 模型与分组配置 | 模型表、分组倍率、用户分组 | 用户能看到自己分组可用模型 |
 | [x] | T07 | API 令牌管理 | 创建、复制、禁用、删除、额度、过期时间、备注 | 创建令牌后可用于 API 鉴权 |
-| [ ] | T08 | Relay MVP | `/v1/models`、`/v1/chat/completions`、流式透传 | 用户用自己的 Key 调用成功返回上游结果 |
+| [x] | T08 | Relay MVP | `/v1/models`、`/v1/chat/completions`、流式透传 | 用户用自己的 Key 调用成功返回上游结果 |
 | [ ] | T09 | 计费事件与余额扣减 | usage_events、wallet_transactions、幂等扣费 | 成功调用扣费，失败调用不误扣，重试不重复扣 |
 | [ ] | T10 | 余额充值与兑换码 | 兑换码生成、核销、充值记录 | 用户可核销卡密并增加余额 |
 | [ ] | T11 | 调用日志页面 | 日志筛选、实时指标、导出 | 用户可按时间、令牌、模型查询消费 |
@@ -314,21 +314,21 @@ Loki/Prometheus/Grafana
 
 ## 11. 下一次对话建议任务
 
-建议下一次从 T08 开始：Relay MVP。
+建议下一次从 T09 开始：计费事件与余额扣减。
 
-T01 的边界：
+T09 的边界：
 
-- 只做项目结构，不做业务功能。
-- 创建前端、后端、数据库、Redis、Docker Compose。
-- 确认本地开发命令和云服务器部署雏形。
-- 完成后把 T01 打勾。
+- 基于 T08 的真实 Relay 成功/失败结果，新增 `usage_events` 与 `wallet_transactions`。
+- 成功调用扣费，失败调用不误扣，重试不重复扣。
+- 先做非流式扣费闭环；流式扣费按上游 usage 或 `metering_unknown` 规则处理。
+- 完成后把 T09 打勾。
 
-T01 完成指标：
+T09 完成指标：
 
-- `docker compose up` 能启动 PostgreSQL、Redis、后端、前端。
-- 前端显示一个后台壳页面。
-- 后端提供 `/health`。
-- README 写明启动方式。
+- 用户余额不足时拒绝转发上游并返回 `402 insufficient_balance`。
+- 成功 `/v1/chat/completions` 生成唯一 `usage_event` 与对应钱包流水。
+- 上游 4xx/5xx、超时或 malformed response 不生成成功扣费流水。
+- 使用同一 request/billing 约束不会重复扣费。
 
 T01 完成记录（2026-06-14）：
 
@@ -395,6 +395,15 @@ T07 完成记录（2026-06-14）：
 - 已实现前端同源 `/api/tokens/*` 代理和 `/token` 页面，支持创建、复制一次性 Key、禁用、重置、删除、额度、过期时间和备注。
 - 已创建 `docs/quality/t07-self-check.md`，记录类型检查、构建、Docker 重建、真实接口 QA、真实前端代理 QA、浏览器 UI QA、明文 Key 查库和自检数据清理。
 - 已验证 T07 不实现完整 Relay；`/v1/models`、`/v1/chat/completions` 保持为 T08 范围。
+
+T08 完成记录（2026-06-14）：
+
+- 已新增 `RelayModule`、`RelayController`、`RelayService`，并接入 `AppModule`，实现 OpenAI 兼容 `GET /v1/models`、`POST /v1/chat/completions` 和 `/v1/*` 未支持接口统一 `501 not_implemented`。
+- 已实现用户 API Key Bearer 鉴权、令牌额度/过期/禁用校验、用户分组与令牌模型权限校验，`/v1/models` 只返回当前 Key 真实可用模型。
+- 已实现上游模型映射、上游 Key 解密转发、非流式 JSON 透传、流式 SSE chunk 透传、上游 5xx/连接错误/timeout/malformed JSON 的统一错误映射，并返回 `request_id` 与 `x-request-id`。
+- 已修复侧车审查发现的问题：额度耗尽在 Relay 层返回 `402 insufficient_balance`，上游网络类异常不再退化成裸 `500`，Bearer scheme 大小写兼容，流式客户端断开时会取消上游读取。
+- 已创建 `docs/quality/t08-self-check.md`，记录类型检查、构建、Docker 重建、真实 HTTP 上游 QA、错误码 QA、密钥隔离 QA、自检数据清理和剩余边界。
+- 已验证 T08 不实现完整计费扣款；余额扣减、usage event、wallet transaction 和幂等扣费仍保持为 T09 范围。
 
 ## 12. 待你确认的一个关键决策
 
