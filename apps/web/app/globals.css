@@ -399,7 +399,12 @@ button {
   margin: 8px 0 0;
 }
 
-.admin-metrics,
+.admin-metrics {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .admin-grid {
   display: grid;
   gap: 16px;
@@ -478,6 +483,51 @@ button {
   color: #2563eb;
   font-size: 12px;
   padding: 3px 8px;
+}
+
+.status-pill {
+  border-radius: 999px;
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 6px 9px;
+}
+
+.status-pill-success {
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  color: #047857;
+}
+
+.status-pill-danger {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #b91c1c;
+}
+
+.status-pill-muted {
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  color: #475569;
+}
+
+.table-note {
+  color: #64748b;
+  display: block;
+  font-size: 12px;
+  line-height: 1.4;
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+}
+
+.compact-button {
+  min-height: 34px;
+  padding: 0 10px;
+}
+
+.upstream-table {
+  min-width: 860px;
 }
 
 .announcement-item p {

@@ -293,7 +293,7 @@ Loki/Prometheus/Grafana
 | [x] | T02 | 冻结 MVP 需求与接口范围 | PRD、接口清单、数据字典 | 明确首期支持的 `/v1/*` 接口和不做的功能 |
 | [x] | T03 | 用户认证与账户基础 | 登录、注册、会话、用户表 | 用户可注册、登录、退出、修改密码 |
 | [x] | T04 | 管理后台基础 | 管理员登录、用户列表、公告管理入口 | 管理员可查看用户并发布公告 |
-| [ ] | T05 | 上游中转站配置 | 上游配置表、Base URL、Key 加密、健康检查 | 可配置一个上游并验证连通 |
+| [x] | T05 | 上游中转站配置 | 上游配置表、Base URL、Key 加密、健康检查 | 可配置一个上游并验证连通 |
 | [ ] | T06 | 模型与分组配置 | 模型表、分组倍率、用户分组 | 用户能看到自己分组可用模型 |
 | [ ] | T07 | API 令牌管理 | 创建、复制、禁用、删除、额度、过期时间、备注 | 创建令牌后可用于 API 鉴权 |
 | [ ] | T08 | Relay MVP | `/v1/models`、`/v1/chat/completions`、流式透传 | 用户用自己的 Key 调用成功返回上游结果 |
@@ -314,7 +314,7 @@ Loki/Prometheus/Grafana
 
 ## 11. 下一次对话建议任务
 
-建议下一次从 T05 开始：上游中转站配置。
+建议下一次从 T06 开始：模型与分组配置。
 
 T01 的边界：
 
@@ -366,6 +366,15 @@ T04 完成记录（2026-06-14）：
 - 已实现前端 `/admin`，管理员可查看用户列表、发布公告、查看公告记录。
 - 已实现前端同源 `/api/admin/*` 代理，继续使用 HttpOnly Cookie 会话。
 - 已创建 `docs/quality/t04-self-check.md`，记录类型检查、构建、依赖审计、Docker 迁移、API 权限链路、审计日志和浏览器链路验证。
+
+T05 完成记录（2026-06-14）：
+
+- 已新增 `upstream_providers` 数据表、状态枚举与 Prisma migration `20260614133000_t05_upstream_providers`。
+- 已实现上游 API Key AES-256-GCM 加密保存，接口和前端只展示 `apiKeyPreview`，不返回明文 Key。
+- 已实现后端 `/admin/upstreams` 与 `/admin/upstreams/:id/health-check`，继续由 `AuthGuard + AdminGuard` 保护。
+- 已实现前端 `/admin` 上游配置与健康检查区域，支持保存 Base URL、Key、状态并触发连通性验证。
+- 已新增 `UPSTREAM_KEY_ENCRYPTION_SECRET` 运行时配置，真实密钥只放 `.env` 或服务器环境变量。
+- 已创建 `docs/quality/t05-self-check.md`，记录类型检查、构建、Docker 重建、真实 HTTP 健康检查、密文查库、自检数据清理和剩余风险。
 
 ## 12. 待你确认的一个关键决策
 

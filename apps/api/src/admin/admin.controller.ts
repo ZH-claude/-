@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Get,
+  Param,
   Post,
   Query,
   Req,
@@ -44,6 +45,35 @@ export class AdminController {
   @Get('announcements')
   listAnnouncements() {
     return this.adminService.listAnnouncements();
+  }
+
+  @Get('upstreams')
+  listUpstreamProviders() {
+    return this.adminService.listUpstreamProviders();
+  }
+
+  @Post('upstreams')
+  createUpstreamProvider(
+    @Req() request: AuthenticatedRequest,
+    @Body() body: unknown
+  ) {
+    if (!request.auth?.user?.id) {
+      throw new BadRequestException('Admin context missing');
+    }
+
+    return this.adminService.createUpstreamProvider(request.auth.user.id, this.toRecord(body));
+  }
+
+  @Post('upstreams/:id/health-check')
+  checkUpstreamHealth(
+    @Req() request: AuthenticatedRequest,
+    @Param('id') upstreamProviderId: string
+  ) {
+    if (!request.auth?.user?.id) {
+      throw new BadRequestException('Admin context missing');
+    }
+
+    return this.adminService.checkUpstreamHealth(request.auth.user.id, upstreamProviderId);
   }
 
   private parsePositiveInt(value: string | undefined, defaultValue: number, max: number) {

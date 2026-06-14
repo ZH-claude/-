@@ -30,6 +30,17 @@ enum GroupStatus {
   DISABLED
 }
 
+enum UpstreamProviderStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum UpstreamHealthStatus {
+  UNKNOWN
+  HEALTHY
+  UNHEALTHY
+}
+
 model UserGroup {
   id         String      @id @default(uuid()) @db.Uuid
   code       String      @unique
@@ -65,6 +76,7 @@ model User {
   deletedAt       DateTime?   @map("deleted_at")
   announcements  Announcement[] @relation("AnnouncementCreator")
   adminActions   AdminAuditLog[] @relation("AdminAuditActor")
+  upstreamProviders UpstreamProvider[] @relation("UpstreamProviderCreator")
 
   @@index([groupId], map: "users_group_id_idx")
   @@index([invitedByUserId], map: "users_invited_by_user_id_idx")
@@ -128,4 +140,25 @@ model AdminAuditLog {
   @@index([adminUserId], map: "admin_audit_logs_admin_user_id_idx")
   @@index([createdAt], map: "admin_audit_logs_created_at_idx")
   @@map("admin_audit_logs")
+}
+
+model UpstreamProvider {
+  id                  String                 @id @default(uuid()) @db.Uuid
+  name                String                 @unique
+  baseUrl             String                 @map("base_url")
+  encryptedApiKey     String                 @map("encrypted_api_key")
+  apiKeyPreview       String                 @map("api_key_preview")
+  status              UpstreamProviderStatus @default(ACTIVE)
+  healthStatus        UpstreamHealthStatus   @default(UNKNOWN) @map("health_status")
+  lastHealthCheckAt   DateTime?              @map("last_health_check_at")
+  lastHealthLatencyMs Int?                   @map("last_health_latency_ms")
+  lastHealthError     String?                @map("last_health_error")
+  createdByAdminId    String                 @map("created_by_admin_id") @db.Uuid
+  createdByAdmin      User                   @relation("UpstreamProviderCreator", fields: [createdByAdminId], references: [id])
+  createdAt           DateTime               @default(now()) @map("created_at")
+  updatedAt           DateTime               @updatedAt @map("updated_at")
+
+  @@index([status], map: "upstream_providers_status_idx")
+  @@index([healthStatus], map: "upstream_providers_health_status_idx")
+  @@map("upstream_providers")
 }

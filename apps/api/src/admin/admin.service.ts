@@ -1,8 +1,16 @@
-import { Injectable, Inject, BadRequestException, OnModuleInit } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Inject, NotFoundException, OnModuleInit } from '@nestjs/common';
 import bcrypt from 'bcryptjs';
 import { randomBytes } from 'node:crypto';
-import { Prisma, AnnouncementStatus, UserRole, UserStatus } from '../generated/prisma/client';
+import {
+  Prisma,
+  AnnouncementStatus,
+  UpstreamHealthStatus,
+  UpstreamProviderStatus,
+  UserRole,
+  UserStatus
+} from '../generated/prisma/client';
 import { PrismaService } from '../prisma.service';
+import { decryptUpstreamApiKey, encryptUpstreamApiKey, maskUpstreamApiKey } from './upstream-key-crypto';
 
 type ListUsersOptions = {
   page: number;
@@ -15,7 +23,16 @@ type AnnouncementInput = {
   status?: unknown;
 };
 
+type UpstreamProviderInput = {
+  name?: unknown;
+  baseUrl?: unknown;
+  apiKey?: unknown;
+  status?: unknown;
+};
+
 const PASSWORD_HASH_ROUNDS = 12;
+const UPSTREAM_HEALTH_CHECK_TIMEOUT_MS = 8000;
+const UPSTREAM_HEALTH_ERROR_MAX_LENGTH = 240;
 
 @Injectable()
 export class AdminService implements OnModuleInit {
@@ -140,12 +157,185 @@ export class AdminService implements OnModuleInit {
     };
   }
 
+  async listUpstreamProviders() {
+    const providers = await this.prisma.upstreamProvider.findMany({
+      include: {
+        createdByAdmin: {
+          select: { username: true }
+        }
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 100
+    });
+
+    return {
+      items: providers.map((provider) => this.toPublicUpstreamProvider(provider))
+    };
+  }
+
+  async createUpstreamProvider(adminUserId: string, body: UpstreamProviderInput) {
+    const name = this.requiredText(body.name, 'name', 2, 80);
+    const baseUrl = this.normalizeBaseUrl(body.baseUrl);
+    const apiKey = this.requiredText(body.apiKey, 'apiKey', 8, 512);
+    const status = this.normalizeUpstreamStatus(body.status);
+    const apiKeyPreview = maskUpstreamApiKey(apiKey);
+    const encryptedApiKey = encryptUpstreamApiKey(apiKey);
+
+    try {
+      const provider = await this.prisma.$transaction(async (tx) => {
+        const createdProvider = await tx.upstreamProvider.create({
+          data: {
+            name,
+            baseUrl,
+            encryptedApiKey,
+            apiKeyPreview,
+            status,
+            createdByAdminId: adminUserId
+          },
+          include: {
+            createdByAdmin: {
+              select: { username: true }
+            }
+          }
+        });
+
+        await tx.adminAuditLog.create({
+          data: {
+            adminUserId,
+            action: 'upstream_provider_created',
+            targetType: 'upstream_provider',
+            targetId: createdProvider.id,
+            beforeSnapshot: Prisma.JsonNull,
+            afterSnapshot: {
+              id: createdProvider.id,
+              name,
+              baseUrl,
+              status: status.toLowerCase(),
+              apiKeyPreview
+            }
+          }
+        });
+
+        return createdProvider;
+      });
+
+      return this.toPublicUpstreamProvider(provider);
+    } catch (error) {
+      if (this.isUniqueViolation(error)) {
+        throw new ConflictException('Upstream provider name already exists');
+      }
+
+      throw error;
+    }
+  }
+
+  async checkUpstreamHealth(adminUserId: string, upstreamProviderId: string) {
+    const provider = await this.prisma.upstreamProvider.findUnique({
+      where: { id: upstreamProviderId }
+    });
+
+    if (!provider) {
+      throw new NotFoundException('Upstream provider not found');
+    }
+
+    const result = await this.fetchUpstreamHealth(provider.baseUrl, decryptUpstreamApiKey(provider.encryptedApiKey));
+    const checkedAt = new Date();
+
+    const updatedProvider = await this.prisma.$transaction(async (tx) => {
+      const nextProvider = await tx.upstreamProvider.update({
+        where: { id: provider.id },
+        data: {
+          healthStatus: result.healthStatus,
+          lastHealthCheckAt: checkedAt,
+          lastHealthLatencyMs: result.latencyMs,
+          lastHealthError: result.error
+        },
+        include: {
+          createdByAdmin: {
+            select: { username: true }
+          }
+        }
+      });
+
+      await tx.adminAuditLog.create({
+        data: {
+          adminUserId,
+          action: 'upstream_provider_health_checked',
+          targetType: 'upstream_provider',
+          targetId: provider.id,
+          beforeSnapshot: {
+            healthStatus: provider.healthStatus.toLowerCase(),
+            lastHealthCheckAt: provider.lastHealthCheckAt?.toISOString() ?? null
+          },
+          afterSnapshot: {
+            healthStatus: result.healthStatus.toLowerCase(),
+            latencyMs: result.latencyMs,
+            error: result.error
+          }
+        }
+      });
+
+      return nextProvider;
+    });
+
+    return {
+      reachable: result.healthStatus === UpstreamHealthStatus.HEALTHY,
+      checkedAt: checkedAt.toISOString(),
+      provider: this.toPublicUpstreamProvider(updatedProvider)
+    };
+  }
+
   private requiredText(value: unknown, field: string, min: number, max: number) {
     if (typeof value !== 'string' || value.trim().length < min || value.trim().length > max) {
       throw new BadRequestException(`${field} must be a string with ${min}-${max} characters`);
     }
 
     return value.trim();
+  }
+
+  private normalizeBaseUrl(value: unknown) {
+    const rawValue = this.requiredText(value, 'baseUrl', 8, 2048);
+    let parsed: URL;
+
+    try {
+      parsed = new URL(rawValue);
+    } catch {
+      throw new BadRequestException('baseUrl must be a valid http or https URL');
+    }
+
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      throw new BadRequestException('baseUrl must use http or https');
+    }
+
+    if (parsed.username || parsed.password) {
+      throw new BadRequestException('baseUrl must not include credentials');
+    }
+
+    parsed.hash = '';
+    parsed.search = '';
+
+    const normalized = parsed.toString();
+    return normalized.endsWith('/') ? normalized.slice(0, -1) : normalized;
+  }
+
+  private normalizeUpstreamStatus(value: unknown): UpstreamProviderStatus {
+    if (value === undefined || value === null || value === '') {
+      return UpstreamProviderStatus.ACTIVE;
+    }
+
+    if (typeof value !== 'string') {
+      throw new BadRequestException('status must be active or disabled');
+    }
+
+    const normalized = value.toLowerCase();
+    if (normalized === UpstreamProviderStatus.ACTIVE.toLowerCase()) {
+      return UpstreamProviderStatus.ACTIVE;
+    }
+    if (normalized === UpstreamProviderStatus.DISABLED.toLowerCase()) {
+      return UpstreamProviderStatus.DISABLED;
+    }
+
+    throw new BadRequestException('status must be active or disabled');
   }
 
   private normalizeStatus(value: unknown): AnnouncementStatus {
@@ -271,5 +461,93 @@ export class AdminService implements OnModuleInit {
     }
 
     throw new Error('ADMIN_BOOTSTRAP_FORCE_RESET must be true or false');
+  }
+
+  private isUniqueViolation(error: unknown) {
+    return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
+  }
+
+  private async fetchUpstreamHealth(baseUrl: string, apiKey: string) {
+    const startedAt = Date.now();
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), UPSTREAM_HEALTH_CHECK_TIMEOUT_MS);
+
+    try {
+      const response = await fetch(this.buildUpstreamModelsUrl(baseUrl), {
+        method: 'GET',
+        headers: {
+          Accept: 'application/json',
+          Authorization: `Bearer ${apiKey}`
+        },
+        signal: controller.signal
+      });
+      await response.text().catch(() => undefined);
+
+      return {
+        healthStatus: response.ok ? UpstreamHealthStatus.HEALTHY : UpstreamHealthStatus.UNHEALTHY,
+        latencyMs: Date.now() - startedAt,
+        error: response.ok ? null : `HTTP ${response.status}`
+      };
+    } catch (error) {
+      return {
+        healthStatus: UpstreamHealthStatus.UNHEALTHY,
+        latencyMs: Date.now() - startedAt,
+        error: this.normalizeHealthCheckError(error)
+      };
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  private buildUpstreamModelsUrl(baseUrl: string) {
+    return `${baseUrl.replace(/\/+$/, '')}/v1/models`;
+  }
+
+  private normalizeHealthCheckError(error: unknown) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      return 'Health check timed out';
+    }
+
+    if (error instanceof Error && error.message) {
+      return this.truncateHealthError(error.message);
+    }
+
+    return 'Health check failed';
+  }
+
+  private truncateHealthError(message: string) {
+    return message.length > UPSTREAM_HEALTH_ERROR_MAX_LENGTH
+      ? `${message.slice(0, UPSTREAM_HEALTH_ERROR_MAX_LENGTH)}...`
+      : message;
+  }
+
+  private toPublicUpstreamProvider(provider: {
+    id: string;
+    name: string;
+    baseUrl: string;
+    apiKeyPreview: string;
+    status: UpstreamProviderStatus;
+    healthStatus: UpstreamHealthStatus;
+    lastHealthCheckAt: Date | null;
+    lastHealthLatencyMs: number | null;
+    lastHealthError: string | null;
+    createdAt: Date;
+    updatedAt: Date;
+    createdByAdmin?: { username: string };
+  }) {
+    return {
+      id: provider.id,
+      name: provider.name,
+      baseUrl: provider.baseUrl,
+      apiKeyPreview: provider.apiKeyPreview,
+      status: provider.status.toLowerCase(),
+      healthStatus: provider.healthStatus.toLowerCase(),
+      lastHealthCheckAt: provider.lastHealthCheckAt?.toISOString() ?? null,
+      lastHealthLatencyMs: provider.lastHealthLatencyMs,
+      lastHealthError: provider.lastHealthError,
+      createdBy: provider.createdByAdmin?.username,
+      createdAt: provider.createdAt.toISOString(),
+      updatedAt: provider.updatedAt.toISOString()
+    };
   }
 }

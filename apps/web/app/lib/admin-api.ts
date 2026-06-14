@@ -29,6 +29,21 @@ export type Announcement = {
   updatedAt?: string;
 };
 
+export type UpstreamProvider = {
+  id: string;
+  name: string;
+  baseUrl: string;
+  apiKeyPreview: string;
+  status: string;
+  healthStatus: string;
+  lastHealthCheckAt: string | null;
+  lastHealthLatencyMs: number | null;
+  lastHealthError: string | null;
+  createdBy?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 type UserListResponse = {
   items: AdminUser[];
   total: number;
@@ -38,6 +53,16 @@ type UserListResponse = {
 
 type AnnouncementListResponse = {
   items: Announcement[];
+};
+
+type UpstreamProviderListResponse = {
+  items: UpstreamProvider[];
+};
+
+type UpstreamHealthCheckResponse = {
+  reachable: boolean;
+  checkedAt: string;
+  provider: UpstreamProvider;
 };
 
 const API_BASE_URL = '/api';
@@ -54,6 +79,28 @@ export async function createAnnouncement(payload: { title: string; content: stri
   return request<Announcement>('/admin/announcements', {
     method: 'POST',
     body: payload
+  });
+}
+
+export async function listUpstreamProviders() {
+  return request<UpstreamProviderListResponse>('/admin/upstreams');
+}
+
+export async function createUpstreamProvider(payload: {
+  name: string;
+  baseUrl: string;
+  apiKey: string;
+  status: 'active' | 'disabled';
+}) {
+  return request<UpstreamProvider>('/admin/upstreams', {
+    method: 'POST',
+    body: payload
+  });
+}
+
+export async function checkUpstreamHealth(providerId: string) {
+  return request<UpstreamHealthCheckResponse>(`/admin/upstreams/${encodeURIComponent(providerId)}/health-check`, {
+    method: 'POST'
   });
 }
 
