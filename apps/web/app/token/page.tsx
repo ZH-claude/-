@@ -48,7 +48,7 @@ export default function TokenPage() {
   }, []);
 
   const tokenStats = useMemo(() => {
-    const activeCount = tokens.filter((token) => token.status === 'active').length;
+    const activeCount = tokens.filter((token) => getTokenEffectiveState(token).state === 'active').length;
     const disabledCount = tokens.filter((token) => token.status === 'disabled').length;
     return { activeCount, disabledCount };
   }, [tokens]);
@@ -347,7 +347,7 @@ export default function TokenPage() {
                         {token.note ? <span className="table-note">{token.note}</span> : null}
                       </td>
                       <td>{token.keyPreview}</td>
-                      <td>{renderStatus(token.status)}</td>
+                      <td>{renderTokenState(token)}</td>
                       <td>
                         {token.quotaCents === null || token.quotaCents === undefined
                           ? '不限制'
@@ -369,7 +369,12 @@ export default function TokenPage() {
                           </button>
                           <button
                             className="ghost-button compact-button"
-                            disabled={busyTokenId === token.id}
+                            disabled={busyTokenId === token.id || getTokenEffectiveState(token).state !== 'active'}
+                            title={
+                              getTokenEffectiveState(token).state === 'active'
+                                ? '重置 API Key'
+                                : '当前令牌不可用，请创建新令牌'
+                            }
                             onClick={() => void handleReset(token)}
                             type="button"
                           >
@@ -412,16 +417,42 @@ function normalizeQuotaCents(value: string) {
   return numericValue;
 }
 
-function renderStatus(status: string) {
-  if (status === 'active') {
-    return <span className="status-pill status-pill-success">可用</span>;
+function renderTokenState(token: ApiToken) {
+  const effectiveState = getTokenEffectiveState(token);
+
+  if (effectiveState.state === 'active') {
+    return <span className="status-pill status-pill-success">{effectiveState.label}</span>;
   }
 
-  if (status === 'disabled') {
-    return <span className="status-pill status-pill-danger">已禁用</span>;
+  if (effectiveState.state === 'disabled' || effectiveState.state === 'expired' || effectiveState.state === 'quota_exhausted') {
+    return <span className="status-pill status-pill-danger">{effectiveState.label}</span>;
   }
 
-  return <span className="status-pill status-pill-muted">{status}</span>;
+  return <span className="status-pill status-pill-muted">{effectiveState.label}</span>;
+}
+
+function getTokenEffectiveState(token: ApiToken) {
+  if (token.status === 'disabled') {
+    return { state: 'disabled', label: '已禁用' };
+  }
+
+  if (token.status === 'deleted') {
+    return { state: 'deleted', label: '已删除' };
+  }
+
+  if (token.expiresAt && new Date(token.expiresAt) <= new Date()) {
+    return { state: 'expired', label: '已过期' };
+  }
+
+  if (typeof token.quotaCents === 'number' && token.usedCents >= token.quotaCents) {
+    return { state: 'quota_exhausted', label: '额度用尽' };
+  }
+
+  if (token.status === 'active') {
+    return { state: 'active', label: '可用' };
+  }
+
+  return { state: token.status, label: token.status };
 }
 
 function formatDateTime(value?: string | null) {

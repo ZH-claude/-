@@ -59,6 +59,18 @@
 | 令牌 UUID 被误判无效 | `TokensService` 中 UUID 正则漏掉第四段 UUID 长度和分隔符 | 修正为完整 UUID 正则，并重跑真实接口 QA |
 | worker 前端切片返回契约过松 | worker 使用兼容 `apiKey/token/api_key` 和 `/_root` 路由约定，可能掩盖真实后端契约 | Codex 重写前端 token API 和页面，严格匹配后端 `{ apiKey, token }` 与 optional catch-all 路由 |
 | npm audit 首次失败 | 环境变量 `HTTP_PROXY/HTTPS_PROXY/ALL_PROXY` 指向不可用的 `127.0.0.1:7897` | 在 audit 命令内临时清空代理变量后重跑，通过 |
+| CEO+用户复查发现不可用令牌展示成可用 | 前端只按数据库原始 `status=active` 统计和展示，未把过期时间、额度用尽纳入有效状态 | `/token` 增加有效状态计算，过期显示“已过期”、额度耗尽显示“额度用尽”，可用数量只统计真实可鉴权令牌 |
+
+## 4.1 CEO+用户视角复查补充（2026-06-14）
+
+| 检查项 | 结果 |
+| --- | --- |
+| 最新提交 diff 复查 | 通过，未发现 SQL 拼接、Shell 注入、LLM 信任边界、跨用户串号或明文 Key 存储问题 |
+| API Key 与会话边界 | 通过，用户 API Key 不进入后台 `AuthGuard` 会话链路；会话接口仍只查 `sessions` 表 |
+| `/tokens/verify` 路由 | 通过，真实请求确认不会被误匹配为 `:id`，可用 Key 返回 200，不可用 Key 返回 401/403 |
+| 用户体验风险 | 已修复，过期和额度用尽令牌不再显示为“可用” |
+| 真实浏览器回归 | 通过，Chrome 注册真实临时用户后创建额度为 0 的 token，页面显示“额度用尽”，可用数量为 0，控制台 0 错误 |
+| QA 报告 | 已生成本地 `.gstack/qa-reports/qa-report-localhost-2026-06-14.md`，该目录按 `.gitignore` 不提交 |
 
 ## 5. 安全边界
 
