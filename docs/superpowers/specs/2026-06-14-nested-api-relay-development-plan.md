@@ -295,7 +295,7 @@ Loki/Prometheus/Grafana
 | [x] | T04 | 管理后台基础 | 管理员登录、用户列表、公告管理入口 | 管理员可查看用户并发布公告 |
 | [x] | T05 | 上游中转站配置 | 上游配置表、Base URL、Key 加密、健康检查 | 可配置一个上游并验证连通 |
 | [x] | T06 | 模型与分组配置 | 模型表、分组倍率、用户分组 | 用户能看到自己分组可用模型 |
-| [ ] | T07 | API 令牌管理 | 创建、复制、禁用、删除、额度、过期时间、备注 | 创建令牌后可用于 API 鉴权 |
+| [x] | T07 | API 令牌管理 | 创建、复制、禁用、删除、额度、过期时间、备注 | 创建令牌后可用于 API 鉴权 |
 | [ ] | T08 | Relay MVP | `/v1/models`、`/v1/chat/completions`、流式透传 | 用户用自己的 Key 调用成功返回上游结果 |
 | [ ] | T09 | 计费事件与余额扣减 | usage_events、wallet_transactions、幂等扣费 | 成功调用扣费，失败调用不误扣，重试不重复扣 |
 | [ ] | T10 | 余额充值与兑换码 | 兑换码生成、核销、充值记录 | 用户可核销卡密并增加余额 |
@@ -314,7 +314,7 @@ Loki/Prometheus/Grafana
 
 ## 11. 下一次对话建议任务
 
-建议下一次从 T07 开始：API 令牌管理。
+建议下一次从 T08 开始：Relay MVP。
 
 T01 的边界：
 
@@ -384,6 +384,17 @@ T06 完成记录（2026-06-14）：
 - 已实现后端 `/admin/model-config`、`/admin/groups`、`/admin/users/:id/group`、`/admin/models`、`/admin/upstream-models`，继续由 `AuthGuard + AdminGuard` 保护。
 - 已实现前端 `/admin` 分组配置、用户分组调整、模型价格配置、上游模型映射；已实现 `/account` 展示当前用户分组可用模型。
 - 已创建 `docs/quality/t06-self-check.md`，记录类型检查、构建、迁移恢复、真实后台 API、真实用户可见性、越权检查、密文查库和自检数据清理。
+
+T07 完成记录（2026-06-14）：
+
+- 已新增 `api_tokens`、`api_token_model_accesses` 数据表、`ApiTokenStatus` 枚举与 Prisma migration `20260614152000_t07_api_tokens`。
+- 已实现后端 `/tokens`、`/tokens/:id/disable`、`/tokens/:id/reset`、`DELETE /tokens/:id`，所有管理接口由登录会话保护并强制按 `userId` 过滤。
+- 已实现 `GET /tokens/verify` 独立 API Key 鉴权证明：active、未过期、未删除、未撤销、额度未用尽的 Key 才能通过。
+- 已实现 API Key 明文只在创建/重置响应中返回一次，数据库只保存 SHA-256 hash 和 `keyPreview`。
+- 已实现令牌模型范围校验，用户只能选择自己分组真实可用模型；空范围表示继承分组可用模型。
+- 已实现前端同源 `/api/tokens/*` 代理和 `/token` 页面，支持创建、复制一次性 Key、禁用、重置、删除、额度、过期时间和备注。
+- 已创建 `docs/quality/t07-self-check.md`，记录类型检查、构建、Docker 重建、真实接口 QA、真实前端代理 QA、浏览器 UI QA、明文 Key 查库和自检数据清理。
+- 已验证 T07 不实现完整 Relay；`/v1/models`、`/v1/chat/completions` 保持为 T08 范围。
 
 ## 12. 待你确认的一个关键决策
 

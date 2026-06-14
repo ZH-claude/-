@@ -2,9 +2,10 @@ import { Module } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AuthModule } from './auth/auth.module';
 import { AdminModule } from './admin/admin.module';
+import { TokensModule } from './tokens/tokens.module';
 
 @Module({
-  imports: [AuthModule, AdminModule],
+  imports: [AuthModule, AdminModule, TokensModule],
   controllers: [AppController]
 })
 export class AppModule {}

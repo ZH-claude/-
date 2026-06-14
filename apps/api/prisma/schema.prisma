@@ -46,6 +46,12 @@ enum ModelStatus {
   DISABLED
 }
 
+enum ApiTokenStatus {
+  ACTIVE
+  DISABLED
+  DELETED
+}
+
 model UserGroup {
   id         String      @id @default(uuid()) @db.Uuid
   code       String      @unique
@@ -77,6 +83,7 @@ model User {
   lastLoginIp     String?     @map("last_login_ip")
   wallet          Wallet?
   sessions        Session[]
+  apiTokens       ApiToken[]
   createdAt       DateTime    @default(now()) @map("created_at")
   updatedAt       DateTime    @updatedAt @map("updated_at")
   deletedAt       DateTime?   @map("deleted_at")
@@ -87,6 +94,43 @@ model User {
   @@index([groupId], map: "users_group_id_idx")
   @@index([invitedByUserId], map: "users_invited_by_user_id_idx")
   @@map("users")
+}
+
+model ApiToken {
+  id          String                @id @default(uuid()) @db.Uuid
+  userId      String                @map("user_id") @db.Uuid
+  user        User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name        String
+  tokenHash   String                @unique @map("token_hash")
+  keyPreview  String                @map("key_preview")
+  status      ApiTokenStatus        @default(ACTIVE)
+  quotaCents  Int?                  @map("quota_cents")
+  usedCents   Int                   @default(0) @map("used_cents")
+  expiresAt   DateTime?             @map("expires_at")
+  note        String?
+  lastUsedAt  DateTime?             @map("last_used_at")
+  revokedAt   DateTime?             @map("revoked_at")
+  deletedAt   DateTime?             @map("deleted_at")
+  modelAccesses ApiTokenModelAccess[]
+  createdAt   DateTime              @default(now()) @map("created_at")
+  updatedAt   DateTime              @updatedAt @map("updated_at")
+
+  @@index([userId, status], map: "api_tokens_user_status_idx")
+  @@index([expiresAt], map: "api_tokens_expires_at_idx")
+  @@map("api_tokens")
+}
+
+model ApiTokenModelAccess {
+  id         String     @id @default(uuid()) @db.Uuid
+  apiTokenId String     @map("api_token_id") @db.Uuid
+  apiToken   ApiToken   @relation(fields: [apiTokenId], references: [id], onDelete: Cascade)
+  model      String
+  modelPrice ModelPrice @relation(fields: [model], references: [model], onDelete: Cascade)
+  createdAt  DateTime   @default(now()) @map("created_at")
+
+  @@unique([apiTokenId, model], map: "api_token_model_accesses_token_model_key")
+  @@index([model], map: "api_token_model_accesses_model_idx")
+  @@map("api_token_model_accesses")
 }
 
 model Wallet {
@@ -180,6 +224,7 @@ model ModelPrice {
   status                ModelStatus        @default(ACTIVE)
   groupAccesses         ModelGroupAccess[]
   upstreamModels        UpstreamModel[]    @relation("ModelUpstreamMappings")
+  tokenAccesses         ApiTokenModelAccess[]
   createdAt             DateTime           @default(now()) @map("created_at")
   updatedAt             DateTime           @updatedAt @map("updated_at")
 

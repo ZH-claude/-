@@ -20,7 +20,7 @@ const { Header, Sider, Content } = Layout;
 const menuItems = [
   { key: 'home', icon: <DashboardOutlined />, label: <Link href="/">首页</Link> },
   { key: 'profile', icon: <UserOutlined />, label: <Link href="/account">个人中心</Link> },
-  { key: 'token', icon: <KeyOutlined />, label: '令牌' },
+  { key: 'token', icon: <KeyOutlined />, label: <Link href="/token">令牌</Link> },
   { key: 'logs', icon: <FileTextOutlined />, label: '日志' },
   { key: 'billing', icon: <CreditCardOutlined />, label: '余额充值' },
   { key: 'status', icon: <LineChartOutlined />, label: '服务状态' },
@@ -58,7 +58,7 @@ export default function HomePage() {
           </Space>
           <Space>
             <BellOutlined />
-            <Tag color="blue">T04 Admin</Tag>
+            <Tag color="blue">T07 Token</Tag>
           </Space>
         </Header>
 
@@ -70,14 +70,14 @@ export default function HomePage() {
                   管理后台基础已接入
                 </Typography.Title>
                 <Typography.Text type="secondary">
-                  当前阶段支持管理员查看用户、发布公告和审计公告创建操作。充值、令牌和 API 转发在后续任务接入。
+                  当前阶段支持用户注册登录、管理员配置上游与模型分组、用户创建 API 令牌并完成独立鉴权验证。
                 </Typography.Text>
                 <Space>
                   <Link className="primary-link-button" href="/login">
                     登录
                   </Link>
-                  <Link className="secondary-link-button" href="/admin">
-                    管理后台
+                <Link className="secondary-link-button" href="/token">
+                  令牌管理
                   </Link>
                 </Space>
               </Space>
@@ -96,7 +96,7 @@ export default function HomePage() {
               </Col>
               <Col xs={24} md={8}>
                 <Card>
-                  <Statistic title="当前任务" value="T04" suffix="管理后台" />
+                  <Statistic title="当前任务" value="T07" suffix="令牌管理" />
                 </Card>
               </Col>
             </Row>

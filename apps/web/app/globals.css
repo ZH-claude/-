@@ -742,6 +742,43 @@ button {
   grid-column: 1 / -1;
 }
 
+.token-form {
+  max-width: none;
+}
+
+.one-time-key-box {
+  align-items: flex-start;
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  display: flex;
+  gap: 14px;
+  justify-content: space-between;
+  padding: 14px;
+}
+
+.one-time-key-box div {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.one-time-key-box code {
+  color: #111827;
+  font-family: Consolas, 'Liberation Mono', monospace;
+  overflow-wrap: anywhere;
+}
+
+.token-table {
+  min-width: 1080px;
+}
+
+.table-action-row {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 @media (min-width: 768px) {
   .ant-col-md-8 {
     flex: 1 1 0;
@@ -851,6 +888,11 @@ button {
 
   .account-summary {
     gap: 16px;
+  }
+
+  .one-time-key-box {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .metric-panel strong {
