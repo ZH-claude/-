@@ -297,7 +297,7 @@ Loki/Prometheus/Grafana
 | [x] | T06 | 模型与分组配置 | 模型表、分组倍率、用户分组 | 用户能看到自己分组可用模型 |
 | [x] | T07 | API 令牌管理 | 创建、复制、禁用、删除、额度、过期时间、备注 | 创建令牌后可用于 API 鉴权 |
 | [x] | T08 | Relay MVP | `/v1/models`、`/v1/chat/completions`、流式透传 | 用户用自己的 Key 调用成功返回上游结果 |
-| [ ] | T09 | 计费事件与余额扣减 | usage_events、wallet_transactions、幂等扣费 | 成功调用扣费，失败调用不误扣，重试不重复扣 |
+| [x] | T09 | 计费事件与余额扣减 | usage_events、wallet_transactions、幂等扣费 | 成功调用扣费，失败调用不误扣，重试不重复扣 |
 | [ ] | T10 | 余额充值与兑换码 | 兑换码生成、核销、充值记录 | 用户可核销卡密并增加余额 |
 | [ ] | T11 | 调用日志页面 | 日志筛选、实时指标、导出 | 用户可按时间、令牌、模型查询消费 |
 | [ ] | T12 | 费用说明页面 | 模型价格表、倍率说明、搜索、复制模型 | 用户能理解并复制可用模型列表 |
@@ -314,21 +314,21 @@ Loki/Prometheus/Grafana
 
 ## 11. 下一次对话建议任务
 
-建议下一次从 T09 开始：计费事件与余额扣减。
+建议下一次从 T10 开始：余额充值与兑换码。
 
-T09 的边界：
+T10 的边界：
 
-- 基于 T08 的真实 Relay 成功/失败结果，新增 `usage_events` 与 `wallet_transactions`。
-- 成功调用扣费，失败调用不误扣，重试不重复扣。
-- 先做非流式扣费闭环；流式扣费按上游 usage 或 `metering_unknown` 规则处理。
-- 完成后把 T09 打勾。
+- 基于 T09 的真实钱包流水，新增兑换码生成、核销和充值记录。
+- 管理员可生成固定金额兑换码，用户核销后增加余额并写 `wallet_transactions`。
+- 同一兑换码只能成功核销一次，并记录使用人和使用时间。
+- 完成后把 T10 打勾。
 
-T09 完成指标：
+T10 完成指标：
 
-- 用户余额不足时拒绝转发上游并返回 `402 insufficient_balance`。
-- 成功 `/v1/chat/completions` 生成唯一 `usage_event` 与对应钱包流水。
-- 上游 4xx/5xx、超时或 malformed response 不生成成功扣费流水。
-- 使用同一 request/billing 约束不会重复扣费。
+- 管理员可生成兑换码，数据库只保存 hash，不保存明文兑换码。
+- 用户可核销未使用兑换码并增加余额。
+- 重复核销、禁用兑换码、错误兑换码均不会增加余额。
+- 每次成功充值生成一条 `wallet_transactions` 充值流水。
 
 T01 完成记录（2026-06-14）：
 
@@ -404,6 +404,17 @@ T08 完成记录（2026-06-14）：
 - 已修复侧车审查发现的问题：额度耗尽在 Relay 层返回 `402 insufficient_balance`，上游网络类异常不再退化成裸 `500`，Bearer scheme 大小写兼容，流式客户端断开时会取消上游读取。
 - 已创建 `docs/quality/t08-self-check.md`，记录类型检查、构建、Docker 重建、真实 HTTP 上游 QA、错误码 QA、密钥隔离 QA、自检数据清理和剩余边界。
 - 已验证 T08 不实现完整计费扣款；余额扣减、usage event、wallet transaction 和幂等扣费仍保持为 T09 范围。
+
+T09 完成记录（2026-06-15）：
+
+- 已新增 `usage_events`、`wallet_transactions`、`UsageEventStatus`、`WalletTransactionType`，并创建 Prisma migration `20260615103000_t09_billing_events`。
+- 已新增 `BillingService`，将成功计费写入同一事务：`usage_event`、`wallet_transaction`、`wallets.balance_cents/total_spend_cents/version`、`api_tokens.used_cents` 同步更新。
+- 已在 Relay 成功路径接入真实扣费：非流式成功响应按上游真实 `usage`、模型单价、模型倍率、用户分组倍率计算 `cost_cents`，并返回 `x-usage-event-id`。
+- 已在失败路径接入不扣费记录：上游 4xx/5xx、连接失败、timeout、malformed response 记录 `FAILED` usage event，不生成钱包扣费流水。
+- 已实现余额不足前置阻断：用户钱包余额不足时返回 `402 insufficient_balance`，不转发上游。
+- 已实现流式 MVP 计费边界：流式成功但没有可计量 usage 时写入 `METERING_UNKNOWN` usage event，默认不扣费。
+- 已验证真实接口 QA：余额不足不触达上游、成功扣费、上游 Key 隔离、上游 500 不扣费、malformed 不扣费、上游内部重试只扣一次、流式 `METERING_UNKNOWN` 不扣费、并发扣费不出现负余额。
+- 已创建 `docs/quality/t09-self-check.md`，记录类型检查、构建、迁移、Docker 重建、真实 HTTP 上游 QA、并发扣费 QA、自检数据清理和剩余边界。
 
 ## 12. 待你确认的一个关键决策
 

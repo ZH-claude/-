@@ -3,6 +3,7 @@ import type { ServerResponse } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
 import { decryptUpstreamApiKey } from '../admin/upstream-key-crypto';
+import { BillingService } from '../billing/billing.service';
 import { ModelStatus, UpstreamProviderStatus } from '../generated/prisma/client';
 import { PrismaService } from '../prisma.service';
 import { TokensService } from '../tokens/tokens.service';
@@ -53,7 +54,8 @@ const RETRYABLE_UPSTREAM_STATUS = new Set([502, 503, 504]);
 export class RelayService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
-    private readonly tokensService: TokensService
+    private readonly tokensService: TokensService,
+    private readonly billingService: BillingService
   ) {}
 
   createRequestId() {
@@ -122,6 +124,16 @@ export class RelayService {
     }
 
     const mapping = await this.findUpstreamMapping(body.model, Boolean(body.stream));
+    const billingPrincipal = {
+      userId: auth.user.id,
+      tokenId: auth.token.id
+    };
+    const billingTarget = {
+      providerId: mapping.provider.id,
+      upstreamModel: mapping.upstreamModel
+    };
+    await this.billingService.assertCanStartUsage(auth.user.id, allowedModel);
+
     const upstreamBody = {
       ...body,
       model: mapping.upstreamModel
@@ -129,33 +141,105 @@ export class RelayService {
     const upstreamApiKey = decryptUpstreamApiKey(mapping.provider.encryptedApiKey);
 
     if (body.stream) {
-      const upstreamResponse = await this.fetchUpstreamChatCompletion(mapping.provider.baseUrl, upstreamApiKey, upstreamBody, {
-        stream: true,
-        acceptHeader: input.acceptHeader
-      });
+      let upstreamResponse: Response;
+
+      try {
+        upstreamResponse = await this.fetchUpstreamChatCompletion(mapping.provider.baseUrl, upstreamApiKey, upstreamBody, {
+          stream: true,
+          acceptHeader: input.acceptHeader
+        });
+      } catch (error) {
+        await this.billingService.recordFailedChat({
+          requestId: input.requestId,
+          principal: billingPrincipal,
+          model: allowedModel,
+          upstream: billingTarget,
+          errorCode: this.normalizeError(error).code
+        });
+        throw error;
+      }
 
       if (!upstreamResponse.ok) {
-        throw await this.createUpstreamError(upstreamResponse);
+        const upstreamError = await this.createUpstreamError(upstreamResponse);
+        await this.billingService.recordFailedChat({
+          requestId: input.requestId,
+          principal: billingPrincipal,
+          model: allowedModel,
+          upstream: billingTarget,
+          errorCode: upstreamError.code
+        });
+        throw upstreamError;
       }
+
+      const billingRecord = await this.billingService.recordMeteringUnknownChat({
+        requestId: input.requestId,
+        principal: billingPrincipal,
+        model: allowedModel,
+        upstream: billingTarget
+      });
 
       return {
         stream: true,
         status: upstreamResponse.status,
-        headers: this.buildStreamHeaders(input.requestId, upstreamResponse),
+        headers: this.buildStreamHeaders(input.requestId, upstreamResponse, billingRecord.usageEventId),
         upstreamResponse
       };
     }
 
-    const upstreamResponse = await this.fetchUpstreamChatCompletionWithRetry(mapping.provider.baseUrl, upstreamApiKey, upstreamBody);
-    if (!upstreamResponse.ok) {
-      throw await this.createUpstreamError(upstreamResponse);
+    let upstreamResponse: Response;
+
+    try {
+      upstreamResponse = await this.fetchUpstreamChatCompletionWithRetry(mapping.provider.baseUrl, upstreamApiKey, upstreamBody);
+    } catch (error) {
+      await this.billingService.recordFailedChat({
+        requestId: input.requestId,
+        principal: billingPrincipal,
+        model: allowedModel,
+        upstream: billingTarget,
+        errorCode: this.normalizeError(error).code
+      });
+      throw error;
     }
+
+    if (!upstreamResponse.ok) {
+      const upstreamError = await this.createUpstreamError(upstreamResponse);
+      await this.billingService.recordFailedChat({
+        requestId: input.requestId,
+        principal: billingPrincipal,
+        model: allowedModel,
+        upstream: billingTarget,
+        errorCode: upstreamError.code
+      });
+      throw upstreamError;
+    }
+
+    let upstreamBodyJson: unknown;
+    try {
+      upstreamBodyJson = await this.readUpstreamJson(upstreamResponse);
+    } catch (error) {
+      await this.billingService.recordFailedChat({
+        requestId: input.requestId,
+        principal: billingPrincipal,
+        model: allowedModel,
+        upstream: billingTarget,
+        errorCode: this.normalizeError(error).code
+      });
+      throw error;
+    }
+
+    const billingRecord = await this.billingService.recordCompletedChat({
+      requestId: input.requestId,
+      principal: billingPrincipal,
+      model: allowedModel,
+      upstream: billingTarget,
+      responseBody: upstreamBodyJson
+    });
 
     return {
       stream: false,
       status: upstreamResponse.status,
-      headers: this.buildJsonHeaders(input.requestId, upstreamResponse),
-      body: await this.readUpstreamJson(upstreamResponse)
+      headers: this.buildJsonHeaders(input.requestId, upstreamResponse, billingRecord.usageEventId),
+      body: upstreamBodyJson
     };
   }
 
@@ -345,20 +429,22 @@ export class RelayService {
     return null;
   }
 
-  private buildJsonHeaders(requestId: string, response: Response) {
+  private buildJsonHeaders(requestId: string, response: Response, usageEventId?: string) {
     return {
       'content-type': response.headers.get('content-type') ?? 'application/json',
-      'x-request-id': requestId
+      'x-request-id': requestId,
+      ...(usageEventId ? { 'x-usage-event-id': usageEventId } : {})
     };
   }
 
-  private buildStreamHeaders(requestId: string, response: Response) {
+  private buildStreamHeaders(requestId: string, response: Response, usageEventId?: string) {
     return {
       'content-type': response.headers.get('content-type') ?? 'text/event-stream; charset=utf-8',
       'cache-control': response.headers.get('cache-control') ?? 'no-cache, no-transform',
       connection: 'keep-alive',
       'x-accel-buffering': 'no',
-      'x-request-id': requestId
+      'x-request-id': requestId,
+      ...(usageEventId ? { 'x-usage-event-id': usageEventId } : {})
     };
   }
 
