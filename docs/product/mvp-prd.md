@@ -132,6 +132,7 @@ MVP 必须在 `usage_events.price_snapshot` 中保存本次调用的模型基础
 | `SESSION_COOKIE_SECURE` | `false` | 会话 Cookie 是否强制 Secure | 本地 HTTP 保持 false，生产 HTTPS 必须设为 true |
 | `ADMIN_BOOTSTRAP_USERNAME` | 空 | 首个管理员账号引导用户名 | 仅初始化或找回管理员时临时设置，完成后建议移除 |
 | `ADMIN_BOOTSTRAP_PASSWORD` | 空 | 首个管理员账号引导密码 | 使用强密码，只放 `.env` 或服务器密钥，不提交真实值 |
+| `ADMIN_BOOTSTRAP_FORCE_RESET` | `false` | 是否强制重置已存在管理员 | 默认不覆盖已有活动管理员；找回或修复账号时才临时设为 `true` |
 | `INTERNAL_API_BASE_URL` | `http://api:3001` | 前端服务端代理访问 API 的地址 | Compose 内保持服务名，生产使用内网地址 |
 | `NEXT_PUBLIC_API_BASE_URL` | `http://localhost:3001` | 兼容旧前端直连配置的备用值 | 正常部署走 `/api/auth/*` 同源代理，可不依赖该值 |
 | `JWT_SECRET` | 占位值 | 会话签名 | 强随机值 |

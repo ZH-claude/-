@@ -174,6 +174,7 @@ export class AdminService implements OnModuleInit {
   private async bootstrapAdminFromEnv() {
     const username = process.env.ADMIN_BOOTSTRAP_USERNAME?.trim().toLowerCase();
     const password = process.env.ADMIN_BOOTSTRAP_PASSWORD;
+    const forceReset = this.isBootstrapForceResetEnabled();
 
     if (!username && !password) {
       return;
@@ -208,6 +209,21 @@ export class AdminService implements OnModuleInit {
       });
 
       if (existingUser) {
+        const isActiveAdmin =
+          existingUser.role === UserRole.ADMIN &&
+          existingUser.status === UserStatus.ACTIVE &&
+          !existingUser.deletedAt;
+
+        if (isActiveAdmin && !forceReset) {
+          return;
+        }
+
+        if (!forceReset) {
+          throw new Error(
+            'ADMIN_BOOTSTRAP_USERNAME already exists but is not an active admin. Set ADMIN_BOOTSTRAP_FORCE_RESET=true to intentionally reset it'
+          );
+        }
+
         await tx.user.update({
           where: { id: existingUser.id },
           data: {
@@ -238,5 +254,22 @@ export class AdminService implements OnModuleInit {
 
   private createBootstrapInviteCode() {
     return `admin-${randomBytes(4).toString('hex')}`;
+  }
+
+  private isBootstrapForceResetEnabled() {
+    const configured = process.env.ADMIN_BOOTSTRAP_FORCE_RESET?.trim().toLowerCase();
+    if (!configured) {
+      return false;
+    }
+
+    if (configured === 'true') {
+      return true;
+    }
+
+    if (configured === 'false') {
+      return false;
+    }
+
+    throw new Error('ADMIN_BOOTSTRAP_FORCE_RESET must be true or false');
   }
 }

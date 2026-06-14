@@ -51,14 +51,16 @@
 | --- | --- | --- |
 | 后台守卫依赖隐式继承注入 | `AdminGuard` 继承 `AuthGuard` 时没有显式构造注入，运行时 DI 风险高 | 改为 `@UseGuards(AuthGuard, AdminGuard)`，`AdminGuard` 只检查已附加的用户角色 |
 | 缺少稳定管理员登录入口 | 只有普通注册登录，没有管理员账号创建路径 | 增加 `ADMIN_BOOTSTRAP_USERNAME` / `ADMIN_BOOTSTRAP_PASSWORD` 环境变量引导管理员 |
+| 管理员引导每次重启会覆盖已有密码 | 引导逻辑对已存在用户默认执行密码重置和角色修复 | 改为默认只创建或跳过已有活动管理员；仅 `ADMIN_BOOTSTRAP_FORCE_RESET=true` 时允许显式重置 |
 | 前端说明与接口分页不一致 | 页面写最多 100 个用户，接口默认请求 20 个 | 前端请求 `/admin/users?limit=100` |
 | 公告状态输入过宽 | 非字符串 `status` 会被默认发布 | 非空非法 `status` 改为 HTTP 400 |
+| 后台代理未透传 `Set-Cookie` | `/api/admin/*` 与 `/api/auth/*` 代理行为不完全一致 | 补齐上游 `Set-Cookie` 转发，避免后续后台接口刷新会话时失效 |
 | 并行执行 `typecheck` 和 `build` 触发 Prisma generate 目录冲突 | 两个命令同时写 `apps/api/src/generated/prisma` | 清理生成目录并改为串行执行验证 |
 | PowerShell API 脚本中文请求体显示为 `??` | 本机 PowerShell 管道编码影响 JSON 字面量 | API 脚本改用 ASCII，浏览器 QA 使用 Unicode 字符串覆盖中文输入 |
 
 ## 5. 安全边界
 
-- 管理员密码不写入仓库；本地自检仅通过临时环境变量传入。
+- 管理员密码不写入仓库；本地自检仅通过临时环境变量传入；默认不会在服务重启时覆盖已有活动管理员密码。
 - 后台接口复用 HttpOnly Cookie 会话，不在浏览器代码保存 token。
 - 普通用户后台访问返回 403。
 - 公告创建写入审计日志。

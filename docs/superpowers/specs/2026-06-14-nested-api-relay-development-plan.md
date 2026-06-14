@@ -362,7 +362,7 @@ T04 完成记录（2026-06-14）：
 
 - 已新增 `announcements` 与 `admin_audit_logs` 数据表，并创建 Prisma migration `20260614120000_t04_admin_announcements_audit`。
 - 已实现后端 `/admin/users`、`/admin/announcements`，所有后台接口由 `AuthGuard + AdminGuard` 保护，仅 `admin` 角色可访问。
-- 已实现可选管理员引导配置：`ADMIN_BOOTSTRAP_USERNAME` 与 `ADMIN_BOOTSTRAP_PASSWORD`，只通过环境变量提供，不写真实密码进仓库。
+- 已实现可选管理员引导配置：`ADMIN_BOOTSTRAP_USERNAME` 与 `ADMIN_BOOTSTRAP_PASSWORD`，只通过环境变量提供，不写真实密码进仓库；默认不覆盖已有活动管理员，只有 `ADMIN_BOOTSTRAP_FORCE_RESET=true` 才显式重置。
 - 已实现前端 `/admin`，管理员可查看用户列表、发布公告、查看公告记录。
 - 已实现前端同源 `/api/admin/*` 代理，继续使用 HttpOnly Cookie 会话。
 - 已创建 `docs/quality/t04-self-check.md`，记录类型检查、构建、依赖审计、Docker 迁移、API 权限链路、审计日志和浏览器链路验证。

@@ -4,7 +4,10 @@ import './globals.css';
 
 export const metadata: Metadata = {
   title: 'Nested API Relay',
-  description: 'API relay console scaffold'
+  description: 'API relay console scaffold',
+  icons: {
+    icon: '/favicon.svg'
+  }
 };
 
 export default function RootLayout({

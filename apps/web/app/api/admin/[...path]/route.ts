@@ -44,10 +44,17 @@ async function proxyAdminRequest(request: NextRequest, context: RouteContext) {
   });
 
   const responseBody = await upstream.text();
-  return new NextResponse(responseBody || null, {
+  const response = new NextResponse(responseBody || null, {
     status: upstream.status,
     headers: {
       'Content-Type': upstream.headers.get('content-type') ?? 'application/json'
     }
   });
+
+  const setCookie = upstream.headers.get('set-cookie');
+  if (setCookie) {
+    response.headers.set('Set-Cookie', setCookie);
+  }
+
+  return response;
 }
