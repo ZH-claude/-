@@ -11,6 +11,7 @@
     "qa:t10:recharge": "npm --prefix apps/api run qa:t10:recharge",
     "qa:t11:usage-logs": "npm --prefix apps/api run qa:t11:usage-logs",
     "qa:t12:pricing": "npm --prefix apps/api run qa:t12:pricing",
+    "qa:t13:group-availability": "npm --prefix apps/api run qa:t13:group-availability",
     "start:api": "npm --prefix apps/api run start",
     "start:web": "npm --prefix apps/web run start"
   },

@@ -840,6 +840,35 @@ button {
   min-width: 1120px;
 }
 
+.availability-filter-form {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.availability-filter-form label {
+  color: #374151;
+  display: flex;
+  flex-direction: column;
+  font-size: 14px;
+  font-weight: 700;
+  gap: 8px;
+}
+
+.availability-filter-form select {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  color: #111827;
+  min-height: 42px;
+  padding: 0 12px;
+  width: 100%;
+}
+
+.availability-table {
+  min-width: 1160px;
+}
+
 .one-time-key-box {
   align-items: flex-start;
   background: #f8fafc;
@@ -959,7 +988,8 @@ button {
   .admin-grid,
   .form-row,
   .mapping-form,
-  .log-filter-form {
+    .log-filter-form,
+    .availability-filter-form {
     grid-template-columns: 1fr;
   }
 

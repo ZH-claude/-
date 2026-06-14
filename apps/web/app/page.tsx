@@ -23,7 +23,7 @@ const menuItems = [
   { key: 'token', icon: <KeyOutlined />, label: <Link href="/token">令牌</Link> },
   { key: 'logs', icon: <FileTextOutlined />, label: <Link href="/log">日志</Link> },
   { key: 'billing', icon: <CreditCardOutlined />, label: <Link href="/pricing">费用说明</Link> },
-  { key: 'status', icon: <LineChartOutlined />, label: '服务状态' },
+  { key: 'status', icon: <LineChartOutlined />, label: <Link href="/groupAvailability">分组状态</Link> },
   { key: 'settings', icon: <SettingOutlined />, label: '通知设置' },
   { key: 'admin', icon: <ToolOutlined />, label: <Link href="/admin">管理后台</Link> }
 ];

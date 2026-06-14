@@ -14,6 +14,7 @@
     "qa:t10:recharge": "tsx scripts/t10-recharge-qa.ts",
     "qa:t11:usage-logs": "tsx scripts/t11-usage-logs-qa.ts",
     "qa:t12:pricing": "tsx scripts/t12-pricing-qa.ts",
+    "qa:t13:group-availability": "tsx scripts/t13-group-availability-qa.ts",
     "prisma:generate": "prisma generate",
     "db:migrate": "prisma migrate deploy",
     "db:push": "prisma db push"
