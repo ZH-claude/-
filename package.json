@@ -13,6 +13,7 @@
     "qa:t12:pricing": "npm --prefix apps/api run qa:t12:pricing",
     "qa:t13:group-availability": "npm --prefix apps/api run qa:t13:group-availability",
     "qa:t14:notifications": "npm --prefix apps/api run qa:t14:notifications",
+    "qa:t15:announcements": "npm --prefix apps/api run qa:t15:announcements",
     "start:api": "npm --prefix apps/api run start",
     "start:web": "npm --prefix apps/web run start"
   },

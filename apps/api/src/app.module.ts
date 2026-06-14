@@ -9,6 +9,7 @@ import { UsageLogsModule } from './usage-logs/usage-logs.module';
 import { PricingModule } from './pricing/pricing.module';
 import { GroupAvailabilityModule } from './group-availability/group-availability.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { AnnouncementsModule } from './announcements/announcements.module';
 
 @Module({
   imports: [
@@ -20,7 +21,8 @@ import { NotificationsModule } from './notifications/notifications.module';
     UsageLogsModule,
     PricingModule,
     GroupAvailabilityModule,
-    NotificationsModule
+    NotificationsModule,
+    AnnouncementsModule
   ],
   controllers: [AppController]
 })

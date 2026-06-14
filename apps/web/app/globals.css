@@ -616,6 +616,28 @@ button {
   color: #64748b;
 }
 
+.home-doc-link {
+  align-items: center;
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  color: #111827;
+  display: flex;
+  gap: 8px;
+  min-height: 44px;
+  padding: 10px 12px;
+}
+
+.home-doc-link span {
+  overflow-wrap: anywhere;
+}
+
+.home-doc-link:hover {
+  background: #eef6ff;
+  border-color: #bfdbfe;
+  color: #1677ff;
+}
+
 .topbar {
   align-items: center;
   background: #ffffff;

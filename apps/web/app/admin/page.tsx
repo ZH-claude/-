@@ -40,6 +40,7 @@ import type {
   AdminRechargeCode,
   AdminUser,
   Announcement,
+  AnnouncementCategory,
   CreatedRechargeCode,
   UpstreamModelMapping,
   UpstreamProvider
@@ -68,6 +69,7 @@ export default function AdminPage() {
   const [totalUsers, setTotalUsers] = useState(0);
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
+  const [category, setCategory] = useState<AnnouncementCategory>('announcement');
   const [status, setStatus] = useState<'draft' | 'published'>('published');
   const [upstreamName, setUpstreamName] = useState('');
   const [upstreamBaseUrl, setUpstreamBaseUrl] = useState('');
@@ -185,9 +187,10 @@ export default function AdminPage() {
     setIsSubmitting(true);
 
     try {
-      await createAnnouncement({ title, content, status });
+      await createAnnouncement({ title, content, category, status });
       setTitle('');
       setContent('');
+      setCategory('announcement');
       setStatus('published');
       setMessage('公告已保存');
       const announcementResult = await listAnnouncements();
@@ -1119,6 +1122,17 @@ export default function AdminPage() {
                   />
                 </label>
                 <label>
+                  分类
+                  <select
+                    onChange={(event) => setCategory(event.target.value as AnnouncementCategory)}
+                    value={category}
+                  >
+                    <option value="announcement">平台公告</option>
+                    <option value="update_log">更新日志</option>
+                    <option value="usage_guide">使用建议</option>
+                  </select>
+                </label>
+                <label>
                   状态
                   <select onChange={(event) => setStatus(event.target.value as 'draft' | 'published')} value={status}>
                     <option value="published">发布</option>
@@ -1142,7 +1156,7 @@ export default function AdminPage() {
                   <article className="announcement-item" key={announcement.id}>
                     <div>
                       <strong>{announcement.title}</strong>
-                      <span>{announcement.status}</span>
+                      <span>{formatAnnouncementCategory(announcement.category)} · {announcement.status}</span>
                     </div>
                     <p>{announcement.content}</p>
                     <small>
@@ -1176,6 +1190,16 @@ function formatHealthStatus(status: string) {
   }
 
   return 'unknown';
+}
+
+function formatAnnouncementCategory(category: AnnouncementCategory) {
+  const labels: Record<AnnouncementCategory, string> = {
+    announcement: '平台公告',
+    update_log: '更新日志',
+    usage_guide: '使用建议'
+  };
+
+  return labels[category] ?? category;
 }
 
 function getHealthClass(status: string) {

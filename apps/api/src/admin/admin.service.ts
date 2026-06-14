@@ -5,6 +5,7 @@ import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
 import {
   Prisma,
+  AnnouncementCategory,
   AnnouncementStatus,
   GroupStatus,
   ModelStatus,
@@ -29,6 +30,7 @@ type ModelConfigurationOptions = {
 type AnnouncementInput = {
   title?: unknown;
   content?: unknown;
+  category?: unknown;
   status?: unknown;
 };
 
@@ -144,6 +146,7 @@ export class AdminService implements OnModuleInit {
         id: announcement.id,
         title: announcement.title,
         content: announcement.content,
+        category: announcement.category.toLowerCase(),
         status: announcement.status.toLowerCase(),
         publishedAt: announcement.publishedAt?.toISOString() ?? null,
         createdBy: announcement.createdByAdmin.username,
@@ -156,6 +159,7 @@ export class AdminService implements OnModuleInit {
   async createAnnouncement(adminUserId: string, body: AnnouncementInput) {
     const title = this.requiredText(body.title, 'title', 3, 120);
     const content = this.requiredText(body.content, 'content', 1, 5000);
+    const category = this.normalizeAnnouncementCategory(body.category);
     const status = this.normalizeStatus(body.status);
 
     const announcement = await this.prisma.$transaction(async (tx) => {
@@ -163,6 +167,7 @@ export class AdminService implements OnModuleInit {
         data: {
           title,
           content,
+          category,
           status,
           publishedAt: status === AnnouncementStatus.PUBLISHED ? new Date() : null,
           createdByAdminId: adminUserId
@@ -179,6 +184,7 @@ export class AdminService implements OnModuleInit {
           afterSnapshot: {
             id: createdAnnouncement.id,
             title,
+            category: createdAnnouncement.category.toLowerCase(),
             status: createdAnnouncement.status.toLowerCase()
           }
         }
@@ -191,6 +197,7 @@ export class AdminService implements OnModuleInit {
       id: announcement.id,
       title: announcement.title,
       content: announcement.content,
+      category: announcement.category.toLowerCase(),
       status: announcement.status.toLowerCase(),
       publishedAt: announcement.publishedAt?.toISOString() ?? null,
       createdByAdminId: announcement.createdByAdminId,
@@ -726,6 +733,29 @@ export class AdminService implements OnModuleInit {
     }
 
     throw new BadRequestException('status must be draft, published, or archived');
+  }
+
+  private normalizeAnnouncementCategory(value: unknown): AnnouncementCategory {
+    if (value === undefined || value === null || value === '') {
+      return AnnouncementCategory.ANNOUNCEMENT;
+    }
+
+    if (typeof value !== 'string') {
+      throw new BadRequestException('category must be announcement, update_log, or usage_guide');
+    }
+
+    const normalized = value.toLowerCase();
+    if (normalized === AnnouncementCategory.ANNOUNCEMENT.toLowerCase()) {
+      return AnnouncementCategory.ANNOUNCEMENT;
+    }
+    if (normalized === AnnouncementCategory.UPDATE_LOG.toLowerCase()) {
+      return AnnouncementCategory.UPDATE_LOG;
+    }
+    if (normalized === AnnouncementCategory.USAGE_GUIDE.toLowerCase()) {
+      return AnnouncementCategory.USAGE_GUIDE;
+    }
+
+    throw new BadRequestException('category must be announcement, update_log, or usage_guide');
   }
 
   private normalizeGroupCode(value: unknown) {

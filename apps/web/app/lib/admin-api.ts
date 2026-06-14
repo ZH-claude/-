@@ -21,6 +21,7 @@ export type Announcement = {
   id: string;
   title: string;
   content: string;
+  category: AnnouncementCategory;
   status: string;
   publishedAt: string | null;
   createdBy?: string;
@@ -28,6 +29,8 @@ export type Announcement = {
   createdAt: string;
   updatedAt?: string;
 };
+
+export type AnnouncementCategory = 'announcement' | 'update_log' | 'usage_guide';
 
 export type UpstreamProvider = {
   id: string;
@@ -167,7 +170,12 @@ export async function listAnnouncements() {
   return request<AnnouncementListResponse>('/admin/announcements');
 }
 
-export async function createAnnouncement(payload: { title: string; content: string; status: 'draft' | 'published' }) {
+export async function createAnnouncement(payload: {
+  title: string;
+  content: string;
+  category: AnnouncementCategory;
+  status: 'draft' | 'published';
+}) {
   return request<Announcement>('/admin/announcements', {
     method: 'POST',
     body: payload
