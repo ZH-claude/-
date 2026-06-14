@@ -50,6 +50,8 @@ services:
       ADMIN_BOOTSTRAP_FORCE_RESET: ${ADMIN_BOOTSTRAP_FORCE_RESET:-false}
       UPSTREAM_KEY_ENCRYPTION_SECRET: ${UPSTREAM_KEY_ENCRYPTION_SECRET:-dev-only-change-me-upstream-secret-32chars}
       NOTIFICATION_SECRET_ENCRYPTION_SECRET: ${NOTIFICATION_SECRET_ENCRYPTION_SECRET:-dev-only-change-me-notify-secret-32chars}
+      WEB_HEALTH_URL: ${WEB_HEALTH_URL:-http://web:3000}
+      UPTIME_KUMA_STATUS_URL: ${UPTIME_KUMA_STATUS_URL:-}
     command: sh -c "npm --prefix apps/api run db:migrate && npm run start:api"
     ports:
       - "${API_PORT:-3001}:3001"

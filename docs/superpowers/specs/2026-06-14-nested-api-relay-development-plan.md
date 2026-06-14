@@ -2,7 +2,7 @@
 
 创建日期：2026-06-14  
 目标：建设一个可部署到云服务器的前后端完整 API 中转站。你的平台作为第三方中转层，用户请求先进入你的系统，再由你的系统转发到另一个上游中转站。  
-当前状态：T01 项目骨架已完成。工作区此前为空且不是 Git 仓库。  
+当前状态：T17 服务状态页已完成。工作区已接入 GitHub 推送流程。
 数据库密码通过 `POSTGRES_PASSWORD` 配置，真实值只写入未提交的 `.env` 或服务器密钥管理。  
 Redis MVP 阶段默认不启用密码；如生产环境需要启用，通过 `REDIS_PASSWORD` 或托管 Redis 密钥配置，真实值不写入开发文档。
 
@@ -305,7 +305,7 @@ Loki/Prometheus/Grafana
 | [x] | T14 | 通知设置 | 邮件、Webhook、余额阈值、测试通知 | 余额低于阈值时能触发通知 |
 | [x] | T15 | 首页公告与文档入口 | 公告列表、更新日志、使用建议 | 管理员发布后用户首页可见 |
 | [x] | T16 | 异步任务与绘图日志 | async_tasks、任务查询页 | 若上游支持异步任务，能查询进度和结果 |
-| [ ] | T17 | 服务状态页 | Uptime Kuma 配置或内置探针 | 用户可看到平台和上游状态 |
+| [x] | T17 | 服务状态页 | Uptime Kuma 配置或内置探针 | 用户可看到平台和上游状态 |
 | [ ] | T18 | 风控与限流 | 用户/令牌/IP/模型限流、IP 白名单、首次激活策略、异常熔断 | 超限请求被拒绝且不影响其他用户 |
 | [ ] | T19 | 安全加固 | Key 脱敏、审计日志、越权测试 | 日志无明文 Key，越权测试通过 |
 | [ ] | T20 | 可观测性 | 结构化日志、trace_id、监控面板、告警 | 单次请求可追踪到上游和计费事件 |
@@ -314,21 +314,37 @@ Loki/Prometheus/Grafana
 
 ## 11. 下一次对话建议任务
 
-建议下一次从 T17 开始：服务状态页。
+建议下一次从 T18 开始：风控与限流。
 
-T17 的边界：
+T18 的边界：
 
-- 基于真实服务健康状态做 `/uptimeStatus`，优先支持内置探针；如果接 Uptime Kuma，必须读取真实配置和真实状态页响应。
-- 用户侧只展示平台 Web/API、数据库/Redis 依赖和已配置上游的真实状态；没有外部监控配置时显示内置探针结果或明确未配置状态。
-- 不写死在线率、成功率、持续运行时间或上游状态；上游状态优先复用 `upstream_providers.health_status` 和健康检查时间。
-- T17 不应破坏现有 Relay、计费、通知、公告、异步任务查询链路。
+- 基于真实用户、令牌、IP、模型和余额状态实现限流与风控；不使用前端假拦截或仅页面提示代替后端保护。
+- 先做 MVP 可验证的服务端限流：用户级、令牌级、IP 级、模型级，以及令牌 IP 白名单和首次激活策略。
+- 超限请求必须返回稳定错误码，不转发上游、不扣费、不写成功 usage event。
+- 异常熔断应基于真实失败/消费事件，不写死风控命中或模拟异常消费。
+- T18 不应破坏现有 Relay、计费幂等、日志查询、通知、公告、异步任务和服务状态页。
 
-T17 完成指标：
+T18 完成指标：
 
-- 用户可打开 `/uptimeStatus` 查看平台组件和上游的真实状态。
-- API 返回只读健康摘要，不暴露内部密钥、数据库连接串或服务器私网信息。
-- 未配置外部监控时页面展示真实内置探针状态；配置外部监控时验证读取失败和成功路径。
-- 浏览器验证服务状态页加载、刷新、空/异常状态无控制台错误。
+- 超过用户/令牌/IP/模型限额的真实 Relay 请求被拒绝，且不会触达上游。
+- 未超限的现有 `/v1/models`、`/v1/chat/completions` 和流式路径保持可用。
+- IP 白名单、首次激活和异常熔断都有真实数据库字段或策略来源，用户侧可看到明确配置状态。
+- QA 覆盖并发请求、跨用户隔离、失败不扣费、日志/通知兼容和残留清理。
+
+T17 完成记录（2026-06-15）：
+
+- 已新增 `ServiceStatusModule` 和公开只读 `GET /service-status`。
+- 已实现内置平台探针：API 进程、数据库 `SELECT 1`、Redis TCP 连接、Web 健康 URL。
+- 已新增可选 `UPTIME_KUMA_STATUS_URL`；未配置时返回 `not_configured`，不伪造外部监控结果。
+- 已复用 `upstream_providers.health_status`、`last_health_check_at`、`last_health_latency_ms` 和脱敏后的健康错误展示上游状态。
+- 已保证服务状态响应不返回 `baseUrl`、`apiKeyPreview`、`encryptedApiKey`、数据库连接串、Redis 连接串或内部 URL。
+- 已新增 Next 同源代理 `/api/service-status`、前端客户端和 `/uptimeStatus` 页面。
+- 已把首页导航和文档入口接入服务状态页。
+- 已新增 `apps/api/scripts/t17-service-status-qa.ts` 和 `npm run qa:t17:service-status`，通过真实注册、真实 `upstream_providers` 表、真实后端 API 和真实 Next 代理验证。
+- 已完成浏览器 QA：桌面/移动端服务状态页加载、刷新、真实内置探针、外部监控未配置状态和空上游状态均通过，控制台无错误。
+- 已创建 `docs/quality/t17-self-check.md`，记录 review、QA、浏览器验证、敏感字段扫描、依赖审计、回归和残留清理。
+- 已验证 `npm run typecheck`、Docker 经典构建重建、Docker 重启、`npm run qa:t17:service-status`、浏览器 QA、`npm run qa:t16:async-tasks`、`npm run qa:t15:announcements`、`npm run qa:t14:notifications`、`npm run qa:t13:group-availability`、api/web audit 和 `git diff --check`。
+- T17 QA 与浏览器临时记录均使用真实数据库记录和真实 HTTP/浏览器路径，完成后清理为 0 残留。
 
 T16 完成记录（2026-06-15）：
 

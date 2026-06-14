@@ -11,6 +11,7 @@ import { GroupAvailabilityModule } from './group-availability/group-availability
 import { NotificationsModule } from './notifications/notifications.module';
 import { AnnouncementsModule } from './announcements/announcements.module';
 import { AsyncTasksModule } from './async-tasks/async-tasks.module';
+import { ServiceStatusModule } from './service-status/service-status.module';
 
 @Module({
   imports: [
@@ -24,7 +25,8 @@ import { AsyncTasksModule } from './async-tasks/async-tasks.module';
     GroupAvailabilityModule,
     NotificationsModule,
     AnnouncementsModule,
-    AsyncTasksModule
+    AsyncTasksModule,
+    ServiceStatusModule
   ],
   controllers: [AppController]
 })

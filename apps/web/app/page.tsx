@@ -4,6 +4,7 @@ import {
   ApiOutlined,
   BellOutlined,
   ClockCircleOutlined,
+  CloudServerOutlined,
   CreditCardOutlined,
   DashboardOutlined,
   FileTextOutlined,
@@ -32,6 +33,7 @@ const menuItems = [
   { key: 'midjourney', icon: <PictureOutlined />, label: <Link href="/midjourney">绘图日志</Link> },
   { key: 'billing', icon: <CreditCardOutlined />, label: <Link href="/pricing">费用说明</Link> },
   { key: 'status', icon: <LineChartOutlined />, label: <Link href="/groupAvailability">分组状态</Link> },
+  { key: 'uptime', icon: <CloudServerOutlined />, label: <Link href="/uptimeStatus">服务状态</Link> },
   { key: 'settings', icon: <SettingOutlined />, label: <Link href="/account/notificationSettings">通知设置</Link> },
   { key: 'admin', icon: <ToolOutlined />, label: <Link href="/admin">管理后台</Link> }
 ];
@@ -44,6 +46,7 @@ const documentEntries = [
   { title: '绘图日志', href: '/midjourney', icon: <PictureOutlined /> },
   { title: '余额充值', href: '/account/topup/recharge', icon: <CreditCardOutlined /> },
   { title: '分组状态', href: '/groupAvailability', icon: <LineChartOutlined /> },
+  { title: '服务状态', href: '/uptimeStatus', icon: <CloudServerOutlined /> },
   { title: '通知设置', href: '/account/notificationSettings', icon: <BellOutlined /> }
 ];
 

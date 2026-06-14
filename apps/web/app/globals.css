@@ -919,6 +919,15 @@ button {
   min-width: 1160px;
 }
 
+.service-status-table,
+.service-upstream-table {
+  min-width: 1040px;
+}
+
+.upstream-name {
+  overflow-wrap: anywhere;
+}
+
 .notification-settings-form {
   display: grid;
   gap: 18px;
