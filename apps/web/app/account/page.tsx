@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  ApiOutlined,
   KeyOutlined,
   LogoutOutlined,
   ReloadOutlined,
@@ -129,6 +130,28 @@ export default function AccountPage() {
               <dd>{user?.lastLoginAt ? new Date(user.lastLoginAt).toLocaleString() : '-'}</dd>
             </div>
           </dl>
+        </section>
+
+        <section className="account-panel wide-panel">
+          <div className="panel-title">
+            <ApiOutlined />
+            <h2>可用模型</h2>
+          </div>
+          <div className="model-list">
+            {(user?.availableModels ?? []).map((model) => (
+              <article className="model-item" key={model.model}>
+                <div>
+                  <strong>{model.model}</strong>
+                  {model.displayName ? <span>{model.displayName}</span> : null}
+                </div>
+                <small>
+                  输入 {formatCents(model.inputPriceCentsPer1k)}/1K · 输出 {formatCents(model.outputPriceCentsPer1k)}/1K · x
+                  {model.modelMultiplier} · 分组 x{model.groupMultiplier} · {model.supportsStream ? 'stream' : 'no stream'}
+                </small>
+              </article>
+            ))}
+            {!isLoading && !(user?.availableModels ?? []).length ? <p className="empty-state">暂无可用模型</p> : null}
+          </div>
         </section>
 
         <section className="account-panel wide-panel">

@@ -76,6 +76,66 @@ export class AdminController {
     return this.adminService.checkUpstreamHealth(request.auth.user.id, upstreamProviderId);
   }
 
+  @Get('model-config')
+  listModelConfiguration(
+    @Query('upstreamModelsPage') upstreamModelsPageValue?: string,
+    @Query('upstreamModelsLimit') upstreamModelsLimitValue?: string
+  ) {
+    const upstreamModelsPage = this.parsePositiveInt(upstreamModelsPageValue, 1, 1000000);
+    const upstreamModelsLimit = this.parsePositiveInt(upstreamModelsLimitValue, 100, 100);
+
+    return this.adminService.listModelConfiguration({ upstreamModelsPage, upstreamModelsLimit });
+  }
+
+  @Post('groups')
+  createUserGroup(
+    @Req() request: AuthenticatedRequest,
+    @Body() body: unknown
+  ) {
+    if (!request.auth?.user?.id) {
+      throw new BadRequestException('Admin context missing');
+    }
+
+    return this.adminService.createUserGroup(request.auth.user.id, this.toRecord(body));
+  }
+
+  @Post('users/:id/group')
+  assignUserGroup(
+    @Req() request: AuthenticatedRequest,
+    @Param('id') userId: string,
+    @Body() body: unknown
+  ) {
+    if (!request.auth?.user?.id) {
+      throw new BadRequestException('Admin context missing');
+    }
+
+    return this.adminService.assignUserGroup(request.auth.user.id, userId, this.toRecord(body));
+  }
+
+  @Post('models')
+  createModelPrice(
+    @Req() request: AuthenticatedRequest,
+    @Body() body: unknown
+  ) {
+    if (!request.auth?.user?.id) {
+      throw new BadRequestException('Admin context missing');
+    }
+
+    return this.adminService.createModelPrice(request.auth.user.id, this.toRecord(body));
+  }
+
+  @Post('upstream-models')
+  createUpstreamModel(
+    @Req() request: AuthenticatedRequest,
+    @Body() body: unknown
+  ) {
+    if (!request.auth?.user?.id) {
+      throw new BadRequestException('Admin context missing');
+    }
+
+    return this.adminService.createUpstreamModel(request.auth.user.id, this.toRecord(body));
+  }
+
   private parsePositiveInt(value: string | undefined, defaultValue: number, max: number) {
     if (!value) {
       return defaultValue;

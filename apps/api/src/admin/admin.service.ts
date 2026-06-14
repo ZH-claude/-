@@ -6,6 +6,8 @@ import { isIP } from 'node:net';
 import {
   Prisma,
   AnnouncementStatus,
+  GroupStatus,
+  ModelStatus,
   UpstreamHealthStatus,
   UpstreamProviderStatus,
   UserRole,
@@ -19,6 +21,11 @@ type ListUsersOptions = {
   limit: number;
 };
 
+type ModelConfigurationOptions = {
+  upstreamModelsPage: number;
+  upstreamModelsLimit: number;
+};
+
 type AnnouncementInput = {
   title?: unknown;
   content?: unknown;
@@ -30,6 +37,35 @@ type UpstreamProviderInput = {
   baseUrl?: unknown;
   apiKey?: unknown;
   status?: unknown;
+};
+
+type UserGroupInput = {
+  code?: unknown;
+  name?: unknown;
+  multiplier?: unknown;
+  status?: unknown;
+};
+
+type AssignUserGroupInput = {
+  groupId?: unknown;
+};
+
+type ModelPriceInput = {
+  model?: unknown;
+  displayName?: unknown;
+  inputPriceCentsPer1k?: unknown;
+  outputPriceCentsPer1k?: unknown;
+  modelMultiplier?: unknown;
+  status?: unknown;
+  groupIds?: unknown;
+};
+
+type UpstreamModelInput = {
+  providerId?: unknown;
+  publicModel?: unknown;
+  upstreamModel?: unknown;
+  status?: unknown;
+  supportsStream?: unknown;
 };
 
 const PASSWORD_HASH_ROUNDS = 12;
@@ -290,6 +326,332 @@ export class AdminService implements OnModuleInit {
     };
   }
 
+  async listModelConfiguration(options: ModelConfigurationOptions) {
+    const { upstreamModelsPage, upstreamModelsLimit } = options;
+    const upstreamModelsSkip = (upstreamModelsPage - 1) * upstreamModelsLimit;
+
+    const [groups, models, upstreamModels, upstreamModelsTotal] = await Promise.all([
+      this.prisma.userGroup.findMany({
+        include: {
+          _count: {
+            select: {
+              users: true,
+              modelAccesses: true
+            }
+          }
+        },
+        orderBy: { code: 'asc' }
+      }),
+      this.prisma.modelPrice.findMany({
+        include: {
+          groupAccesses: {
+            include: { group: true },
+            orderBy: { createdAt: 'asc' }
+          },
+          upstreamModels: {
+            include: { provider: true },
+            orderBy: { createdAt: 'desc' }
+          }
+        },
+        orderBy: { model: 'asc' }
+      }),
+      this.prisma.upstreamModel.findMany({
+        include: {
+          provider: true,
+          modelPrice: true
+        },
+        skip: upstreamModelsSkip,
+        orderBy: { createdAt: 'desc' },
+        take: upstreamModelsLimit
+      }),
+      this.prisma.upstreamModel.count()
+    ]);
+
+    return {
+      groups: groups.map((group) => this.toPublicGroup(group)),
+      models: models.map((model) => this.toPublicModelPrice(model)),
+      upstreamModels: upstreamModels.map((model) => this.toPublicUpstreamModel(model)),
+      upstreamModelsPagination: {
+        page: upstreamModelsPage,
+        limit: upstreamModelsLimit,
+        total: upstreamModelsTotal,
+        totalPages: Math.max(1, Math.ceil(upstreamModelsTotal / upstreamModelsLimit))
+      }
+    };
+  }
+
+  async createUserGroup(adminUserId: string, body: UserGroupInput) {
+    const code = this.normalizeGroupCode(body.code);
+    const name = this.requiredText(body.name, 'name', 2, 80);
+    const multiplier = this.normalizeMultiplier(body.multiplier, 'multiplier');
+    const status = this.normalizeGroupStatus(body.status);
+
+    try {
+      const group = await this.prisma.$transaction(async (tx) => {
+        const createdGroup = await tx.userGroup.create({
+          data: {
+            code,
+            name,
+            multiplier,
+            status
+          }
+        });
+
+        await tx.adminAuditLog.create({
+          data: {
+            adminUserId,
+            action: 'user_group_created',
+            targetType: 'user_group',
+            targetId: createdGroup.id,
+            beforeSnapshot: Prisma.JsonNull,
+            afterSnapshot: {
+              id: createdGroup.id,
+              code,
+              name,
+              multiplier: multiplier.toString(),
+              status: status.toLowerCase()
+            }
+          }
+        });
+
+        return createdGroup;
+      });
+
+      return this.toPublicGroup(group);
+    } catch (error) {
+      if (this.isUniqueViolation(error)) {
+        throw new ConflictException('User group code already exists');
+      }
+
+      throw error;
+    }
+  }
+
+  async assignUserGroup(adminUserId: string, userId: string, body: AssignUserGroupInput) {
+    const groupId = this.requiredUuid(body.groupId, 'groupId');
+
+    const [user, group] = await Promise.all([
+      this.prisma.user.findFirst({
+        where: { id: userId, deletedAt: null },
+        include: { group: true }
+      }),
+      this.prisma.userGroup.findUnique({
+        where: { id: groupId }
+      })
+    ]);
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    if (!group) {
+      throw new NotFoundException('User group not found');
+    }
+
+    const updatedUser = await this.prisma.$transaction(async (tx) => {
+      const nextUser = await tx.user.update({
+        where: { id: user.id },
+        data: { groupId: group.id },
+        include: {
+          group: true,
+          wallet: true
+        }
+      });
+
+      await tx.adminAuditLog.create({
+        data: {
+          adminUserId,
+          action: 'user_group_assigned',
+          targetType: 'user',
+          targetId: user.id,
+          beforeSnapshot: {
+            groupId: user.group.id,
+            groupCode: user.group.code
+          },
+          afterSnapshot: {
+            groupId: group.id,
+            groupCode: group.code
+          }
+        }
+      });
+
+      return nextUser;
+    });
+
+    return {
+      id: updatedUser.id,
+      username: updatedUser.username,
+      role: updatedUser.role.toLowerCase(),
+      status: updatedUser.status.toLowerCase(),
+      timezone: updatedUser.timezone,
+      group: {
+        id: updatedUser.group.id,
+        code: updatedUser.group.code,
+        name: updatedUser.group.name
+      },
+      wallet: {
+        balanceCents: updatedUser.wallet?.balanceCents ?? 0,
+        totalSpendCents: updatedUser.wallet?.totalSpendCents ?? 0
+      },
+      lastLoginAt: updatedUser.lastLoginAt?.toISOString() ?? null,
+      createdAt: updatedUser.createdAt.toISOString()
+    };
+  }
+
+  async createModelPrice(adminUserId: string, body: ModelPriceInput) {
+    const model = this.normalizeModelName(body.model, 'model');
+    const displayName = this.optionalText(body.displayName, 'displayName', 1, 120) ?? null;
+    const inputPriceCentsPer1k = this.nonNegativeInt(body.inputPriceCentsPer1k, 'inputPriceCentsPer1k', 0, 100000000);
+    const outputPriceCentsPer1k = this.nonNegativeInt(body.outputPriceCentsPer1k, 'outputPriceCentsPer1k', 0, 100000000);
+    const modelMultiplier = this.normalizeMultiplier(body.modelMultiplier, 'modelMultiplier');
+    const status = this.normalizeModelStatus(body.status);
+    const groupIds = this.requiredUuidArray(body.groupIds, 'groupIds');
+
+    const groups = await this.prisma.userGroup.findMany({
+      where: { id: { in: groupIds } }
+    });
+
+    if (groups.length !== groupIds.length) {
+      throw new BadRequestException('groupIds contains unknown user group');
+    }
+
+    try {
+      const modelPrice = await this.prisma.$transaction(async (tx) => {
+        const createdModel = await tx.modelPrice.create({
+          data: {
+            model,
+            displayName,
+            inputPriceCentsPer1k,
+            outputPriceCentsPer1k,
+            modelMultiplier,
+            status
+          }
+        });
+
+        await tx.modelGroupAccess.createMany({
+          data: groupIds.map((groupId) => ({
+            modelPriceId: createdModel.id,
+            groupId
+          }))
+        });
+
+        await tx.adminAuditLog.create({
+          data: {
+            adminUserId,
+            action: 'model_price_created',
+            targetType: 'model_price',
+            targetId: createdModel.id,
+            beforeSnapshot: Prisma.JsonNull,
+            afterSnapshot: {
+              id: createdModel.id,
+              model,
+              inputPriceCentsPer1k,
+              outputPriceCentsPer1k,
+              modelMultiplier: modelMultiplier.toString(),
+              status: status.toLowerCase(),
+              groupIds
+            }
+          }
+        });
+
+        return tx.modelPrice.findUniqueOrThrow({
+          where: { id: createdModel.id },
+          include: {
+            groupAccesses: {
+              include: { group: true },
+              orderBy: { createdAt: 'asc' }
+            },
+            upstreamModels: {
+              include: { provider: true },
+              orderBy: { createdAt: 'desc' }
+            }
+          }
+        });
+      });
+
+      return this.toPublicModelPrice(modelPrice);
+    } catch (error) {
+      if (this.isUniqueViolation(error)) {
+        throw new ConflictException('Model already exists');
+      }
+
+      throw error;
+    }
+  }
+
+  async createUpstreamModel(adminUserId: string, body: UpstreamModelInput) {
+    const providerId = this.requiredUuid(body.providerId, 'providerId');
+    const publicModel = this.normalizeModelName(body.publicModel, 'publicModel');
+    const upstreamModel = this.normalizeModelName(body.upstreamModel, 'upstreamModel');
+    const status = this.normalizeModelStatus(body.status);
+    const supportsStream = this.optionalBoolean(body.supportsStream, true);
+
+    const [provider, modelPrice] = await Promise.all([
+      this.prisma.upstreamProvider.findUnique({
+        where: { id: providerId }
+      }),
+      this.prisma.modelPrice.findUnique({
+        where: { model: publicModel }
+      })
+    ]);
+
+    if (!provider) {
+      throw new NotFoundException('Upstream provider not found');
+    }
+
+    if (!modelPrice) {
+      throw new BadRequestException('publicModel must exist in model prices first');
+    }
+
+    try {
+      const upstreamModelRecord = await this.prisma.$transaction(async (tx) => {
+        const createdModel = await tx.upstreamModel.create({
+          data: {
+            providerId,
+            publicModel,
+            upstreamModel,
+            status,
+            supportsStream
+          }
+        });
+
+        await tx.adminAuditLog.create({
+          data: {
+            adminUserId,
+            action: 'upstream_model_created',
+            targetType: 'upstream_model',
+            targetId: createdModel.id,
+            beforeSnapshot: Prisma.JsonNull,
+            afterSnapshot: {
+              id: createdModel.id,
+              providerId,
+              publicModel,
+              upstreamModel,
+              status: status.toLowerCase(),
+              supportsStream
+            }
+          }
+        });
+
+        return tx.upstreamModel.findUniqueOrThrow({
+          where: { id: createdModel.id },
+          include: {
+            provider: true,
+            modelPrice: true
+          }
+        });
+      });
+
+      return this.toPublicUpstreamModel(upstreamModelRecord);
+    } catch (error) {
+      if (this.isUniqueViolation(error)) {
+        throw new ConflictException('Upstream model mapping already exists');
+      }
+
+      throw error;
+    }
+  }
+
   private requiredText(value: unknown, field: string, min: number, max: number) {
     if (typeof value !== 'string' || value.trim().length < min || value.trim().length > max) {
       throw new BadRequestException(`${field} must be a string with ${min}-${max} characters`);
@@ -364,6 +726,135 @@ export class AdminService implements OnModuleInit {
     }
 
     throw new BadRequestException('status must be draft, published, or archived');
+  }
+
+  private normalizeGroupCode(value: unknown) {
+    const code = this.requiredText(value, 'code', 2, 40).toLowerCase();
+    if (!/^[a-z0-9_-]+$/.test(code)) {
+      throw new BadRequestException('code must contain only lowercase letters, numbers, underscores, or hyphens');
+    }
+
+    return code;
+  }
+
+  private normalizeModelName(value: unknown, field: string) {
+    const model = this.requiredText(value, field, 2, 120);
+    if (!/^[a-zA-Z0-9._:/+-]+$/.test(model)) {
+      throw new BadRequestException(`${field} contains unsupported characters`);
+    }
+
+    return model;
+  }
+
+  private normalizeGroupStatus(value: unknown): GroupStatus {
+    if (value === undefined || value === null || value === '') {
+      return GroupStatus.ACTIVE;
+    }
+
+    if (typeof value !== 'string') {
+      throw new BadRequestException('status must be active or disabled');
+    }
+
+    const normalized = value.toLowerCase();
+    if (normalized === GroupStatus.ACTIVE.toLowerCase()) {
+      return GroupStatus.ACTIVE;
+    }
+    if (normalized === GroupStatus.DISABLED.toLowerCase()) {
+      return GroupStatus.DISABLED;
+    }
+
+    throw new BadRequestException('status must be active or disabled');
+  }
+
+  private normalizeModelStatus(value: unknown): ModelStatus {
+    if (value === undefined || value === null || value === '') {
+      return ModelStatus.ACTIVE;
+    }
+
+    if (typeof value !== 'string') {
+      throw new BadRequestException('status must be active or disabled');
+    }
+
+    const normalized = value.toLowerCase();
+    if (normalized === ModelStatus.ACTIVE.toLowerCase()) {
+      return ModelStatus.ACTIVE;
+    }
+    if (normalized === ModelStatus.DISABLED.toLowerCase()) {
+      return ModelStatus.DISABLED;
+    }
+
+    throw new BadRequestException('status must be active or disabled');
+  }
+
+  private normalizeMultiplier(value: unknown, field: string) {
+    if (value === undefined || value === null || value === '') {
+      return '1.0000';
+    }
+
+    const numericValue = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : Number.NaN;
+    if (!Number.isFinite(numericValue) || numericValue <= 0 || numericValue > 100) {
+      throw new BadRequestException(`${field} must be greater than 0 and no more than 100`);
+    }
+
+    return numericValue.toFixed(4);
+  }
+
+  private nonNegativeInt(value: unknown, field: string, min: number, max: number) {
+    const numericValue = value === undefined || value === null || value === '' ? min : Number(value);
+    if (!Number.isInteger(numericValue) || numericValue < min || numericValue > max) {
+      throw new BadRequestException(`${field} must be an integer between ${min} and ${max}`);
+    }
+
+    return numericValue;
+  }
+
+  private optionalText(value: unknown, field: string, min: number, max: number) {
+    if (value === undefined || value === null || value === '') {
+      return undefined;
+    }
+
+    return this.requiredText(value, field, min, max);
+  }
+
+  private requiredUuid(value: unknown, field: string) {
+    if (typeof value !== 'string' || !this.isUuid(value)) {
+      throw new BadRequestException(`${field} must be a valid UUID`);
+    }
+
+    return value;
+  }
+
+  private requiredUuidArray(value: unknown, field: string) {
+    if (!Array.isArray(value) || value.length === 0) {
+      throw new BadRequestException(`${field} must include at least one UUID`);
+    }
+
+    const ids = value.map((entry) => this.requiredUuid(entry, field));
+    return [...new Set(ids)];
+  }
+
+  private optionalBoolean(value: unknown, defaultValue: boolean) {
+    if (value === undefined || value === null || value === '') {
+      return defaultValue;
+    }
+
+    if (typeof value === 'boolean') {
+      return value;
+    }
+
+    if (value === 'true') {
+      return true;
+    }
+
+    if (value === 'false') {
+      return false;
+    }
+
+    throw new BadRequestException('supportsStream must be true or false');
+  }
+
+  private isUuid(value: string) {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
   }
 
   private async bootstrapAdminFromEnv() {
@@ -624,6 +1115,118 @@ export class AdminService implements OnModuleInit {
     return message.length > UPSTREAM_HEALTH_ERROR_MAX_LENGTH
       ? `${message.slice(0, UPSTREAM_HEALTH_ERROR_MAX_LENGTH)}...`
       : message;
+  }
+
+  private toPublicGroup(group: {
+    id: string;
+    code: string;
+    name: string;
+    multiplier: { toString(): string };
+    status: GroupStatus;
+    createdAt: Date;
+    updatedAt: Date;
+    _count?: { users: number; modelAccesses: number };
+  }) {
+    return {
+      id: group.id,
+      code: group.code,
+      name: group.name,
+      multiplier: group.multiplier.toString(),
+      status: group.status.toLowerCase(),
+      userCount: group._count?.users ?? 0,
+      modelAccessCount: group._count?.modelAccesses ?? 0,
+      createdAt: group.createdAt.toISOString(),
+      updatedAt: group.updatedAt.toISOString()
+    };
+  }
+
+  private toPublicModelPrice(model: {
+    id: string;
+    model: string;
+    displayName: string | null;
+    inputPriceCentsPer1k: number;
+    outputPriceCentsPer1k: number;
+    modelMultiplier: { toString(): string };
+    status: ModelStatus;
+    createdAt: Date;
+    updatedAt: Date;
+    groupAccesses?: Array<{
+      group: {
+        id: string;
+        code: string;
+        name: string;
+      };
+    }>;
+    upstreamModels?: Array<{
+      id: string;
+      upstreamModel: string;
+      status: ModelStatus;
+      supportsStream: boolean;
+      provider: {
+        id: string;
+        name: string;
+        status: UpstreamProviderStatus;
+      };
+    }>;
+  }) {
+    return {
+      id: model.id,
+      model: model.model,
+      displayName: model.displayName,
+      inputPriceCentsPer1k: model.inputPriceCentsPer1k,
+      outputPriceCentsPer1k: model.outputPriceCentsPer1k,
+      modelMultiplier: model.modelMultiplier.toString(),
+      status: model.status.toLowerCase(),
+      groups: (model.groupAccesses ?? []).map((access) => ({
+        id: access.group.id,
+        code: access.group.code,
+        name: access.group.name
+      })),
+      upstreamMappings: (model.upstreamModels ?? []).map((mapping) => ({
+        id: mapping.id,
+        providerId: mapping.provider.id,
+        providerName: mapping.provider.name,
+        providerStatus: mapping.provider.status.toLowerCase(),
+        upstreamModel: mapping.upstreamModel,
+        status: mapping.status.toLowerCase(),
+        supportsStream: mapping.supportsStream
+      })),
+      createdAt: model.createdAt.toISOString(),
+      updatedAt: model.updatedAt.toISOString()
+    };
+  }
+
+  private toPublicUpstreamModel(model: {
+    id: string;
+    providerId: string;
+    publicModel: string;
+    upstreamModel: string;
+    status: ModelStatus;
+    supportsStream: boolean;
+    createdAt: Date;
+    updatedAt: Date;
+    provider: {
+      id: string;
+      name: string;
+      status: UpstreamProviderStatus;
+    };
+    modelPrice: {
+      displayName: string | null;
+    };
+  }) {
+    return {
+      id: model.id,
+      providerId: model.providerId,
+      providerName: model.provider.name,
+      providerStatus: model.provider.status.toLowerCase(),
+      publicModel: model.publicModel,
+      displayName: model.modelPrice.displayName,
+      upstreamModel: model.upstreamModel,
+      status: model.status.toLowerCase(),
+      supportsStream: model.supportsStream,
+      createdAt: model.createdAt.toISOString(),
+      updatedAt: model.updatedAt.toISOString()
+    };
   }
 
   private toPublicUpstreamProvider(provider: {

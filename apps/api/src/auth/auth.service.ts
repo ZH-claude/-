@@ -9,6 +9,7 @@ import {
 import { Prisma, UserStatus } from '../generated/prisma/client';
 import bcrypt from 'bcryptjs';
 import { createHash, randomBytes } from 'node:crypto';
+import { ModelCatalogService } from '../model-catalog.service';
 import { PrismaService } from '../prisma.service';
 import { AuthContext, AuthenticatedUser } from './auth.types';
 
@@ -37,7 +38,10 @@ const USER_INCLUDE = {
 
 @Injectable()
 export class AuthService {
-  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    private readonly modelCatalogService: ModelCatalogService
+  ) {}
 
   async register(input: RegisterInput, ipAddress?: string) {
     const username = this.normalizeUsername(input.username);
@@ -103,7 +107,7 @@ export class AuthService {
 
       return {
         token,
-        user: this.toPublicUser(user)
+        user: await this.toPublicUserWithModels(user)
       };
     } catch (error) {
       if (this.isUniqueViolation(error)) {
@@ -150,7 +154,7 @@ export class AuthService {
 
     return {
       token,
-      user: this.toPublicUser(updatedUser)
+      user: await this.toPublicUserWithModels(updatedUser)
     };
   }
 
@@ -184,7 +188,7 @@ export class AuthService {
 
   async getProfile(user: AuthenticatedUser) {
     return {
-      user: this.toPublicUser(user)
+      user: await this.toPublicUserWithModels(user)
     };
   }
 
@@ -232,7 +236,7 @@ export class AuthService {
     });
 
     return {
-      user: this.toPublicUser(updatedUser)
+      user: await this.toPublicUserWithModels(updatedUser)
     };
   }
 
@@ -315,6 +319,13 @@ export class AuthService {
         balanceCents: user.wallet?.balanceCents ?? 0,
         totalSpendCents: user.wallet?.totalSpendCents ?? 0
       }
+    };
+  }
+
+  private async toPublicUserWithModels(user: AuthenticatedUser) {
+    return {
+      ...this.toPublicUser(user),
+      availableModels: await this.modelCatalogService.listAvailableModelsForGroup(user.group.id)
     };
   }
 

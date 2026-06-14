@@ -294,7 +294,7 @@ Loki/Prometheus/Grafana
 | [x] | T03 | 用户认证与账户基础 | 登录、注册、会话、用户表 | 用户可注册、登录、退出、修改密码 |
 | [x] | T04 | 管理后台基础 | 管理员登录、用户列表、公告管理入口 | 管理员可查看用户并发布公告 |
 | [x] | T05 | 上游中转站配置 | 上游配置表、Base URL、Key 加密、健康检查 | 可配置一个上游并验证连通 |
-| [ ] | T06 | 模型与分组配置 | 模型表、分组倍率、用户分组 | 用户能看到自己分组可用模型 |
+| [x] | T06 | 模型与分组配置 | 模型表、分组倍率、用户分组 | 用户能看到自己分组可用模型 |
 | [ ] | T07 | API 令牌管理 | 创建、复制、禁用、删除、额度、过期时间、备注 | 创建令牌后可用于 API 鉴权 |
 | [ ] | T08 | Relay MVP | `/v1/models`、`/v1/chat/completions`、流式透传 | 用户用自己的 Key 调用成功返回上游结果 |
 | [ ] | T09 | 计费事件与余额扣减 | usage_events、wallet_transactions、幂等扣费 | 成功调用扣费，失败调用不误扣，重试不重复扣 |
@@ -314,7 +314,7 @@ Loki/Prometheus/Grafana
 
 ## 11. 下一次对话建议任务
 
-建议下一次从 T06 开始：模型与分组配置。
+建议下一次从 T07 开始：API 令牌管理。
 
 T01 的边界：
 
@@ -376,6 +376,14 @@ T05 完成记录（2026-06-14）：
 - 已实现前端 `/admin` 上游配置与健康检查区域，支持保存 Base URL、Key、状态并触发连通性验证。
 - 已新增 `UPSTREAM_KEY_ENCRYPTION_SECRET` 运行时配置；Compose 带开发专用默认值，生产真实密钥必须放 `.env` 或服务器环境变量。
 - 已创建 `docs/quality/t05-self-check.md`，记录类型检查、构建、Docker 重建、真实 HTTP 健康检查、密文查库、自检数据清理和剩余风险。
+
+T06 完成记录（2026-06-14）：
+
+- 已新增 `model_prices`、`upstream_models`、`model_group_accesses` 数据表、`ModelStatus` 枚举与 Prisma migration `20260614141000_t06_model_group_config`。
+- 已实现统一模型可见性查询服务，用户可见模型必须同时满足用户分组 active、模型 active、上游 active、存在 active 映射。
+- 已实现后端 `/admin/model-config`、`/admin/groups`、`/admin/users/:id/group`、`/admin/models`、`/admin/upstream-models`，继续由 `AuthGuard + AdminGuard` 保护。
+- 已实现前端 `/admin` 分组配置、用户分组调整、模型价格配置、上游模型映射；已实现 `/account` 展示当前用户分组可用模型。
+- 已创建 `docs/quality/t06-self-check.md`，记录类型检查、构建、迁移恢复、真实后台 API、真实用户可见性、越权检查、密文查库和自检数据清理。
 
 ## 12. 待你确认的一个关键决策
 

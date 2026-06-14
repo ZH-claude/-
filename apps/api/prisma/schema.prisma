@@ -41,6 +41,11 @@ enum UpstreamHealthStatus {
   UNHEALTHY
 }
 
+enum ModelStatus {
+  ACTIVE
+  DISABLED
+}
+
 model UserGroup {
   id         String      @id @default(uuid()) @db.Uuid
   code       String      @unique
@@ -48,6 +53,7 @@ model UserGroup {
   multiplier Decimal     @default(1.0) @db.Decimal(10, 4)
   status     GroupStatus @default(ACTIVE)
   users      User[]
+  modelAccesses ModelGroupAccess[]
   createdAt  DateTime    @default(now()) @map("created_at")
   updatedAt  DateTime    @updatedAt @map("updated_at")
 
@@ -155,10 +161,59 @@ model UpstreamProvider {
   lastHealthError     String?                @map("last_health_error")
   createdByAdminId    String                 @map("created_by_admin_id") @db.Uuid
   createdByAdmin      User                   @relation("UpstreamProviderCreator", fields: [createdByAdminId], references: [id])
+  upstreamModels      UpstreamModel[]
   createdAt           DateTime               @default(now()) @map("created_at")
   updatedAt           DateTime               @updatedAt @map("updated_at")
 
   @@index([status], map: "upstream_providers_status_idx")
   @@index([healthStatus], map: "upstream_providers_health_status_idx")
   @@map("upstream_providers")
+}
+
+model ModelPrice {
+  id                    String             @id @default(uuid()) @db.Uuid
+  model                 String             @unique
+  displayName           String?            @map("display_name")
+  inputPriceCentsPer1k  Int                @default(0) @map("input_price_cents_per_1k")
+  outputPriceCentsPer1k Int                @default(0) @map("output_price_cents_per_1k")
+  modelMultiplier       Decimal            @default(1.0) @map("model_multiplier") @db.Decimal(10, 4)
+  status                ModelStatus        @default(ACTIVE)
+  groupAccesses         ModelGroupAccess[]
+  upstreamModels        UpstreamModel[]    @relation("ModelUpstreamMappings")
+  createdAt             DateTime           @default(now()) @map("created_at")
+  updatedAt             DateTime           @updatedAt @map("updated_at")
+
+  @@index([status], map: "model_prices_status_idx")
+  @@map("model_prices")
+}
+
+model UpstreamModel {
+  id             String           @id @default(uuid()) @db.Uuid
+  providerId     String           @map("provider_id") @db.Uuid
+  provider       UpstreamProvider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  publicModel    String           @map("public_model")
+  modelPrice     ModelPrice       @relation("ModelUpstreamMappings", fields: [publicModel], references: [model], onDelete: Cascade)
+  upstreamModel  String           @map("upstream_model")
+  status         ModelStatus      @default(ACTIVE)
+  supportsStream Boolean          @default(true) @map("supports_stream")
+  createdAt      DateTime         @default(now()) @map("created_at")
+  updatedAt      DateTime         @updatedAt @map("updated_at")
+
+  @@unique([providerId, publicModel, upstreamModel], map: "upstream_models_provider_public_upstream_key")
+  @@index([providerId], map: "upstream_models_provider_id_idx")
+  @@index([publicModel, status], map: "upstream_models_public_status_idx")
+  @@map("upstream_models")
+}
+
+model ModelGroupAccess {
+  id           String      @id @default(uuid()) @db.Uuid
+  modelPriceId String      @map("model_price_id") @db.Uuid
+  modelPrice   ModelPrice  @relation(fields: [modelPriceId], references: [id], onDelete: Cascade)
+  groupId      String      @map("group_id") @db.Uuid
+  group        UserGroup   @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  createdAt    DateTime    @default(now()) @map("created_at")
+
+  @@unique([modelPriceId, groupId], map: "model_group_accesses_model_group_key")
+  @@index([groupId], map: "model_group_accesses_group_id_idx")
+  @@map("model_group_accesses")
 }

@@ -16,6 +16,17 @@ export type PublicUser = {
     balanceCents: number;
     totalSpendCents: number;
   };
+  availableModels: AvailableModel[];
+};
+
+export type AvailableModel = {
+  model: string;
+  displayName: string | null;
+  inputPriceCentsPer1k: number;
+  outputPriceCentsPer1k: number;
+  modelMultiplier: string;
+  groupMultiplier: string;
+  supportsStream: boolean;
 };
 
 type AuthResponse = {

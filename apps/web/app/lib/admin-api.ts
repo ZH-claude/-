@@ -44,6 +44,58 @@ export type UpstreamProvider = {
   updatedAt: string;
 };
 
+export type AdminGroup = {
+  id: string;
+  code: string;
+  name: string;
+  multiplier: string;
+  status: string;
+  userCount: number;
+  modelAccessCount: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type AdminModelPrice = {
+  id: string;
+  model: string;
+  displayName: string | null;
+  inputPriceCentsPer1k: number;
+  outputPriceCentsPer1k: number;
+  modelMultiplier: string;
+  status: string;
+  groups: Array<{
+    id: string;
+    code: string;
+    name: string;
+  }>;
+  upstreamMappings: Array<{
+    id: string;
+    providerId: string;
+    providerName: string;
+    providerStatus: string;
+    upstreamModel: string;
+    status: string;
+    supportsStream: boolean;
+  }>;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type UpstreamModelMapping = {
+  id: string;
+  providerId: string;
+  providerName: string;
+  providerStatus: string;
+  publicModel: string;
+  displayName: string | null;
+  upstreamModel: string;
+  status: string;
+  supportsStream: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
 type UserListResponse = {
   items: AdminUser[];
   total: number;
@@ -57,6 +109,18 @@ type AnnouncementListResponse = {
 
 type UpstreamProviderListResponse = {
   items: UpstreamProvider[];
+};
+
+type ModelConfigurationResponse = {
+  groups: AdminGroup[];
+  models: AdminModelPrice[];
+  upstreamModels: UpstreamModelMapping[];
+  upstreamModelsPagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
 };
 
 type UpstreamHealthCheckResponse = {
@@ -86,6 +150,19 @@ export async function listUpstreamProviders() {
   return request<UpstreamProviderListResponse>('/admin/upstreams');
 }
 
+export async function listModelConfiguration(options: { upstreamModelsPage?: number; upstreamModelsLimit?: number } = {}) {
+  const params = new URLSearchParams();
+  if (options.upstreamModelsPage) {
+    params.set('upstreamModelsPage', String(options.upstreamModelsPage));
+  }
+  if (options.upstreamModelsLimit) {
+    params.set('upstreamModelsLimit', String(options.upstreamModelsLimit));
+  }
+
+  const queryString = params.toString();
+  return request<ModelConfigurationResponse>(`/admin/model-config${queryString ? `?${queryString}` : ''}`);
+}
+
 export async function createUpstreamProvider(payload: {
   name: string;
   baseUrl: string;
@@ -93,6 +170,53 @@ export async function createUpstreamProvider(payload: {
   status: 'active' | 'disabled';
 }) {
   return request<UpstreamProvider>('/admin/upstreams', {
+    method: 'POST',
+    body: payload
+  });
+}
+
+export async function createUserGroup(payload: {
+  code: string;
+  name: string;
+  multiplier: string;
+  status: 'active' | 'disabled';
+}) {
+  return request<AdminGroup>('/admin/groups', {
+    method: 'POST',
+    body: payload
+  });
+}
+
+export async function assignUserGroup(userId: string, payload: { groupId: string }) {
+  return request<AdminUser>(`/admin/users/${encodeURIComponent(userId)}/group`, {
+    method: 'POST',
+    body: payload
+  });
+}
+
+export async function createModelPrice(payload: {
+  model: string;
+  displayName?: string;
+  inputPriceCentsPer1k: number;
+  outputPriceCentsPer1k: number;
+  modelMultiplier: string;
+  status: 'active' | 'disabled';
+  groupIds: string[];
+}) {
+  return request<AdminModelPrice>('/admin/models', {
+    method: 'POST',
+    body: payload
+  });
+}
+
+export async function createUpstreamModel(payload: {
+  providerId: string;
+  publicModel: string;
+  upstreamModel: string;
+  status: 'active' | 'disabled';
+  supportsStream: boolean;
+}) {
+  return request<UpstreamModelMapping>('/admin/upstream-models', {
     method: 'POST',
     body: payload
   });

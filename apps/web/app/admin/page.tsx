@@ -6,8 +6,10 @@ import {
   CloudServerOutlined,
   DashboardOutlined,
   ExperimentOutlined,
+  LeftOutlined,
   LogoutOutlined,
   ReloadOutlined,
+  RightOutlined,
   SendOutlined,
   TeamOutlined
 } from '@ant-design/icons';
@@ -16,21 +18,38 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import {
+  assignUserGroup,
   checkUpstreamHealth,
   createAnnouncement,
+  createModelPrice,
+  createUpstreamModel,
   createUpstreamProvider,
+  createUserGroup,
   listAdminUsers,
   listAnnouncements,
+  listModelConfiguration,
   listUpstreamProviders
 } from '../lib/admin-api';
-import type { AdminUser, Announcement, UpstreamProvider } from '../lib/admin-api';
+import type { AdminGroup, AdminModelPrice, AdminUser, Announcement, UpstreamModelMapping, UpstreamProvider } from '../lib/admin-api';
 import { logout } from '../lib/auth-api';
+
+const UPSTREAM_MAPPING_PAGE_LIMIT = 100;
+const DEFAULT_UPSTREAM_MODEL_PAGINATION = {
+  page: 1,
+  limit: UPSTREAM_MAPPING_PAGE_LIMIT,
+  total: 0,
+  totalPages: 1
+};
 
 export default function AdminPage() {
   const router = useRouter();
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [upstreams, setUpstreams] = useState<UpstreamProvider[]>([]);
+  const [groups, setGroups] = useState<AdminGroup[]>([]);
+  const [models, setModels] = useState<AdminModelPrice[]>([]);
+  const [upstreamModels, setUpstreamModels] = useState<UpstreamModelMapping[]>([]);
+  const [upstreamModelPagination, setUpstreamModelPagination] = useState(DEFAULT_UPSTREAM_MODEL_PAGINATION);
   const [totalUsers, setTotalUsers] = useState(0);
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
@@ -39,11 +58,34 @@ export default function AdminPage() {
   const [upstreamBaseUrl, setUpstreamBaseUrl] = useState('');
   const [upstreamApiKey, setUpstreamApiKey] = useState('');
   const [upstreamStatus, setUpstreamStatus] = useState<'active' | 'disabled'>('active');
+  const [groupCode, setGroupCode] = useState('');
+  const [groupName, setGroupName] = useState('');
+  const [groupMultiplier, setGroupMultiplier] = useState('1.0000');
+  const [groupStatus, setGroupStatus] = useState<'active' | 'disabled'>('active');
+  const [assignUserId, setAssignUserId] = useState('');
+  const [assignGroupId, setAssignGroupId] = useState('');
+  const [modelName, setModelName] = useState('');
+  const [modelDisplayName, setModelDisplayName] = useState('');
+  const [inputPriceCentsPer1k, setInputPriceCentsPer1k] = useState('0');
+  const [outputPriceCentsPer1k, setOutputPriceCentsPer1k] = useState('0');
+  const [modelMultiplier, setModelMultiplier] = useState('1.0000');
+  const [modelStatus, setModelStatus] = useState<'active' | 'disabled'>('active');
+  const [modelGroupIds, setModelGroupIds] = useState<string[]>([]);
+  const [upstreamModelProviderId, setUpstreamModelProviderId] = useState('');
+  const [upstreamPublicModel, setUpstreamPublicModel] = useState('');
+  const [upstreamModelName, setUpstreamModelName] = useState('');
+  const [upstreamModelStatus, setUpstreamModelStatus] = useState<'active' | 'disabled'>('active');
+  const [supportsStream, setSupportsStream] = useState(true);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isUpstreamSubmitting, setIsUpstreamSubmitting] = useState(false);
+  const [isGroupSubmitting, setIsGroupSubmitting] = useState(false);
+  const [isModelSubmitting, setIsModelSubmitting] = useState(false);
+  const [isMappingSubmitting, setIsMappingSubmitting] = useState(false);
+  const [isMappingPageLoading, setIsMappingPageLoading] = useState(false);
+  const [isAssigningGroup, setIsAssigningGroup] = useState(false);
   const [checkingUpstreamId, setCheckingUpstreamId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -55,15 +97,20 @@ export default function AdminPage() {
     setError('');
 
     try {
-      const [userResult, announcementResult, upstreamResult] = await Promise.all([
+      const [userResult, announcementResult, upstreamResult, modelConfigResult] = await Promise.all([
         listAdminUsers(),
         listAnnouncements(),
-        listUpstreamProviders()
+        listUpstreamProviders(),
+        listModelConfiguration({
+          upstreamModelsPage: 1,
+          upstreamModelsLimit: UPSTREAM_MAPPING_PAGE_LIMIT
+        })
       ]);
       setUsers(userResult.items);
       setTotalUsers(userResult.total);
       setAnnouncements(announcementResult.items);
       setUpstreams(upstreamResult.items);
+      applyModelConfiguration(modelConfigResult, upstreamResult.items);
     } catch (nextError) {
       const nextMessage = nextError instanceof Error ? nextError.message : '后台数据加载失败';
       setError(nextMessage);
@@ -72,6 +119,42 @@ export default function AdminPage() {
       }
     } finally {
       setIsLoading(false);
+    }
+  }
+
+  function applyModelConfiguration(
+    result: Awaited<ReturnType<typeof listModelConfiguration>>,
+    providerOptions: UpstreamProvider[] = upstreams
+  ) {
+    setGroups(result.groups);
+    setModels(result.models);
+    setUpstreamModels(result.upstreamModels);
+    setUpstreamModelPagination(result.upstreamModelsPagination);
+    setAssignGroupId((current) => current || result.groups[0]?.id || '');
+    setModelGroupIds((current) => (current.length ? current : result.groups[0] ? [result.groups[0].id] : []));
+    setUpstreamModelProviderId((current) => current || providerOptions[0]?.id || '');
+    setUpstreamPublicModel((current) => current || result.models[0]?.model || '');
+  }
+
+  async function refreshModelConfiguration(page = upstreamModelPagination.page) {
+    const modelConfigResult = await listModelConfiguration({
+      upstreamModelsPage: page,
+      upstreamModelsLimit: UPSTREAM_MAPPING_PAGE_LIMIT
+    });
+    applyModelConfiguration(modelConfigResult);
+  }
+
+  async function handleUpstreamModelPageChange(page: number) {
+    setError('');
+    setMessage('');
+    setIsMappingPageLoading(true);
+
+    try {
+      await refreshModelConfiguration(page);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : '上游模型映射分页加载失败');
+    } finally {
+      setIsMappingPageLoading(false);
     }
   }
 
@@ -120,6 +203,108 @@ export default function AdminPage() {
       setError(nextError instanceof Error ? nextError.message : '上游配置保存失败');
     } finally {
       setIsUpstreamSubmitting(false);
+    }
+  }
+
+  async function handleCreateGroup(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError('');
+    setMessage('');
+    setIsGroupSubmitting(true);
+
+    try {
+      await createUserGroup({
+        code: groupCode,
+        name: groupName,
+        multiplier: groupMultiplier,
+        status: groupStatus
+      });
+      setGroupCode('');
+      setGroupName('');
+      setGroupMultiplier('1.0000');
+      setGroupStatus('active');
+      setMessage('分组已保存');
+      await refreshModelConfiguration();
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : '分组保存失败');
+    } finally {
+      setIsGroupSubmitting(false);
+    }
+  }
+
+  async function handleAssignUserGroup(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError('');
+    setMessage('');
+    setIsAssigningGroup(true);
+
+    try {
+      const updatedUser = await assignUserGroup(assignUserId, { groupId: assignGroupId });
+      setUsers((currentUsers) => currentUsers.map((user) => (user.id === updatedUser.id ? updatedUser : user)));
+      setAssignUserId('');
+      setMessage('用户分组已更新');
+      await refreshModelConfiguration();
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : '用户分组更新失败');
+    } finally {
+      setIsAssigningGroup(false);
+    }
+  }
+
+  async function handleCreateModel(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError('');
+    setMessage('');
+    setIsModelSubmitting(true);
+
+    try {
+      await createModelPrice({
+        model: modelName,
+        displayName: modelDisplayName || undefined,
+        inputPriceCentsPer1k: Number(inputPriceCentsPer1k),
+        outputPriceCentsPer1k: Number(outputPriceCentsPer1k),
+        modelMultiplier,
+        status: modelStatus,
+        groupIds: modelGroupIds
+      });
+      setModelName('');
+      setModelDisplayName('');
+      setInputPriceCentsPer1k('0');
+      setOutputPriceCentsPer1k('0');
+      setModelMultiplier('1.0000');
+      setModelStatus('active');
+      setMessage('模型价格已保存');
+      await refreshModelConfiguration();
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : '模型价格保存失败');
+    } finally {
+      setIsModelSubmitting(false);
+    }
+  }
+
+  async function handleCreateUpstreamModel(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError('');
+    setMessage('');
+    setIsMappingSubmitting(true);
+
+    try {
+      await createUpstreamModel({
+        providerId: upstreamModelProviderId,
+        publicModel: upstreamPublicModel,
+        upstreamModel: upstreamModelName,
+        status: upstreamModelStatus,
+        supportsStream
+      });
+      setUpstreamModelName('');
+      setUpstreamModelStatus('active');
+      setSupportsStream(true);
+      setMessage('上游模型映射已保存');
+      await refreshModelConfiguration(1);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : '上游模型映射保存失败');
+    } finally {
+      setIsMappingSubmitting(false);
     }
   }
 
@@ -203,7 +388,362 @@ export default function AdminPage() {
               <strong>{isLoading ? '-' : upstreams.length}</strong>
               <small>configured provider connections</small>
             </section>
+            <section className="metric-panel">
+              <span>Models</span>
+              <strong>{isLoading ? '-' : models.length}</strong>
+              <small>{groups.length} groups configured</small>
+            </section>
           </div>
+
+          <section className="admin-grid">
+            <section className="admin-panel">
+              <div className="panel-title">
+                <TeamOutlined />
+                <h2>分组配置</h2>
+              </div>
+              <form className="auth-form compact-form" onSubmit={handleCreateGroup}>
+                <label>
+                  Code
+                  <input
+                    maxLength={40}
+                    minLength={2}
+                    onChange={(event) => setGroupCode(event.target.value)}
+                    placeholder="输入分组代码"
+                    required
+                    value={groupCode}
+                  />
+                </label>
+                <label>
+                  名称
+                  <input
+                    maxLength={80}
+                    minLength={2}
+                    onChange={(event) => setGroupName(event.target.value)}
+                    required
+                    value={groupName}
+                  />
+                </label>
+                <label>
+                  分组倍率
+                  <input
+                    min="0.0001"
+                    max="100"
+                    onChange={(event) => setGroupMultiplier(event.target.value)}
+                    required
+                    step="0.0001"
+                    type="number"
+                    value={groupMultiplier}
+                  />
+                </label>
+                <label>
+                  状态
+                  <select
+                    onChange={(event) => setGroupStatus(event.target.value as 'active' | 'disabled')}
+                    value={groupStatus}
+                  >
+                    <option value="active">active</option>
+                    <option value="disabled">disabled</option>
+                  </select>
+                </label>
+                <button className="primary-button" disabled={isGroupSubmitting} type="submit">
+                  <TeamOutlined />
+                  {isGroupSubmitting ? 'Saving' : 'Save group'}
+                </button>
+              </form>
+              <div className="admin-table-wrap compact-table">
+                <table className="admin-table">
+                  <thead>
+                    <tr>
+                      <th>Code</th>
+                      <th>Name</th>
+                      <th>Multiplier</th>
+                      <th>Status</th>
+                      <th>Users</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {groups.map((group) => (
+                      <tr key={group.id}>
+                        <td>{group.code}</td>
+                        <td>{group.name}</td>
+                        <td>{group.multiplier}</td>
+                        <td>{group.status}</td>
+                        <td>{group.userCount}</td>
+                      </tr>
+                    ))}
+                    {!groups.length && !isLoading ? (
+                      <tr>
+                        <td colSpan={5}>暂无分组</td>
+                      </tr>
+                    ) : null}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section className="admin-panel">
+              <div className="panel-title">
+                <ApiOutlined />
+                <h2>模型价格</h2>
+              </div>
+              <form className="auth-form compact-form" onSubmit={handleCreateModel}>
+                <label>
+                  Public model
+                  <input
+                    maxLength={120}
+                    minLength={2}
+                    onChange={(event) => setModelName(event.target.value)}
+                    placeholder="输入公开模型名"
+                    required
+                    value={modelName}
+                  />
+                </label>
+                <label>
+                  Display name
+                  <input
+                    maxLength={120}
+                    onChange={(event) => setModelDisplayName(event.target.value)}
+                    value={modelDisplayName}
+                  />
+                </label>
+                <div className="form-row">
+                  <label>
+                    Input / 1K
+                    <input
+                      min="0"
+                      onChange={(event) => setInputPriceCentsPer1k(event.target.value)}
+                      required
+                      step="1"
+                      type="number"
+                      value={inputPriceCentsPer1k}
+                    />
+                  </label>
+                  <label>
+                    Output / 1K
+                    <input
+                      min="0"
+                      onChange={(event) => setOutputPriceCentsPer1k(event.target.value)}
+                      required
+                      step="1"
+                      type="number"
+                      value={outputPriceCentsPer1k}
+                    />
+                  </label>
+                </div>
+                <label>
+                  模型倍率
+                  <input
+                    min="0.0001"
+                    max="100"
+                    onChange={(event) => setModelMultiplier(event.target.value)}
+                    required
+                    step="0.0001"
+                    type="number"
+                    value={modelMultiplier}
+                  />
+                </label>
+                <label>
+                  可见分组
+                  <select
+                    className="multi-select"
+                    multiple
+                    onChange={(event) =>
+                      setModelGroupIds(Array.from(event.currentTarget.selectedOptions, (option) => option.value))
+                    }
+                    required
+                    value={modelGroupIds}
+                  >
+                    {groups.map((group) => (
+                      <option key={group.id} value={group.id}>
+                        {group.name} ({group.code})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  状态
+                  <select
+                    onChange={(event) => setModelStatus(event.target.value as 'active' | 'disabled')}
+                    value={modelStatus}
+                  >
+                    <option value="active">active</option>
+                    <option value="disabled">disabled</option>
+                  </select>
+                </label>
+                <button className="primary-button" disabled={isModelSubmitting} type="submit">
+                  <ApiOutlined />
+                  {isModelSubmitting ? 'Saving' : 'Save model'}
+                </button>
+              </form>
+              <div className="admin-table-wrap compact-table">
+                <table className="admin-table model-table">
+                  <thead>
+                    <tr>
+                      <th>Model</th>
+                      <th>Price</th>
+                      <th>Groups</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {models.map((model) => (
+                      <tr key={model.id}>
+                        <td>
+                          {model.model}
+                          {model.displayName ? <small className="table-note">{model.displayName}</small> : null}
+                        </td>
+                        <td>
+                          {model.inputPriceCentsPer1k}/{model.outputPriceCentsPer1k}
+                          <small className="table-note">x {model.modelMultiplier}</small>
+                        </td>
+                        <td>{model.groups.map((group) => group.code).join(', ') || '-'}</td>
+                        <td>{model.status}</td>
+                      </tr>
+                    ))}
+                    {!models.length && !isLoading ? (
+                      <tr>
+                        <td colSpan={4}>No models configured</td>
+                      </tr>
+                    ) : null}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          </section>
+
+          <section className="admin-panel">
+            <div className="panel-title">
+              <ExperimentOutlined />
+              <h2>上游模型映射</h2>
+            </div>
+            <form className="auth-form mapping-form" onSubmit={handleCreateUpstreamModel}>
+              <label>
+                Provider
+                <select
+                  onChange={(event) => setUpstreamModelProviderId(event.target.value)}
+                  required
+                  value={upstreamModelProviderId}
+                >
+                  <option value="">Select provider</option>
+                  {upstreams.map((upstream) => (
+                    <option key={upstream.id} value={upstream.id}>
+                      {upstream.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Public model
+                <select
+                  onChange={(event) => setUpstreamPublicModel(event.target.value)}
+                  required
+                  value={upstreamPublicModel}
+                >
+                  <option value="">Select model</option>
+                  {models.map((model) => (
+                    <option key={model.id} value={model.model}>
+                      {model.model}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Upstream model
+                <input
+                  maxLength={120}
+                  minLength={2}
+                  onChange={(event) => setUpstreamModelName(event.target.value)}
+                  placeholder="输入上游实际模型名"
+                  required
+                  value={upstreamModelName}
+                />
+              </label>
+              <label>
+                状态
+                <select
+                  onChange={(event) => setUpstreamModelStatus(event.target.value as 'active' | 'disabled')}
+                  value={upstreamModelStatus}
+                >
+                  <option value="active">active</option>
+                  <option value="disabled">disabled</option>
+                </select>
+              </label>
+              <label className="checkbox-label">
+                <input
+                  checked={supportsStream}
+                  onChange={(event) => setSupportsStream(event.target.checked)}
+                  type="checkbox"
+                />
+                Stream
+              </label>
+              <button className="primary-button" disabled={isMappingSubmitting} type="submit">
+                <ExperimentOutlined />
+                {isMappingSubmitting ? 'Saving' : 'Save mapping'}
+              </button>
+            </form>
+            <div className="admin-table-wrap">
+              <table className="admin-table model-table">
+                <thead>
+                  <tr>
+                    <th>Public</th>
+                    <th>Upstream</th>
+                    <th>Provider</th>
+                    <th>Status</th>
+                    <th>Stream</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {upstreamModels.map((mapping) => (
+                    <tr key={mapping.id}>
+                      <td>{mapping.publicModel}</td>
+                      <td>{mapping.upstreamModel}</td>
+                      <td>
+                        {mapping.providerName}
+                        <small className="table-note">{mapping.providerStatus}</small>
+                      </td>
+                      <td>{mapping.status}</td>
+                      <td>{mapping.supportsStream ? 'yes' : 'no'}</td>
+                    </tr>
+                  ))}
+                  {!upstreamModels.length && !isLoading ? (
+                    <tr>
+                      <td colSpan={5}>No mappings configured</td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
+            <div className="table-pagination">
+              <span>
+                第 {upstreamModelPagination.page} / {upstreamModelPagination.totalPages} 页，共{' '}
+                {upstreamModelPagination.total} 条映射
+              </span>
+              <div className="pagination-actions">
+                <button
+                  className="ghost-button compact-button"
+                  disabled={isMappingPageLoading || upstreamModelPagination.page <= 1}
+                  onClick={() => void handleUpstreamModelPageChange(upstreamModelPagination.page - 1)}
+                  type="button"
+                >
+                  <LeftOutlined />
+                  上一页
+                </button>
+                <button
+                  className="ghost-button compact-button"
+                  disabled={
+                    isMappingPageLoading ||
+                    upstreamModelPagination.page >= upstreamModelPagination.totalPages ||
+                    upstreamModelPagination.total === 0
+                  }
+                  onClick={() => void handleUpstreamModelPageChange(upstreamModelPagination.page + 1)}
+                  type="button"
+                >
+                  下一页
+                  <RightOutlined />
+                </button>
+              </div>
+            </div>
+          </section>
 
           <section className="admin-grid">
             <section className="admin-panel">
@@ -228,7 +768,7 @@ export default function AdminPage() {
                     maxLength={2048}
                     minLength={8}
                     onChange={(event) => setUpstreamBaseUrl(event.target.value)}
-                    placeholder="https://api.example.com"
+                    placeholder="输入上游 Base URL"
                     required
                     type="url"
                     value={upstreamBaseUrl}
@@ -327,6 +867,34 @@ export default function AdminPage() {
               <TeamOutlined />
               <h2>用户列表</h2>
             </div>
+            <form className="auth-form mapping-form" onSubmit={handleAssignUserGroup}>
+              <label>
+                User
+                <select onChange={(event) => setAssignUserId(event.target.value)} required value={assignUserId}>
+                  <option value="">Select user</option>
+                  {users.map((user) => (
+                    <option key={user.id} value={user.id}>
+                      {user.username}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Group
+                <select onChange={(event) => setAssignGroupId(event.target.value)} required value={assignGroupId}>
+                  <option value="">Select group</option>
+                  {groups.map((group) => (
+                    <option key={group.id} value={group.id}>
+                      {group.name} ({group.code})
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button className="primary-button" disabled={isAssigningGroup} type="submit">
+                <TeamOutlined />
+                {isAssigningGroup ? 'Saving' : 'Assign group'}
+              </button>
+            </form>
             <div className="admin-table-wrap">
               <table className="admin-table">
                 <thead>

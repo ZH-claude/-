@@ -234,6 +234,11 @@ button {
   width: 100%;
 }
 
+.auth-form input[type='checkbox'] {
+  height: auto;
+  width: auto;
+}
+
 .auth-form select,
 .auth-form textarea {
   background: #ffffff;
@@ -284,6 +289,11 @@ button {
 .primary-button:disabled {
   cursor: wait;
   opacity: 0.68;
+}
+
+.ghost-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.52;
 }
 
 .secondary-link-button,
@@ -402,7 +412,7 @@ button {
 .admin-metrics {
   display: grid;
   gap: 16px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .admin-grid {
@@ -422,6 +432,10 @@ button {
 .admin-table-wrap {
   max-width: 100%;
   overflow-x: auto;
+}
+
+.compact-table {
+  margin-top: 18px;
 }
 
 .admin-table {
@@ -526,8 +540,49 @@ button {
   padding: 0 10px;
 }
 
+.table-pagination {
+  align-items: center;
+  color: #475569;
+  display: flex;
+  font-size: 13px;
+  gap: 12px;
+  justify-content: space-between;
+  margin-top: 14px;
+}
+
+.pagination-actions {
+  display: flex;
+  gap: 8px;
+}
+
 .upstream-table {
   min-width: 860px;
+}
+
+.model-table {
+  min-width: 720px;
+}
+
+.form-row,
+.mapping-form {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.mapping-form {
+  align-items: end;
+  margin-bottom: 18px;
+}
+
+.multi-select {
+  min-height: 96px;
+}
+
+.checkbox-label {
+  align-items: center !important;
+  flex-direction: row !important;
+  min-height: 42px;
 }
 
 .announcement-item p {
@@ -639,6 +694,46 @@ button {
   overflow-wrap: anywhere;
 }
 
+.model-list {
+  display: grid;
+  gap: 12px;
+}
+
+.model-item {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+}
+
+.model-item div {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.model-item strong {
+  color: #111827;
+  overflow-wrap: anywhere;
+}
+
+.model-item span {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 999px;
+  color: #166534;
+  font-size: 12px;
+  padding: 3px 8px;
+}
+
+.model-item small {
+  color: #64748b;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
 .compact-form {
   max-width: 420px;
 }
@@ -730,12 +825,24 @@ button {
   }
 
   .admin-metrics,
-  .admin-grid {
+  .admin-grid,
+  .form-row,
+  .mapping-form {
     grid-template-columns: 1fr;
   }
 
   .admin-top-actions .ghost-button {
     padding: 0 10px;
+  }
+
+  .table-pagination {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .pagination-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .wide-panel {
