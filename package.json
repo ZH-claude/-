@@ -10,6 +10,7 @@
     "typecheck": "npm --prefix apps/api run typecheck && npm --prefix apps/web run typecheck",
     "qa:t10:recharge": "npm --prefix apps/api run qa:t10:recharge",
     "qa:t11:usage-logs": "npm --prefix apps/api run qa:t11:usage-logs",
+    "qa:t12:pricing": "npm --prefix apps/api run qa:t12:pricing",
     "start:api": "npm --prefix apps/api run start",
     "start:web": "npm --prefix apps/web run start"
   },

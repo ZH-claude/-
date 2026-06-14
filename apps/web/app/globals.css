@@ -789,6 +789,57 @@ button {
   min-width: 1180px;
 }
 
+.formula-box {
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+}
+
+.formula-box code {
+  color: #111827;
+  font-family: Consolas, "Liberation Mono", monospace;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.formula-box small {
+  color: #64748b;
+  line-height: 1.5;
+}
+
+.pricing-search {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  color: #64748b;
+  display: flex;
+  gap: 10px;
+  max-width: 520px;
+  min-height: 42px;
+  padding: 0 12px;
+}
+
+.pricing-search:focus-within {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14);
+}
+
+.pricing-search input {
+  border: 0;
+  color: #111827;
+  flex: 1;
+  min-width: 0;
+  outline: 0;
+}
+
+.pricing-table {
+  min-width: 1120px;
+}
+
 .one-time-key-box {
   align-items: flex-start;
   background: #f8fafc;

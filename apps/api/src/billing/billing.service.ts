@@ -1,6 +1,7 @@
 import { ForbiddenException, Inject, Injectable } from '@nestjs/common';
 import { Prisma, UsageEventStatus, WalletTransactionType } from '../generated/prisma/client';
 import { PrismaService } from '../prisma.service';
+import { BILLING_FORMULA } from './billing.constants';
 
 export type BillableModel = {
   model: string;
@@ -312,7 +313,7 @@ export class BillingService {
       status: input.status,
       errorCode: input.errorCode,
       meteringSource: input.usage.metered ? 'upstream_usage' : 'missing_or_incomplete_usage',
-      formula: 'ceil(((prompt_tokens * input_price_cents_per_1k + completion_tokens * output_price_cents_per_1k) / 1000) * model_multiplier * group_multiplier)'
+      formula: BILLING_FORMULA
     };
   }
 
