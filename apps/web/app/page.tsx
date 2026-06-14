@@ -12,12 +12,13 @@ import {
   UserOutlined
 } from '@ant-design/icons';
 import { Card, Col, Layout, Menu, Row, Space, Statistic, Tag, Typography } from 'antd';
+import Link from 'next/link';
 
 const { Header, Sider, Content } = Layout;
 
 const menuItems = [
-  { key: 'home', icon: <DashboardOutlined />, label: '主页' },
-  { key: 'profile', icon: <UserOutlined />, label: '个人中心' },
+  { key: 'home', icon: <DashboardOutlined />, label: <Link href="/">首页</Link> },
+  { key: 'profile', icon: <UserOutlined />, label: <Link href="/account">个人中心</Link> },
   { key: 'token', icon: <KeyOutlined />, label: '令牌' },
   { key: 'logs', icon: <FileTextOutlined />, label: '日志' },
   { key: 'billing', icon: <CreditCardOutlined />, label: '余额充值' },
@@ -55,20 +56,28 @@ export default function HomePage() {
           </Space>
           <Space>
             <BellOutlined />
-            <Tag color="blue">T01 Scaffold</Tag>
+            <Tag color="blue">T03 Auth</Tag>
           </Space>
         </Header>
 
         <Content style={{ padding: 24 }}>
           <Space orientation="vertical" size={20} style={{ width: '100%' }}>
             <Card>
-              <Space orientation="vertical" size={8}>
+              <Space orientation="vertical" size={12}>
                 <Typography.Title level={3} style={{ margin: 0 }}>
-                  后台壳页面
+                  账户基础已接入
                 </Typography.Title>
                 <Typography.Text type="secondary">
-                  当前阶段只验证前端、后端、PostgreSQL、Redis 和 Docker Compose 的基础启动链路。
+                  当前阶段支持注册、登录、服务端会话、退出和修改密码。充值、令牌和 API 转发在后续任务接入。
                 </Typography.Text>
+                <Space>
+                  <Link className="primary-link-button" href="/login">
+                    登录
+                  </Link>
+                  <Link className="secondary-link-button" href="/register">
+                    注册
+                  </Link>
+                </Space>
               </Space>
             </Card>
 
@@ -80,12 +89,12 @@ export default function HomePage() {
               </Col>
               <Col xs={24} md={8}>
                 <Card>
-                  <Statistic title="后端健康检查" value="/health" />
+                  <Statistic title="认证接口" value="/auth" />
                 </Card>
               </Col>
               <Col xs={24} md={8}>
                 <Card>
-                  <Statistic title="当前任务" value="T01" suffix="骨架" />
+                  <Statistic title="当前任务" value="T03" suffix="账户基础" />
                 </Card>
               </Col>
             </Row>

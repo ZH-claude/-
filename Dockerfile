@@ -13,4 +13,7 @@ RUN npm ci --prefix apps/api \
 
 COPY . .
 
+RUN DATABASE_URL="postgresql://nested_relay:change-me@postgres:5432/nested_relay?schema=public" \
+  npm --prefix apps/api run prisma:generate
+
 EXPOSE 3000 3001

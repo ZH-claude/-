@@ -291,7 +291,7 @@ Loki/Prometheus/Grafana
 | [x] | T00 | 目标站调研与开发规划 | 本文档 | 已完成页面调研和任务拆分 |
 | [x] | T01 | 初始化项目骨架 | monorepo、前端、后端、Docker Compose、README | `docker compose up` 能启动空壳前后端 |
 | [x] | T02 | 冻结 MVP 需求与接口范围 | PRD、接口清单、数据字典 | 明确首期支持的 `/v1/*` 接口和不做的功能 |
-| [ ] | T03 | 用户认证与账户基础 | 登录、注册、会话、用户表 | 用户可注册、登录、退出、修改密码 |
+| [x] | T03 | 用户认证与账户基础 | 登录、注册、会话、用户表 | 用户可注册、登录、退出、修改密码 |
 | [ ] | T04 | 管理后台基础 | 管理员登录、用户列表、公告管理入口 | 管理员可查看用户并发布公告 |
 | [ ] | T05 | 上游中转站配置 | 上游配置表、Base URL、Key 加密、健康检查 | 可配置一个上游并验证连通 |
 | [ ] | T06 | 模型与分组配置 | 模型表、分组倍率、用户分组 | 用户能看到自己分组可用模型 |
@@ -314,7 +314,7 @@ Loki/Prometheus/Grafana
 
 ## 11. 下一次对话建议任务
 
-建议下一次从 T03 开始：用户认证与账户基础。
+建议下一次从 T04 开始：管理后台基础。
 
 T01 的边界：
 
@@ -348,6 +348,15 @@ T02 完成记录（2026-06-14）：
 - 已创建 `docs/quality/t02-self-check.md`，记录代码自检、侧车复核处理、验证命令和剩余风险。
 - 已修复自检发现的基础配置问题：`npm ci` 可复现安装、Redis 可选密码、前端内外部 API 地址区分、Compose 端口变量、`.gitignore` 缓存规则。
 - 已验证 `npm run install:all`、`npm run typecheck`、`npm run build`、api/web audit、Compose 配置、Docker 启动、`/health` 和前端 HTTP 200。
+
+T03 完成记录（2026-06-14）：
+
+- 已实现 PostgreSQL 用户认证基础表：`user_groups`、`users`、`wallets`、`sessions`，并创建 Prisma migration。
+- 已实现后端 `/auth/register`、`/auth/login`、`/auth/me`、`/auth/logout`、`/auth/change-password`。
+- 已采用数据库 opaque session，登出会撤销当前会话，改密会撤销其他会话；密码使用 bcrypt hash，不存明文。
+- 已实现前端 `/register`、`/login`、`/account`，支持注册后进入账户、登录、退出、修改密码、展示分组和余额基础信息。
+- 已让 Compose API 启动前执行 `prisma migrate deploy`，云服务器空库启动时可自动应用迁移。
+- 已创建 `docs/quality/t03-self-check.md`，记录类型检查、构建、依赖审计、Docker、API 链路和浏览器链路验证。
 
 ## 12. 待你确认的一个关键决策
 

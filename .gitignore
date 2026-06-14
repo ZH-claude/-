@@ -4,6 +4,7 @@ apps/*/node_modules/
 apps/web/.next/
 dist/
 apps/api/dist/
+apps/api/src/generated/prisma/
 .env
 .env.*
 !.env.example
