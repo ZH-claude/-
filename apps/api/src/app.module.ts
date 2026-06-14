@@ -10,6 +10,7 @@ import { PricingModule } from './pricing/pricing.module';
 import { GroupAvailabilityModule } from './group-availability/group-availability.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { AnnouncementsModule } from './announcements/announcements.module';
+import { AsyncTasksModule } from './async-tasks/async-tasks.module';
 
 @Module({
   imports: [
@@ -22,7 +23,8 @@ import { AnnouncementsModule } from './announcements/announcements.module';
     PricingModule,
     GroupAvailabilityModule,
     NotificationsModule,
-    AnnouncementsModule
+    AnnouncementsModule,
+    AsyncTasksModule
   ],
   controllers: [AppController]
 })

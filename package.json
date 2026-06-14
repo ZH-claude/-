@@ -14,6 +14,7 @@
     "qa:t13:group-availability": "npm --prefix apps/api run qa:t13:group-availability",
     "qa:t14:notifications": "npm --prefix apps/api run qa:t14:notifications",
     "qa:t15:announcements": "npm --prefix apps/api run qa:t15:announcements",
+    "qa:t16:async-tasks": "npm --prefix apps/api run qa:t16:async-tasks",
     "start:api": "npm --prefix apps/api run start",
     "start:web": "npm --prefix apps/web run start"
   },

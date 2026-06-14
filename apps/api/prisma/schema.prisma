@@ -97,6 +97,19 @@ enum NotificationDeliveryStatus {
   FAILED
 }
 
+enum AsyncTaskKind {
+  GENERIC
+  IMAGE
+}
+
+enum AsyncTaskStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+  CANCELED
+}
+
 model UserGroup {
   id            String             @id @default(uuid()) @db.Uuid
   code          String             @unique
@@ -142,6 +155,7 @@ model User {
   notificationPreference NotificationPreference?
   notificationChannels   NotificationChannel[]
   notificationDeliveries NotificationDelivery[]
+  asyncTasks              AsyncTask[]
 
   @@index([groupId], map: "users_group_id_idx")
   @@index([invitedByUserId], map: "users_invited_by_user_id_idx")
@@ -343,6 +357,35 @@ model AdminAuditLog {
   @@map("admin_audit_logs")
 }
 
+model AsyncTask {
+  id                 String            @id @default(uuid()) @db.Uuid
+  userId             String            @map("user_id") @db.Uuid
+  user               User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  upstreamProviderId String?           @map("upstream_provider_id") @db.Uuid
+  upstreamProvider   UpstreamProvider? @relation(fields: [upstreamProviderId], references: [id], onDelete: SetNull)
+  externalTaskId     String            @map("external_task_id")
+  platform           String
+  kind               AsyncTaskKind     @default(GENERIC)
+  status             AsyncTaskStatus   @default(QUEUED)
+  model              String?
+  prompt             String?
+  progress           Int?
+  resultJson         Json?             @map("result_json")
+  errorMessage       String?           @map("error_message")
+  submittedAt        DateTime          @default(now()) @map("submitted_at")
+  startedAt          DateTime?         @map("started_at")
+  completedAt        DateTime?         @map("completed_at")
+  createdAt          DateTime          @default(now()) @map("created_at")
+  updatedAt          DateTime          @updatedAt @map("updated_at")
+
+  @@unique([platform, externalTaskId], map: "async_tasks_platform_external_task_id_key")
+  @@index([userId, createdAt], map: "async_tasks_user_created_at_idx")
+  @@index([userId, status], map: "async_tasks_user_status_idx")
+  @@index([userId, kind, createdAt], map: "async_tasks_user_kind_created_at_idx")
+  @@index([upstreamProviderId], map: "async_tasks_upstream_provider_id_idx")
+  @@map("async_tasks")
+}
+
 model UpstreamProvider {
   id                  String                 @id @default(uuid()) @db.Uuid
   name                String                 @unique
@@ -358,6 +401,7 @@ model UpstreamProvider {
   createdByAdmin      User                   @relation("UpstreamProviderCreator", fields: [createdByAdminId], references: [id])
   upstreamModels      UpstreamModel[]
   usageEvents         UsageEvent[]
+  asyncTasks          AsyncTask[]
   createdAt           DateTime               @default(now()) @map("created_at")
   updatedAt           DateTime               @updatedAt @map("updated_at")
 

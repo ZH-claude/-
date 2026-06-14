@@ -3,12 +3,14 @@
 import {
   ApiOutlined,
   BellOutlined,
+  ClockCircleOutlined,
   CreditCardOutlined,
   DashboardOutlined,
   FileTextOutlined,
   KeyOutlined,
   LineChartOutlined,
   NotificationOutlined,
+  PictureOutlined,
   SettingOutlined,
   ToolOutlined,
   UserOutlined
@@ -26,6 +28,8 @@ const menuItems = [
   { key: 'profile', icon: <UserOutlined />, label: <Link href="/account">个人中心</Link> },
   { key: 'token', icon: <KeyOutlined />, label: <Link href="/token">令牌</Link> },
   { key: 'logs', icon: <FileTextOutlined />, label: <Link href="/log">日志</Link> },
+  { key: 'task', icon: <ClockCircleOutlined />, label: <Link href="/task">异步任务</Link> },
+  { key: 'midjourney', icon: <PictureOutlined />, label: <Link href="/midjourney">绘图日志</Link> },
   { key: 'billing', icon: <CreditCardOutlined />, label: <Link href="/pricing">费用说明</Link> },
   { key: 'status', icon: <LineChartOutlined />, label: <Link href="/groupAvailability">分组状态</Link> },
   { key: 'settings', icon: <SettingOutlined />, label: <Link href="/account/notificationSettings">通知设置</Link> },
@@ -36,6 +40,8 @@ const documentEntries = [
   { title: '令牌管理', href: '/token', icon: <KeyOutlined /> },
   { title: '费用说明', href: '/pricing', icon: <CreditCardOutlined /> },
   { title: '调用日志', href: '/log', icon: <FileTextOutlined /> },
+  { title: '异步任务', href: '/task', icon: <ClockCircleOutlined /> },
+  { title: '绘图日志', href: '/midjourney', icon: <PictureOutlined /> },
   { title: '余额充值', href: '/account/topup/recharge', icon: <CreditCardOutlined /> },
   { title: '分组状态', href: '/groupAvailability', icon: <LineChartOutlined /> },
   { title: '通知设置', href: '/account/notificationSettings', icon: <BellOutlined /> }
