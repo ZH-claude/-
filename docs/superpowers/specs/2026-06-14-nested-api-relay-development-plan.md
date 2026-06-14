@@ -372,8 +372,9 @@ T05 完成记录（2026-06-14）：
 - 已新增 `upstream_providers` 数据表、状态枚举与 Prisma migration `20260614133000_t05_upstream_providers`。
 - 已实现上游 API Key AES-256-GCM 加密保存，接口和前端只展示 `apiKeyPreview`，不返回明文 Key。
 - 已实现后端 `/admin/upstreams` 与 `/admin/upstreams/:id/health-check`，继续由 `AuthGuard + AdminGuard` 保护。
+- 已为上游健康检查增加本机、内网、链路本地、组播和云元数据地址拦截，避免配置页被用作内网探测入口。
 - 已实现前端 `/admin` 上游配置与健康检查区域，支持保存 Base URL、Key、状态并触发连通性验证。
-- 已新增 `UPSTREAM_KEY_ENCRYPTION_SECRET` 运行时配置，真实密钥只放 `.env` 或服务器环境变量。
+- 已新增 `UPSTREAM_KEY_ENCRYPTION_SECRET` 运行时配置；Compose 带开发专用默认值，生产真实密钥必须放 `.env` 或服务器环境变量。
 - 已创建 `docs/quality/t05-self-check.md`，记录类型检查、构建、Docker 重建、真实 HTTP 健康检查、密文查库、自检数据清理和剩余风险。
 
 ## 12. 待你确认的一个关键决策

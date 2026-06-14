@@ -1,6 +1,8 @@
 import { BadRequestException, ConflictException, Injectable, Inject, NotFoundException, OnModuleInit } from '@nestjs/common';
 import bcrypt from 'bcryptjs';
 import { randomBytes } from 'node:crypto';
+import { lookup } from 'node:dns/promises';
+import { isIP } from 'node:net';
 import {
   Prisma,
   AnnouncementStatus,
@@ -33,6 +35,9 @@ type UpstreamProviderInput = {
 const PASSWORD_HASH_ROUNDS = 12;
 const UPSTREAM_HEALTH_CHECK_TIMEOUT_MS = 8000;
 const UPSTREAM_HEALTH_ERROR_MAX_LENGTH = 240;
+const UPSTREAM_DNS_LOOKUP_TIMEOUT_MS = 3000;
+const PRIVATE_UPSTREAM_ADDRESS_ERROR = 'Private or local upstream address is not allowed';
+const BLOCKED_UPSTREAM_HOSTNAMES = new Set(['localhost', 'host.docker.internal', 'metadata.google.internal']);
 
 @Injectable()
 export class AdminService implements OnModuleInit {
@@ -469,6 +474,15 @@ export class AdminService implements OnModuleInit {
 
   private async fetchUpstreamHealth(baseUrl: string, apiKey: string) {
     const startedAt = Date.now();
+    const addressError = await this.getPublicUpstreamAddressError(baseUrl);
+    if (addressError) {
+      return {
+        healthStatus: UpstreamHealthStatus.UNHEALTHY,
+        latencyMs: Date.now() - startedAt,
+        error: addressError
+      };
+    }
+
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), UPSTREAM_HEALTH_CHECK_TIMEOUT_MS);
 
@@ -501,6 +515,97 @@ export class AdminService implements OnModuleInit {
 
   private buildUpstreamModelsUrl(baseUrl: string) {
     return `${baseUrl.replace(/\/+$/, '')}/v1/models`;
+  }
+
+  private async getPublicUpstreamAddressError(baseUrl: string) {
+    const parsed = new URL(baseUrl);
+    const hostname = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+
+    if (this.isBlockedUpstreamHostname(hostname)) {
+      return PRIVATE_UPSTREAM_ADDRESS_ERROR;
+    }
+
+    if (isIP(hostname)) {
+      return this.isPrivateOrLocalAddress(hostname) ? PRIVATE_UPSTREAM_ADDRESS_ERROR : null;
+    }
+
+    try {
+      const addresses = await this.lookupUpstreamAddresses(hostname);
+      if (!addresses.length) {
+        return 'Upstream host could not be resolved';
+      }
+
+      return addresses.some((entry) => this.isPrivateOrLocalAddress(entry.address))
+        ? PRIVATE_UPSTREAM_ADDRESS_ERROR
+        : null;
+    } catch (error) {
+      return this.normalizeHealthCheckError(error);
+    }
+  }
+
+  private async lookupUpstreamAddresses(hostname: string) {
+    let lookupTimeout: NodeJS.Timeout | undefined;
+
+    try {
+      return await Promise.race([
+        lookup(hostname, { all: true, verbatim: true }),
+        new Promise<never>((_, reject) => {
+          lookupTimeout = setTimeout(() => reject(new Error('DNS lookup timed out')), UPSTREAM_DNS_LOOKUP_TIMEOUT_MS);
+        })
+      ]);
+    } finally {
+      if (lookupTimeout) {
+        clearTimeout(lookupTimeout);
+      }
+    }
+  }
+
+  private isBlockedUpstreamHostname(hostname: string) {
+    return BLOCKED_UPSTREAM_HOSTNAMES.has(hostname) || hostname.endsWith('.localhost');
+  }
+
+  private isPrivateOrLocalAddress(address: string) {
+    const normalized = address.toLowerCase();
+    const ipv4Mapped = normalized.startsWith('::ffff:') ? normalized.slice('::ffff:'.length) : normalized;
+
+    if (isIP(ipv4Mapped) === 4) {
+      return this.isPrivateOrLocalIpv4(ipv4Mapped);
+    }
+
+    if (isIP(normalized) === 6) {
+      return this.isPrivateOrLocalIpv6(normalized);
+    }
+
+    return false;
+  }
+
+  private isPrivateOrLocalIpv4(address: string) {
+    const parts = address.split('.').map((part) => Number(part));
+    const [first, second, third] = parts;
+
+    return (
+      first === 0 ||
+      first === 10 ||
+      first === 127 ||
+      first >= 224 ||
+      (first === 100 && second >= 64 && second <= 127) ||
+      (first === 169 && second === 254) ||
+      (first === 172 && second >= 16 && second <= 31) ||
+      (first === 192 && second === 0) ||
+      (first === 192 && second === 168) ||
+      (first === 198 && second === 51 && third === 100) ||
+      (first === 203 && second === 0 && third === 113)
+    );
+  }
+
+  private isPrivateOrLocalIpv6(address: string) {
+    return (
+      address === '::' ||
+      address === '::1' ||
+      address.startsWith('fc') ||
+      address.startsWith('fd') ||
+      address.startsWith('fe80:')
+    );
   }
 
   private normalizeHealthCheckError(error: unknown) {

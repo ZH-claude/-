@@ -22,6 +22,7 @@
 | API Key 加密保存 | 通过：接口响应不包含原始 Key，数据库 `encrypted_api_key <> 原始 Key` |
 | Key 脱敏展示 | 通过：接口仅返回 `apiKeyPreview`，不返回明文 `apiKey` |
 | 健康检查 | 通过：`POST /admin/upstreams/:id/health-check` 请求上游 `/v1/models` 并更新状态 |
+| 健康检查安全边界 | 通过：本机、内网、链路本地地址会被标记为不可用，不会被健康检查请求 |
 | 管理后台 | 通过：`/admin` 页面包含 Upstream config 与 Health check 区域 |
 | 自检数据清理 | 通过：临时上游、临时管理员、临时会话和钱包均已删除 |
 
@@ -31,13 +32,16 @@
 | --- | --- |
 | `npm run typecheck` | 通过 |
 | `npm run build` | 通过 |
-| `docker compose -p nested-api-relay up -d --build api web` | 通过；BuildKit/Bake 异常后关闭 `COMPOSE_BAKE` 与 `DOCKER_BUILDKIT` 重试成功 |
+| `docker compose -p nested-api-relay up -d --build` | 通过；BuildKit/Bake 异常后关闭 `COMPOSE_BAKE` 与 `DOCKER_BUILDKIT` 重试成功 |
 | `curl http://localhost:3001/health` | 通过，返回 `status: ok` |
 | `curl http://localhost:3000/admin` | 通过，HTTP 200 |
 | `/admin` HTML 检查 | 通过，包含 `Upstream config` 与 `Health check` |
-| 临时上游健康检查 | 通过，`health_reachable=True` |
-| 数据库明文检查 | 通过，`encrypted_not_plaintext = t` |
-| 数据库清理检查 | 通过，`upstream_providers_total=0`、`t05_selfcheck_users=0`、`users_total=1` |
+| 临时管理员真实登录 | 通过，`qa_ceo_t05` 经 `/auth/login` 获得真实 Cookie 会话 |
+| 公网临时上游健康检查 | 通过，`https://httpbingo.org/anything/v1/models` 返回 healthy |
+| 私有地址健康检查拦截 | 通过，`http://127.0.0.1:3001` 返回 unhealthy，错误为 `Private or local upstream address is not allowed` |
+| 数据库明文检查 | 通过，`encrypted_api_key` 为 `v1:` 密文格式，且不包含 `sk-qa-*` 原始 Key |
+| 审计日志明文检查 | 通过，`admin_audit_logs` 中包含原始 QA Key 的记录数为 0 |
+| 数据库清理检查 | 通过，`qa-*` 上游为 0、`qa_ceo_t05` 为 0、QA session 为 0、`upstream_providers_total=0`、`users_total=1` |
 
 ## 4. 自检发现并修复的问题
 
@@ -47,10 +51,14 @@
 | Windows PowerShell 传 JSON 给 `curl.exe -d` 后端报非法 JSON | 命令行引号被 PowerShell/curl 组合破坏 | 改用 stdin 与 `--data-binary '@-'` 传 JSON |
 | 临时管理员引导环境可能留在容器里 | 自检需要可登录管理员账号 | 自检后清理临时账号，并重建 API 容器；`docker inspect` 确认管理员引导变量为空值 |
 | 临时本地 stub 无法启动 | 当前 Windows 环境拒绝后台进程/job | 改用公开 HTTP 回显端点 `https://httpbingo.org/anything/v1/models` 验证真实出网和健康检查链路 |
+| 重建后创建上游返回 500 | `docker-compose.yml` 默认把 `UPSTREAM_KEY_ENCRYPTION_SECRET` 传为空，导致运行时无法加密 API Key | 为 Compose 本地开发增加明确的开发专用默认密钥；生产环境必须用服务器 `.env` 覆盖 |
+| 健康检查可请求管理员填写的任意 URL | 仅校验 URL 格式，缺少本机/内网地址拦截，存在 SSRF 风险 | 健康检查请求前解析 hostname/IP，拒绝 localhost、RFC1918、链路本地、组播和云元数据等地址 |
+| 公网域名被误判为私有地址 | 当前本地网络把公网域名解析到 `198.18.x.x` 代理网段 | 调整拦截范围，保留代理出网场景，同时继续拒绝本机和内网地址 |
 
 ## 5. 安全边界
 
 - 真实上游 API Key 不写入仓库，只通过管理员表单提交并用 `UPSTREAM_KEY_ENCRYPTION_SECRET` 派生的 AES-256-GCM 密钥加密保存。
 - 健康检查请求带 `Authorization: Bearer ...`，但服务响应、审计日志和前端列表不返回明文 Key。
+- 健康检查发起真实 HTTP 请求前会阻断本机、内网、链路本地、组播和云元数据等地址，避免管理员配置被用作内网探测入口。
 - 本任务只做上游配置和连通性检查，不做 Relay 转发、模型同步、计费、限流或多上游路由。
-- 生产环境必须设置稳定的 `UPSTREAM_KEY_ENCRYPTION_SECRET`；更换该值会导致旧密文无法解密，后续需要单独设计密钥轮换。
+- `docker-compose.yml` 的默认 `UPSTREAM_KEY_ENCRYPTION_SECRET` 仅供本地开发。生产环境必须设置稳定随机密钥；更换该值会导致旧密文无法解密，后续需要单独设计密钥轮换。
