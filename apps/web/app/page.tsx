@@ -24,7 +24,7 @@ const menuItems = [
   { key: 'logs', icon: <FileTextOutlined />, label: <Link href="/log">日志</Link> },
   { key: 'billing', icon: <CreditCardOutlined />, label: <Link href="/pricing">费用说明</Link> },
   { key: 'status', icon: <LineChartOutlined />, label: <Link href="/groupAvailability">分组状态</Link> },
-  { key: 'settings', icon: <SettingOutlined />, label: '通知设置' },
+  { key: 'settings', icon: <SettingOutlined />, label: <Link href="/account/notificationSettings">通知设置</Link> },
   { key: 'admin', icon: <ToolOutlined />, label: <Link href="/admin">管理后台</Link> }
 ];
 
@@ -58,7 +58,7 @@ export default function HomePage() {
           </Space>
           <Space>
             <BellOutlined />
-            <Tag color="blue">T07 Token</Tag>
+            <Tag color="blue">T14 通知设置</Tag>
           </Space>
         </Header>
 
@@ -96,7 +96,7 @@ export default function HomePage() {
               </Col>
               <Col xs={24} md={8}>
                 <Card>
-                  <Statistic title="当前任务" value="T07" suffix="令牌管理" />
+                  <Statistic title="当前任务" value="T14" suffix="通知设置" />
                 </Card>
               </Col>
             </Row>

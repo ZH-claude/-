@@ -72,6 +72,25 @@ enum RechargeCodeStatus {
   DISABLED
 }
 
+enum NotificationChannelType {
+  WEBHOOK
+  EMAIL
+}
+
+enum NotificationEventType {
+  TEST
+  BALANCE_LOW
+  SECURITY_ALERT
+  SYSTEM_ANNOUNCEMENT
+  PROMOTION
+  MODEL_PRICE_UPDATE
+}
+
+enum NotificationDeliveryStatus {
+  SENT
+  FAILED
+}
+
 model UserGroup {
   id            String             @id @default(uuid()) @db.Uuid
   code          String             @unique
@@ -114,6 +133,9 @@ model User {
   upstreamProviders  UpstreamProvider[]  @relation("UpstreamProviderCreator")
   createdRechargeCodes RechargeCode[]    @relation("RechargeCodeCreator")
   usedRechargeCodes    RechargeCode[]    @relation("RechargeCodeUser")
+  notificationPreference NotificationPreference?
+  notificationChannels   NotificationChannel[]
+  notificationDeliveries NotificationDelivery[]
 
   @@index([groupId], map: "users_group_id_idx")
   @@index([invitedByUserId], map: "users_invited_by_user_id_idx")
@@ -207,6 +229,63 @@ model RechargeCode {
   @@index([createdByAdminId, createdAt], map: "recharge_codes_created_by_admin_id_idx")
   @@index([usedByUserId, usedAt], map: "recharge_codes_used_by_user_id_idx")
   @@map("recharge_codes")
+}
+
+model NotificationPreference {
+  id                         String   @id @default(uuid()) @db.Uuid
+  userId                     String   @unique @map("user_id") @db.Uuid
+  user                       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  balanceLowEnabled          Boolean  @default(false) @map("balance_low_enabled")
+  balanceLowThresholdCents   Int?     @map("balance_low_threshold_cents")
+  balanceLowLastNotifiedAt   DateTime? @map("balance_low_last_notified_at")
+  securityAlertsEnabled      Boolean  @default(true) @map("security_alerts_enabled")
+  systemAnnouncementsEnabled Boolean  @default(true) @map("system_announcements_enabled")
+  promotionsEnabled          Boolean  @default(false) @map("promotions_enabled")
+  modelPriceUpdatesEnabled   Boolean  @default(false) @map("model_price_updates_enabled")
+  createdAt                  DateTime @default(now()) @map("created_at")
+  updatedAt                  DateTime @updatedAt @map("updated_at")
+
+  @@map("notification_preferences")
+}
+
+model NotificationChannel {
+  id              String                      @id @default(uuid()) @db.Uuid
+  userId          String                      @map("user_id") @db.Uuid
+  user            User                        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type            NotificationChannelType
+  name            String
+  enabled         Boolean                     @default(false)
+  targetPreview   String?                     @map("target_preview")
+  encryptedTarget String?                     @map("encrypted_target")
+  lastTestStatus  NotificationDeliveryStatus? @map("last_test_status")
+  lastTestAt      DateTime?                   @map("last_test_at")
+  lastTestError   String?                     @map("last_test_error")
+  deliveries      NotificationDelivery[]
+  createdAt       DateTime                    @default(now()) @map("created_at")
+  updatedAt       DateTime                    @updatedAt @map("updated_at")
+
+  @@unique([userId, type], map: "notification_channels_user_type_key")
+  @@index([userId, enabled], map: "notification_channels_user_enabled_idx")
+  @@map("notification_channels")
+}
+
+model NotificationDelivery {
+  id             String                     @id @default(uuid()) @db.Uuid
+  userId         String                     @map("user_id") @db.Uuid
+  user           User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  channelId      String                     @map("channel_id") @db.Uuid
+  channel        NotificationChannel        @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  eventType      NotificationEventType      @map("event_type")
+  status         NotificationDeliveryStatus
+  targetPreview  String?                    @map("target_preview")
+  responseStatus Int?                       @map("response_status")
+  errorMessage   String?                    @map("error_message")
+  metadata       Json?                      @map("metadata")
+  createdAt      DateTime                   @default(now()) @map("created_at")
+
+  @@index([userId, createdAt], map: "notification_deliveries_user_created_at_idx")
+  @@index([channelId, createdAt], map: "notification_deliveries_channel_created_at_idx")
+  @@map("notification_deliveries")
 }
 
 model Session {

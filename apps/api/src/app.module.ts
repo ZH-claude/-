@@ -8,6 +8,7 @@ import { RechargeModule } from './recharge/recharge.module';
 import { UsageLogsModule } from './usage-logs/usage-logs.module';
 import { PricingModule } from './pricing/pricing.module';
 import { GroupAvailabilityModule } from './group-availability/group-availability.module';
+import { NotificationsModule } from './notifications/notifications.module';
 
 @Module({
   imports: [
@@ -18,7 +19,8 @@ import { GroupAvailabilityModule } from './group-availability/group-availability
     RechargeModule,
     UsageLogsModule,
     PricingModule,
-    GroupAvailabilityModule
+    GroupAvailabilityModule,
+    NotificationsModule
   ],
   controllers: [AppController]
 })

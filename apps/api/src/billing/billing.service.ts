@@ -1,5 +1,6 @@
 import { ForbiddenException, Inject, Injectable } from '@nestjs/common';
 import { Prisma, UsageEventStatus, WalletTransactionType } from '../generated/prisma/client';
+import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma.service';
 import { BILLING_FORMULA } from './billing.constants';
 
@@ -28,6 +29,11 @@ export type BillingRecordResult = {
   status: UsageEventStatus;
 };
 
+type BillingRecordInternalResult = BillingRecordResult & {
+  balanceAfterCents: number | null;
+  shouldCheckBalanceLow: boolean;
+};
+
 type NormalizedUsage = {
   promptTokens: number;
   completionTokens: number;
@@ -37,7 +43,10 @@ type NormalizedUsage = {
 
 @Injectable()
 export class BillingService {
-  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    private readonly notificationsService: NotificationsService
+  ) {}
 
   async assertCanStartUsage(userId: string, model: BillableModel) {
     if (!this.modelCanCostMoney(model)) {
@@ -130,7 +139,7 @@ export class BillingService {
     errorCode: string | null;
   }): Promise<BillingRecordResult> {
     try {
-      return await this.prisma.$transaction(async (tx) => {
+      const result = await this.prisma.$transaction(async (tx): Promise<BillingRecordInternalResult> => {
         const existingEvent = await tx.usageEvent.findUnique({
           where: { requestId: input.requestId },
           include: { walletTransaction: true }
@@ -163,7 +172,9 @@ export class BillingService {
             usageEventId: usageEvent.id,
             walletTransactionId: null,
             costCents: usageEvent.costCents,
-            status: usageEvent.status
+            status: usageEvent.status,
+            balanceAfterCents: null,
+            shouldCheckBalanceLow: false
           };
         }
 
@@ -219,9 +230,21 @@ export class BillingService {
           usageEventId: usageEvent.id,
           walletTransactionId: walletTransaction.id,
           costCents: usageEvent.costCents,
-          status: usageEvent.status
+          status: usageEvent.status,
+          balanceAfterCents: wallet.balanceCents,
+          shouldCheckBalanceLow: true
         };
       });
+
+      if (result.shouldCheckBalanceLow && result.balanceAfterCents !== null) {
+        await this.notificationsService
+          .sendBalanceLowIfNeeded(input.principal.userId, result.balanceAfterCents)
+          .catch((error) => {
+            console.warn('balance_low_notification_failed', error instanceof Error ? error.message : 'unknown error');
+          });
+      }
+
+      return this.toPublicRecordResult(result);
     } catch (error) {
       if (this.isUniqueViolation(error)) {
         const existingEvent = await this.prisma.usageEvent.findUnique({
@@ -341,13 +364,24 @@ export class BillingService {
     id: string;
     costCents: number;
     status: UsageEventStatus;
-    walletTransaction: { id: string } | null;
-  }): BillingRecordResult {
+    walletTransaction: { id: string; balanceAfterCents: number } | null;
+  }): BillingRecordInternalResult {
     return {
       usageEventId: event.id,
       walletTransactionId: event.walletTransaction?.id ?? null,
       costCents: event.costCents,
-      status: event.status
+      status: event.status,
+      balanceAfterCents: event.walletTransaction?.balanceAfterCents ?? null,
+      shouldCheckBalanceLow: false
+    };
+  }
+
+  private toPublicRecordResult(result: BillingRecordInternalResult): BillingRecordResult {
+    return {
+      usageEventId: result.usageEventId,
+      walletTransactionId: result.walletTransactionId,
+      costCents: result.costCents,
+      status: result.status
     };
   }
 

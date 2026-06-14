@@ -302,7 +302,7 @@ Loki/Prometheus/Grafana
 | [x] | T11 | 调用日志页面 | 日志筛选、实时指标、导出 | 用户可按时间、令牌、模型查询消费 |
 | [x] | T12 | 费用说明页面 | 模型价格表、倍率说明、搜索、复制模型 | 用户能理解并复制可用模型列表 |
 | [x] | T13 | 分组状态页面 | 成功率统计、状态筛选、刷新 | 分组和模型状态可展示真实统计或暂无数据 |
-| [ ] | T14 | 通知设置 | 邮件、Webhook、余额阈值、测试通知 | 余额低于阈值时能触发通知 |
+| [x] | T14 | 通知设置 | 邮件、Webhook、余额阈值、测试通知 | 余额低于阈值时能触发通知 |
 | [ ] | T15 | 首页公告与文档入口 | 公告列表、更新日志、使用建议 | 管理员发布后用户首页可见 |
 | [ ] | T16 | 异步任务与绘图日志 | async_tasks、任务查询页 | 若上游支持异步任务，能查询进度和结果 |
 | [ ] | T17 | 服务状态页 | Uptime Kuma 配置或内置探针 | 用户可看到平台和上游状态 |
@@ -314,20 +314,35 @@ Loki/Prometheus/Grafana
 
 ## 11. 下一次对话建议任务
 
-建议下一次从 T14 开始：通知设置。
+建议下一次从 T15 开始：首页公告与文档入口。
 
-T14 的边界：
+T15 的边界：
 
-- 基于真实用户、钱包余额和通知配置，新增通知设置页面与后端配置接口。
-- 首期优先做余额阈值、Webhook 通道和测试通知；邮件、Telegram、企业微信、WxPusher、钉钉、飞书、Bark、Gotify 可先做配置占位或后续通道，但不能假装已发送。
-- 通知触发必须接入真实余额/事件；如果某通道缺少真实凭证或发送器，必须显示未配置/不可用，不得返回假成功。
+- 基于真实 `announcements` 管理数据，新增或完善用户首页公告、更新日志和使用建议入口。
+- 管理员已发布内容才允许在用户首页显示；草稿、归档或未发布内容不能对普通用户可见。
+- 无真实公告时显示明确空状态，不写死演示公告或虚构更新记录。
+- 首页入口必须兼容现有登录、个人中心、充值、费用、分组、令牌、日志和通知设置导航。
 
-T14 完成指标：
+T15 完成指标：
 
-- 用户可保存自己的余额预警阈值和通知通道配置。
-- 用户可测试已真实配置的 Webhook 通道；未配置通道不能显示成功。
-- 后端配置不泄露敏感 Webhook URL 或密钥。
-- 未登录用户不能访问个人通知设置。
+- 管理员发布公告后，用户首页能读取并展示真实发布内容。
+- 首页展示更新日志和使用建议入口；无数据时不造假。
+- 普通用户不能看到未发布、已归档或其他不应公开的公告。
+- 浏览器验证首页加载、导航和公告状态无控制台错误。
+
+T14 完成记录（2026-06-15）：
+
+- 已新增 `notification_preferences`、`notification_channels`、`notification_deliveries` 数据表、通知枚举和 Prisma migration `20260615160000_t14_notifications`。
+- 已实现后端 `/notifications/settings`、`PUT /notifications/settings`、`POST /notifications/test-webhook`，所有接口由 `AuthGuard` 保护并按当前用户隔离。
+- 已实现 Webhook URL 加密存储、只返回掩码预览、SSRF 基础防护、真实 Webhook 发送、成功/失败投递记录和最近投递历史。
+- 已接入真实计费扣款后余额预警：仅在成功 `BILLABLE` 扣费和真实钱包流水生成后检查阈值；幂等重复事件、失败调用、未计量流式调用不触发。
+- 已新增前端 `/account/notificationSettings`、同源 `/api/notifications/*` 代理、通知 API 客户端和首页通知设置入口。
+- 邮件通道首期明确标记为未接入/不可测试，不返回假成功；Webhook 未配置时也不能返回成功。
+- 已创建 `apps/api/scripts/t14-notifications-qa.ts` 和 `npm run qa:t14:notifications`，使用真实 PostgreSQL、真实 HTTP API、真实公开 HTTPS Webhook 端点和真实 Relay 扣费触发余额预警。
+- 已创建 `docs/quality/t14-self-check.md`，记录 review、QA、浏览器验证、敏感字段扫描、残留清理和剩余边界。
+- 已验证 `npm --prefix apps/api run typecheck`、`npm --prefix apps/web run typecheck`、`npm run build`、Docker 重建重启、`npm run qa:t14:notifications`、浏览器 QA、api/web audit 和 `git diff --check`。
+- 已回归验证 `npm run qa:t10:recharge`、`npm run qa:t11:usage-logs`、`npm run qa:t12:pricing`、`npm run qa:t13:group-availability`，确认充值、日志、价格、分组状态与 T14 兼容。
+- T14 QA 与浏览器 fixture 均使用真实数据库记录和真实 HTTP/浏览器路径，完成后清理为 0 残留。
 
 T13 完成记录（2026-06-15）：
 
