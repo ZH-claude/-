@@ -5,9 +5,10 @@ import { AdminModule } from './admin/admin.module';
 import { TokensModule } from './tokens/tokens.module';
 import { RelayModule } from './relay/relay.module';
 import { RechargeModule } from './recharge/recharge.module';
+import { UsageLogsModule } from './usage-logs/usage-logs.module';
 
 @Module({
-  imports: [AuthModule, AdminModule, TokensModule, RelayModule, RechargeModule],
+  imports: [AuthModule, AdminModule, TokensModule, RelayModule, RechargeModule, UsageLogsModule],
   controllers: [AppController]
 })
 export class AppModule {}

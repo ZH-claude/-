@@ -12,6 +12,7 @@
     "start": "node dist/main.js",
     "typecheck": "prisma generate && tsc --noEmit",
     "qa:t10:recharge": "tsx scripts/t10-recharge-qa.ts",
+    "qa:t11:usage-logs": "tsx scripts/t11-usage-logs-qa.ts",
     "prisma:generate": "prisma generate",
     "db:migrate": "prisma migrate deploy",
     "db:push": "prisma db push"

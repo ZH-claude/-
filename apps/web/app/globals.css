@@ -526,6 +526,12 @@ button {
   color: #475569;
 }
 
+.status-pill-warning {
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  color: #92400e;
+}
+
 .table-note {
   color: #64748b;
   display: block;
@@ -760,6 +766,29 @@ button {
   max-width: none;
 }
 
+.log-filter-form {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.filter-actions {
+  align-items: end;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.request-id-cell {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  max-width: 220px;
+}
+
+.log-table {
+  min-width: 1180px;
+}
+
 .one-time-key-box {
   align-items: flex-start;
   background: #f8fafc;
@@ -878,7 +907,8 @@ button {
   .admin-metrics,
   .admin-grid,
   .form-row,
-  .mapping-form {
+  .mapping-form,
+  .log-filter-form {
     grid-template-columns: 1fr;
   }
 

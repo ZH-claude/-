@@ -21,7 +21,7 @@ const menuItems = [
   { key: 'home', icon: <DashboardOutlined />, label: <Link href="/">首页</Link> },
   { key: 'profile', icon: <UserOutlined />, label: <Link href="/account">个人中心</Link> },
   { key: 'token', icon: <KeyOutlined />, label: <Link href="/token">令牌</Link> },
-  { key: 'logs', icon: <FileTextOutlined />, label: '日志' },
+  { key: 'logs', icon: <FileTextOutlined />, label: <Link href="/log">日志</Link> },
   { key: 'billing', icon: <CreditCardOutlined />, label: '余额充值' },
   { key: 'status', icon: <LineChartOutlined />, label: '服务状态' },
   { key: 'settings', icon: <SettingOutlined />, label: '通知设置' },
