@@ -1,0 +1,17 @@
+{
+  "name": "nested-api-relay",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "install:all": "npm ci --prefix apps/api && npm ci --prefix apps/web",
+    "dev:api": "npm --prefix apps/api run dev",
+    "dev:web": "npm --prefix apps/web run dev",
+    "build": "npm --prefix apps/api run build && npm --prefix apps/web run build",
+    "typecheck": "npm --prefix apps/api run typecheck && npm --prefix apps/web run typecheck",
+    "start:api": "npm --prefix apps/api run start",
+    "start:web": "npm --prefix apps/web run start"
+  },
+  "engines": {
+    "node": ">=20.11.0"
+  }
+}
