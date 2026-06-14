@@ -1,20 +1,36 @@
-import { Body, Controller, Get, Inject, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Inject, Post, Req, Res, UseGuards } from '@nestjs/common';
+import type { FastifyReply } from 'fastify';
 import { AuthGuard } from './auth.guard';
 import { AuthService } from './auth.service';
 import { AuthenticatedRequest } from './auth.types';
+
+const SESSION_COOKIE_NAME = 'nested_api_relay_session';
+const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
 
 @Controller('auth')
 export class AuthController {
   constructor(@Inject(AuthService) private readonly authService: AuthService) {}
 
   @Post('register')
-  register(@Body() body: unknown, @Req() request: AuthenticatedRequest) {
-    return this.authService.register(this.toRecord(body), this.getIpAddress(request));
+  async register(
+    @Body() body: unknown,
+    @Req() request: AuthenticatedRequest,
+    @Res({ passthrough: true }) reply: FastifyReply
+  ) {
+    const result = await this.authService.register(this.toRecord(body), this.getIpAddress(request));
+    this.setSessionCookie(reply, result.token);
+    return { user: result.user };
   }
 
   @Post('login')
-  login(@Body() body: unknown, @Req() request: AuthenticatedRequest) {
-    return this.authService.login(this.toRecord(body), this.getIpAddress(request));
+  async login(
+    @Body() body: unknown,
+    @Req() request: AuthenticatedRequest,
+    @Res({ passthrough: true }) reply: FastifyReply
+  ) {
+    const result = await this.authService.login(this.toRecord(body), this.getIpAddress(request));
+    this.setSessionCookie(reply, result.token);
+    return { user: result.user };
   }
 
   @UseGuards(AuthGuard)
@@ -25,8 +41,10 @@ export class AuthController {
 
   @UseGuards(AuthGuard)
   @Post('logout')
-  logout(@Req() request: AuthenticatedRequest) {
-    return this.authService.logout(this.requireAuth(request));
+  async logout(@Req() request: AuthenticatedRequest, @Res({ passthrough: true }) reply: FastifyReply) {
+    const result = await this.authService.logout(this.requireAuth(request));
+    this.clearSessionCookie(reply);
+    return result;
   }
 
   @UseGuards(AuthGuard)
@@ -49,5 +67,46 @@ export class AuthController {
 
   private getIpAddress(request: AuthenticatedRequest) {
     return request.ip ?? request.socket?.remoteAddress;
+  }
+
+  private setSessionCookie(reply: FastifyReply, token: string) {
+    reply.header(
+      'Set-Cookie',
+      [
+        `${SESSION_COOKIE_NAME}=${encodeURIComponent(token)}`,
+        'Path=/',
+        `Max-Age=${SESSION_TTL_SECONDS}`,
+        'HttpOnly',
+        'SameSite=Lax',
+        this.isSecureCookie() ? 'Secure' : ''
+      ]
+        .filter(Boolean)
+        .join('; ')
+    );
+  }
+
+  private clearSessionCookie(reply: FastifyReply) {
+    reply.header(
+      'Set-Cookie',
+      [
+        `${SESSION_COOKIE_NAME}=`,
+        'Path=/',
+        'Max-Age=0',
+        'HttpOnly',
+        'SameSite=Lax',
+        this.isSecureCookie() ? 'Secure' : ''
+      ]
+        .filter(Boolean)
+        .join('; ')
+    );
+  }
+
+  private isSecureCookie() {
+    const configured = process.env.SESSION_COOKIE_SECURE;
+    if (configured) {
+      return configured.toLowerCase() === 'true';
+    }
+
+    return process.env.NODE_ENV === 'production';
   }
 }

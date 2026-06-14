@@ -19,7 +19,6 @@ export type PublicUser = {
 };
 
 type AuthResponse = {
-  token: string;
   user: PublicUser;
 };
 
@@ -27,24 +26,7 @@ type ProfileResponse = {
   user: PublicUser;
 };
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:3001';
-const SESSION_TOKEN_KEY = 'nested_api_relay_session';
-
-export function getStoredToken() {
-  if (typeof window === 'undefined') {
-    return null;
-  }
-
-  return window.localStorage.getItem(SESSION_TOKEN_KEY);
-}
-
-export function storeToken(token: string) {
-  window.localStorage.setItem(SESSION_TOKEN_KEY, token);
-}
-
-export function clearStoredToken() {
-  window.localStorage.removeItem(SESSION_TOKEN_KEY);
-}
+const API_BASE_URL = '/api';
 
 export async function register(payload: { username: string; password: string; inviteCode?: string }) {
   return request<AuthResponse>('/auth/register', {
@@ -60,27 +42,22 @@ export async function login(payload: { username: string; password: string }) {
   });
 }
 
-export async function getProfile(token: string) {
-  return request<ProfileResponse>('/auth/me', {
-    token
-  });
+export async function getProfile() {
+  return request<ProfileResponse>('/auth/me');
 }
 
 export async function changePassword(
-  token: string,
   payload: { currentPassword: string; newPassword: string }
 ) {
   return request<ProfileResponse>('/auth/change-password', {
     method: 'POST',
-    token,
     body: payload
   });
 }
 
-export async function logout(token: string) {
+export async function logout() {
   return request<{ ok: boolean }>('/auth/logout', {
-    method: 'POST',
-    token
+    method: 'POST'
   });
 }
 
@@ -88,7 +65,6 @@ async function request<T>(
   path: string,
   options: {
     method?: 'GET' | 'POST';
-    token?: string;
     body?: Record<string, unknown>;
   } = {}
 ) {
@@ -100,13 +76,10 @@ async function request<T>(
     headers['Content-Type'] = 'application/json';
   }
 
-  if (options.token) {
-    headers.Authorization = `Bearer ${options.token}`;
-  }
-
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: options.method ?? 'GET',
     headers,
+    credentials: 'include',
     body: options.body ? JSON.stringify(options.body) : undefined
   });
 

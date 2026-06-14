@@ -18,12 +18,12 @@
 
 | 功能 | 验证结果 |
 | --- | --- |
-| 注册用户 | 通过，返回会话 token，创建默认分组和 0 余额钱包 |
+| 注册用户 | 通过，写入 HttpOnly 会话 Cookie，创建默认分组和 0 余额钱包 |
 | 重复用户名 | 通过，返回 HTTP 409 |
-| 登录 | 通过，正确密码返回会话 token |
+| 登录 | 通过，正确密码写入 HttpOnly 会话 Cookie |
 | 读取当前账户 | 通过，`/auth/me` 返回用户、分组、钱包 |
 | 修改密码 | 通过，旧密码失效，其他会话被撤销 |
-| 退出 | 通过，当前会话被撤销，旧 token 再访问返回 HTTP 401 |
+| 退出 | 通过，当前会话被撤销，旧 Cookie 再访问返回 HTTP 401 |
 | 前端流程 | 通过，注册进入账户、改密、退出、用新密码登录 |
 
 ## 3. 验证命令
@@ -36,7 +36,7 @@
 | `npm audit --prefix apps/api --audit-level=moderate` | 0 漏洞 |
 | `npm audit --prefix apps/web --audit-level=moderate` | 0 漏洞 |
 | `docker compose -p nested-api-relay up --build -d` | 通过，API 启动前执行 `prisma migrate deploy` |
-| API 链路脚本 | 通过：health、register、duplicate 409、me、change-password、old password 401、logout revoke、new password login |
+| API 链路脚本 | 通过：health、register、duplicate 409、me、change-password、old password 401、logout revoke、new password login、malformed cookie 401 |
 | Playwright 浏览器脚本 | 通过：注册、账户页、改密、退出、新密码登录、桌面/移动无横向溢出、无应用控制台错误 |
 
 ## 4. 自检中发现并修复的问题
@@ -46,6 +46,9 @@
 | Prisma schema `url = env(...)` 失败 | Prisma 7 改为在 `prisma.config.ts` 管理 datasource URL | 增加 `apps/api/prisma.config.ts`，应用端使用 `@prisma/adapter-pg` |
 | Nest dev 容器中依赖注入为 `undefined` | `tsx` 运行 Nest 时构造函数元数据不稳定 | 对 `AuthController`、`AuthGuard`、`AuthService` 增加显式 `@Inject(...)` |
 | API audit 出现 Prisma CLI 间接中危 | `@hono/node-server` 旧版本由 Prisma dev 依赖引入 | 使用 npm override 提升到修复版本，审计回到 0 漏洞 |
+| 浏览器会话 token 暴露给前端 | 注册/登录响应返回 token，前端曾写入 localStorage | 改为 HttpOnly Cookie，并通过同源 `/api/auth/*` 代理转发 |
+| 软删除用户旧会话仍可继续使用 | 会话校验只检查撤销和过期，未检查 `users.deleted_at` | `getContextFromToken` 增加软删除用户拦截 |
+| Docker Compose 使用 dev 模式启动 | `api` 使用 `tsx watch`，`web` 使用 `next dev` | Docker 镜像构建时执行生产 build，Compose 改为 `node dist/main.js` 与 `next start` |
 | 注册页点击后变成 `/register?` | Next dev 阻止 `127.0.0.1` HMR 资源，页面未 hydration | 增加 `apps/web/next.config.ts` 的 `allowedDevOrigins` |
 | Chrome 拦截用户名 pattern | HTML pattern 在新正则规则下不兼容 | 移除前端 pattern，保留后端用户名校验 |
 | 移动端账户页横向溢出 | grid item 默认 `min-width:auto` 被长用户名撑宽 | 面板加 `min-width:0`，标题/信息加断词 |
@@ -53,14 +56,14 @@
 ## 5. 安全边界
 
 - 密码仅存 bcrypt hash，不存明文。
-- Web 会话使用随机 opaque token，数据库只存 SHA-256 token hash。
-- `.env`、真实数据库密码、上游账号密码、上游 API Key 和用户会话 token 没有写入仓库。
+- Web 会话使用随机 opaque token，浏览器仅持有 HttpOnly Cookie，数据库只存 SHA-256 token hash。
+- `.env`、真实数据库密码、上游账号密码、上游 API Key 和用户会话明文 token 没有写入仓库。
 - 本任务未实现 API Key、充值、余额扣费、上游转发、管理员后台；这些仍按 T04 以后任务推进。
 
 ## 6. 剩余风险
 
 | 风险 | 处理方式 |
 | --- | --- |
-| 当前 Web 会话 token 存在 localStorage | MVP 阶段可接受；后续安全加固可迁移到 httpOnly cookie |
+| 生产 HTTPS Cookie 配置 | 云服务器反代 HTTPS 时将 `SESSION_COOKIE_SECURE=true`，本地 HTTP QA 保持 false |
 | `users.username` 当前是普通唯一约束 | T11/T19 做软删除和账号治理时再升级为 PostgreSQL 部分唯一索引 |
 | 会话存储当前在 PostgreSQL | 可在后续风控/限流阶段加入 Redis 会话缓存或在线状态 |

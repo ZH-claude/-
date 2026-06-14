@@ -129,8 +129,9 @@ MVP 必须在 `usage_events.price_snapshot` 中保存本次调用的模型基础
 | `REDIS_PASSWORD` | 空 | Redis 密码，可选 | 生产建议启用或使用托管 Redis ACL |
 | `API_PORT` | `3001` | 后端端口 | 由反代暴露 HTTPS |
 | `WEB_PORT` | `3000` | 前端端口预留 | Docker Compose 当前固定映射 3000 |
-| `NEXT_PUBLIC_API_BASE_URL` | `http://localhost:3001` | 浏览器访问 API 的地址 | 生产必须改成 HTTPS 公网域名 |
-| `INTERNAL_API_BASE_URL` | `http://api:3001` | 容器内服务端访问 API 的地址 | Compose 内保持服务名 |
+| `SESSION_COOKIE_SECURE` | `false` | 会话 Cookie 是否强制 Secure | 本地 HTTP 保持 false，生产 HTTPS 必须设为 true |
+| `INTERNAL_API_BASE_URL` | `http://api:3001` | 前端服务端代理访问 API 的地址 | Compose 内保持服务名，生产使用内网地址 |
+| `NEXT_PUBLIC_API_BASE_URL` | `http://localhost:3001` | 兼容旧前端直连配置的备用值 | 正常部署走 `/api/auth/*` 同源代理，可不依赖该值 |
 | `JWT_SECRET` | 占位值 | 会话签名 | 强随机值 |
 | `UPSTREAM_BASE_URL` | `https://upstream.example.com` | 上游中转站地址 | 填真实上游地址 |
 | `UPSTREAM_API_KEY` | 占位值 | 上游中转站 Key | 加密存储，不写日志 |

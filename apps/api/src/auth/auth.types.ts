@@ -14,6 +14,7 @@ export type AuthenticatedRequest = {
   auth?: AuthContext;
   headers: {
     authorization?: string;
+    cookie?: string;
   };
   ip?: string;
   socket?: {

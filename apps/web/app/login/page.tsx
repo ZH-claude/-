@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import type { FormEvent } from 'react';
-import { login, storeToken } from '../lib/auth-api';
+import { login } from '../lib/auth-api';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -20,8 +20,7 @@ export default function LoginPage() {
     setIsSubmitting(true);
 
     try {
-      const result = await login({ username, password });
-      storeToken(result.token);
+      await login({ username, password });
       router.push('/account');
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : '登录失败');

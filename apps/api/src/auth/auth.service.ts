@@ -165,7 +165,7 @@ export class AuthService {
       }
     });
 
-    if (!session || session.revokedAt || session.expiresAt <= new Date()) {
+    if (!session || session.revokedAt || session.expiresAt <= new Date() || session.user.deletedAt) {
       throw new UnauthorizedException('会话无效或已过期');
     }
 

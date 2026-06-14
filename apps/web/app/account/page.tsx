@@ -12,16 +12,13 @@ import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import {
   changePassword,
-  clearStoredToken,
   getProfile,
-  getStoredToken,
   logout
 } from '../lib/auth-api';
 import type { PublicUser } from '../lib/auth-api';
 
 export default function AccountPage() {
   const router = useRouter();
-  const [token, setToken] = useState<string | null>(null);
   const [user, setUser] = useState<PublicUser | null>(null);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -31,29 +28,17 @@ export default function AccountPage() {
   const [isChanging, setIsChanging] = useState(false);
 
   useEffect(() => {
-    const storedToken = getStoredToken();
-    if (!storedToken) {
-      router.replace('/login');
-      return;
-    }
-
-    setToken(storedToken);
-    void loadProfile(storedToken);
+    void loadProfile();
   }, [router]);
 
-  async function loadProfile(nextToken = token) {
-    if (!nextToken) {
-      return;
-    }
-
+  async function loadProfile() {
     setIsLoading(true);
     setError('');
 
     try {
-      const result = await getProfile(nextToken);
+      const result = await getProfile();
       setUser(result.user);
     } catch (nextError) {
-      clearStoredToken();
       setError(nextError instanceof Error ? nextError.message : '会话已失效');
       router.replace('/login');
     } finally {
@@ -63,16 +48,12 @@ export default function AccountPage() {
 
   async function handleChangePassword(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!token) {
-      return;
-    }
-
     setError('');
     setMessage('');
     setIsChanging(true);
 
     try {
-      const result = await changePassword(token, { currentPassword, newPassword });
+      const result = await changePassword({ currentPassword, newPassword });
       setUser(result.user);
       setCurrentPassword('');
       setNewPassword('');
@@ -85,11 +66,7 @@ export default function AccountPage() {
   }
 
   async function handleLogout() {
-    if (token) {
-      await logout(token).catch(() => undefined);
-    }
-
-    clearStoredToken();
+    await logout().catch(() => undefined);
     router.replace('/login');
   }
 

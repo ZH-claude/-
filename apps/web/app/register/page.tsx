@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import type { FormEvent } from 'react';
-import { register, storeToken } from '../lib/auth-api';
+import { register } from '../lib/auth-api';
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -21,12 +21,11 @@ export default function RegisterPage() {
     setIsSubmitting(true);
 
     try {
-      const result = await register({
+      await register({
         username,
         password,
         inviteCode: inviteCode.trim() || undefined
       });
-      storeToken(result.token);
       router.push('/account');
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : '注册失败');
