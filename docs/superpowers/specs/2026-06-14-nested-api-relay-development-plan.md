@@ -2,7 +2,7 @@
 
 创建日期：2026-06-14  
 目标：建设一个可部署到云服务器的前后端完整 API 中转站。你的平台作为第三方中转层，用户请求先进入你的系统，再由你的系统转发到另一个上游中转站。  
-当前状态：T22 商家端独立化已完成并通过收尾检查；T21 云服务器部署资产已完成并通过本地验证，但真实云服务器部署、HTTPS 证书和公网重启恢复验证仍待服务器 SSH、域名 DNS、生产 `.env` 和真实 smoke 账号。
+当前状态：T22 商家端独立化已完成并通过收尾检查；T23-M01 上线前验收基线已完成；T21 云服务器部署资产已完成并通过本地验证，但真实云服务器部署、HTTPS 证书和公网重启恢复验证仍待服务器 SSH、域名 DNS、生产 `.env` 和真实 smoke 账号。
 数据库密码通过 `POSTGRES_PASSWORD` 配置，真实值只写入未提交的 `.env` 或服务器密钥管理。  
 Redis MVP 阶段默认不启用密码；如生产环境需要启用，通过 `REDIS_PASSWORD` 或托管 Redis 密钥配置，真实值不写入开发文档。
 
@@ -318,7 +318,7 @@ Loki/Prometheus/Grafana
 
 ## 11. 下一次对话建议任务
 
-T22 商家端独立化已完成。下一次应优先处理 T21 的真实云服务器部署；如果暂时没有服务器 SSH、域名 DNS、生产 `.env` 和真实 smoke 账号，则先进入 T23 上线前验收清单，把压测、安全检查和账单核对阻塞项列出来。
+T22 商家端独立化已完成，T23-M01 上线前验收基线已完成。下一次如果能提供服务器 SSH、域名 DNS、生产 `.env` 和真实 smoke 账号，应回到 T21 做真实云服务器部署；如果暂时没有这些条件，则继续 T23-M02/M03 的真实 smoke 准备和账单核对准备。
 
 T22 商家端独立化进展记录（2026-06-16）：
 
@@ -400,6 +400,15 @@ T21 仓库侧进展记录（2026-06-16）：
 - 已验证 `docker compose -p nested-api-relay --env-file .env.example -f compose.prod.yml config`、`node --check ops/smoke/t21-deploy-smoke.mjs`、`node --check ops/deploy/preflight.mjs`、Docker/Alpine `sh -n` 检查 deploy/restart/backup/rollback、preflight 拒绝 `.env.example`、临时生产形态 env preflight 通过、`npm run typecheck`、`npm run build`、本地 Docker 镜像重建、Prisma migrate status、本地 smoke、`npm run qa:t17:service-status` 和 `npm run qa:t20:observability`。
 - 已创建 `docs/quality/t21-self-check.md`，记录真实验证、跳过项、旧容器导致的 T20 回归失败根因和复测通过证据。
 - 未勾选 T21：真实云服务器 SSH 部署、DNS、Caddy ACME 证书签发、公网 HTTPS、生产 `.env`、真实账号/模型/上游/充值/通知 strict smoke 和服务器重启恢复尚未执行。
+
+T23 上线前验收进展记录（2026-06-16）：
+
+- M01 上线前验收基线与阻塞清单已完成：新增 `docs/product/prelaunch-acceptance-plan.md`，拆分 T23 M01-M07。
+- 已明确 T23 不用假数据冒充上线：真实账号、真实会话、真实上游、真实模型、真实余额、真实计费、真实日志和临时数据清理均写入验收标准。
+- 已明确当前阻塞项：服务器 SSH、域名 DNS、生产 `.env`、真实上游 Key、真实 smoke 账号和真实通知渠道。
+- 已明确功能接口预留边界：当前 MVP 是单平台老板模式；多商家独立上游 Key、客户按商家归属转发、商家独立账单和商家独立风控未实现，只作为后续商用升级验收项。
+- 已新增 `docs/quality/t23-m01-prelaunch-baseline-self-check.md`，记录第 1 项自检、真实检查计划、QA 口径、Review 重点和剩余风险。
+- 未勾选 T23：生产 strict smoke、账单核对、压测限流、安全权限复核、运维演练和上线决策报告尚未完成。
 
 T20 完成记录（2026-06-16）：
 
