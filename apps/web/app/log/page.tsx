@@ -4,12 +4,11 @@ import {
   DownloadOutlined,
   FileTextOutlined,
   FilterOutlined,
-  ReloadOutlined,
-  WalletOutlined
+  ReloadOutlined
 } from '@ant-design/icons';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { type FormEvent, useEffect, useMemo, useState } from 'react';
+import { ConsoleShell } from '../components/console-shell';
 import {
   listUsageLogs,
   type UsageLogEntry,
@@ -110,25 +109,8 @@ export default function UsageLogPage() {
   }
 
   return (
-    <main className="account-page">
-      <header className="topbar">
-        <Link className="auth-brand compact" href="/">
-          <span className="shell-logo-mark">R</span>
-          <span>Relay Console</span>
-        </Link>
-        <nav className="admin-top-actions" aria-label="账户导航">
-          <Link className="ghost-button" href="/account/profile">
-            <WalletOutlined />
-            账户
-          </Link>
-          <button className="ghost-button" disabled={isLoading} onClick={() => void loadLogs(filters)} type="button">
-            <ReloadOutlined />
-            刷新
-          </button>
-        </nav>
-      </header>
-
-      <section className="account-grid">
+    <ConsoleShell activePath="/log" isRefreshing={isLoading} onRefresh={() => void loadLogs(filters)}>
+      <section className="console-content-grid">
         <section className="account-panel account-summary">
           <div>
             <p className="eyebrow">调用日志</p>
@@ -301,7 +283,7 @@ export default function UsageLogPage() {
           </div>
         </section>
       </section>
-    </main>
+    </ConsoleShell>
   );
 }
 

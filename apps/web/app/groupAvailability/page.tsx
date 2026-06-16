@@ -1,15 +1,13 @@
 'use client';
 
 import {
-  DashboardOutlined,
   FilterOutlined,
   ReloadOutlined,
-  SafetyCertificateOutlined,
-  WalletOutlined
+  SafetyCertificateOutlined
 } from '@ant-design/icons';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { type FormEvent, useEffect, useState } from 'react';
+import { ConsoleShell } from '../components/console-shell';
 import {
   getGroupAvailability,
   type GroupAvailabilityResponse,
@@ -71,25 +69,8 @@ export default function GroupAvailabilityPage() {
   const summary = data?.summary;
 
   return (
-    <main className="account-page">
-      <header className="topbar">
-        <Link className="auth-brand compact" href="/">
-          <span className="shell-logo-mark">R</span>
-          <span>Relay Console</span>
-        </Link>
-        <nav className="admin-top-actions" aria-label="分组状态导航">
-          <Link className="ghost-button" href="/account/profile">
-            <WalletOutlined />
-            账户
-          </Link>
-          <button className="ghost-button" disabled={isLoading} onClick={() => void loadAvailability(filters)} type="button">
-            <ReloadOutlined />
-            刷新
-          </button>
-        </nav>
-      </header>
-
-      <section className="account-grid">
+    <ConsoleShell activePath="/groupAvailability" isRefreshing={isLoading} onRefresh={() => void loadAvailability(filters)}>
+      <section className="console-content-grid">
         <section className="account-panel account-summary">
           <div>
             <p className="eyebrow">分组状态</p>
@@ -229,7 +210,7 @@ export default function GroupAvailabilityPage() {
           </div>
         </section>
       </section>
-    </main>
+    </ConsoleShell>
   );
 }
 

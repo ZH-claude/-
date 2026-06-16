@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Post, Put, Req, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Inject, Post, Put, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '../auth/auth.guard';
 import { AuthenticatedRequest } from '../auth/auth.types';
 import { NotificationsService } from './notifications.service';
@@ -6,7 +6,7 @@ import { NotificationsService } from './notifications.service';
 @Controller('notifications')
 @UseGuards(AuthGuard)
 export class NotificationsController {
-  constructor(private readonly notificationsService: NotificationsService) {}
+  constructor(@Inject(NotificationsService) private readonly notificationsService: NotificationsService) {}
 
   @Get('settings')
   getSettings(@Req() request: AuthenticatedRequest) {

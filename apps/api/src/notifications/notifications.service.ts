@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import {
   NotificationChannelType,
   NotificationDeliveryStatus,
@@ -39,7 +39,7 @@ const BALANCE_LOW_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 
 @Injectable()
 export class NotificationsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
   async getSettings(user: AuthenticatedUser) {
     const [preference, channels, deliveries, wallet] = await Promise.all([

@@ -84,7 +84,7 @@ async function request<T>(path: string) {
 
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const message = typeof body?.message === 'string' ? body.message : `异步任务加载失败：HTTP ${response.status}`;
+    const message = typeof body?.message === 'string' ? body.message : `记录加载失败：HTTP ${response.status}`;
     throw new Error(`${response.status}: ${message}`);
   }
 

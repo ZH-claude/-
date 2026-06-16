@@ -1,4 +1,4 @@
-import { BadRequestException, Controller, Get, Param, Query, Req, UseGuards } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Inject, Param, Query, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '../auth/auth.guard';
 import { AuthenticatedRequest } from '../auth/auth.types';
 import { UsageLogsService } from './usage-logs.service';
@@ -6,7 +6,7 @@ import { UsageLogsService } from './usage-logs.service';
 @Controller('usage')
 @UseGuards(AuthGuard)
 export class UsageLogsController {
-  constructor(private readonly usageLogsService: UsageLogsService) {}
+  constructor(@Inject(UsageLogsService) private readonly usageLogsService: UsageLogsService) {}
 
   @Get('logs')
   listUsageLogs(@Req() request: AuthenticatedRequest, @Query() query: Record<string, unknown>) {

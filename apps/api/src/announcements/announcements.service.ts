@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { AnnouncementCategory, AnnouncementStatus } from '../generated/prisma/client';
 import { PrismaService } from '../prisma.service';
 
@@ -10,7 +10,7 @@ const SECTION_DEFINITIONS = [
 
 @Injectable()
 export class AnnouncementsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
   async listPublished() {
     const announcements = await this.prisma.announcement.findMany({

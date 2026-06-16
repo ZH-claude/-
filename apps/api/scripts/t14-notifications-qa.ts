@@ -85,7 +85,7 @@ const API_BASE_URL = process.env.API_BASE_URL ?? 'http://127.0.0.1:3001';
 const DATABASE_URL = process.env.DATABASE_URL;
 const UPSTREAM_SECRET = process.env.UPSTREAM_KEY_ENCRYPTION_SECRET;
 const TEMP_UPSTREAM_PUBLIC_HOST = process.env.TEMP_UPSTREAM_PUBLIC_HOST ?? 'host.docker.internal';
-const SUCCESS_WEBHOOK_URL = process.env.QA_WEBHOOK_URL ?? 'https://httpbingo.org/status/204';
+const SUCCESS_WEBHOOK_URL = process.env.QA_WEBHOOK_URL ?? 'https://httpbingo.org/status/200';
 const FAILURE_WEBHOOK_URL = process.env.QA_WEBHOOK_FAILURE_URL ?? 'https://httpbingo.org/status/500';
 
 if (!DATABASE_URL) {

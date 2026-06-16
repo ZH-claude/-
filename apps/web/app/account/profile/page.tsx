@@ -2,29 +2,19 @@
 
 import {
   ApiOutlined,
-  AppstoreOutlined,
-  BellOutlined,
   CheckCircleOutlined,
-  CloudServerOutlined,
   CopyOutlined,
-  DollarOutlined,
-  FileTextOutlined,
   GiftOutlined,
-  HomeOutlined,
   KeyOutlined,
-  LogoutOutlined,
-  PictureOutlined,
-  PlayCircleOutlined,
-  ReloadOutlined,
   SearchOutlined,
   SettingOutlined,
   TeamOutlined,
   UserOutlined,
-  WalletOutlined
 } from '@ant-design/icons';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from 'react';
+import { ConsoleShell } from '../../components/console-shell';
 import { changePassword, getProfile, logout, updateTimezone } from '../../lib/auth-api';
 import type { AvailableModel, PublicUser } from '../../lib/auth-api';
 
@@ -37,24 +27,6 @@ const commonTimezones = [
   'America/Los_Angeles',
   'America/New_York',
   'Europe/London'
-];
-
-const primaryNavItems = [
-  { href: '/', label: '首页', icon: <HomeOutlined /> },
-  { href: '/groupAvailability', label: '分组状态', icon: <AppstoreOutlined /> },
-  { href: '/token', label: '令牌', icon: <KeyOutlined /> },
-  { href: '/log', label: '日志', icon: <FileTextOutlined /> },
-  { href: '/midjourney', label: '绘图', icon: <PictureOutlined /> },
-  { href: '/task', label: '异步任务', icon: <PlayCircleOutlined /> },
-  { href: '/account/profile', label: '账户', icon: <UserOutlined /> },
-  { href: '/uptimeStatus', label: '服务状态', icon: <CloudServerOutlined /> }
-];
-
-const accountNavItems = [
-  { href: '/account/profile', label: '个人中心', icon: <UserOutlined /> },
-  { href: '/account/topup/recharge', label: '余额充值', icon: <WalletOutlined /> },
-  { href: '/pricing', label: '费用说明', icon: <DollarOutlined /> },
-  { href: '/account/notificationSettings', label: '通知设置', icon: <BellOutlined /> }
 ];
 
 export default function AccountProfilePage() {
@@ -182,43 +154,13 @@ export default function AccountProfilePage() {
   }
 
   return (
-    <main className="relay-console-page">
-      <header className="relay-console-topbar">
-        <Link className="relay-console-brand" href="/">
-          <span className="shell-logo-mark">R</span>
-          <span>Relay Console</span>
-        </Link>
-        <nav className="relay-primary-nav" aria-label="主导航">
-          {primaryNavItems.map((item) => (
-            <Link className={item.href === '/account/profile' ? 'active' : ''} href={item.href} key={item.href}>
-              {item.icon}
-              <span>{item.label}</span>
-            </Link>
-          ))}
-        </nav>
-        <div className="relay-topbar-actions">
-          <button className="icon-button" disabled={isLoading} onClick={() => void loadProfile()} title="刷新账户" type="button">
-            <ReloadOutlined />
-          </button>
-          <button className="ghost-button" onClick={handleLogout} type="button">
-            <LogoutOutlined />
-            退出
-          </button>
-          <span className="relay-user-chip">{user?.username ?? '-'}</span>
-        </div>
-      </header>
-
-      <section className="relay-console-body">
-        <aside className="relay-account-sidebar" aria-label="账户导航">
-          {accountNavItems.map((item) => (
-            <Link className={item.href === '/account/profile' ? 'active' : ''} href={item.href} key={item.href}>
-              {item.icon}
-              <span>{item.label}</span>
-            </Link>
-          ))}
-        </aside>
-
-        <section className="profile-content">
+    <ConsoleShell
+      activePath="/account/profile"
+      isRefreshing={isLoading}
+      onLogout={() => void handleLogout()}
+      onRefresh={() => void loadProfile()}
+      username={user?.username}
+    >
           {error ? <p className="form-error">{error}</p> : null}
           {message ? <p className="form-success">{message}</p> : null}
 
@@ -405,9 +347,7 @@ export default function AccountProfilePage() {
               </div>
             </form>
           </section>
-        </section>
-      </section>
-    </main>
+    </ConsoleShell>
   );
 }
 

@@ -1,4 +1,4 @@
-import { All, Body, Controller, Get, Post, Req, Res } from '@nestjs/common';
+import { All, Body, Controller, Get, Inject, Post, Req, Res } from '@nestjs/common';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { RelayService } from './relay.service';
 
@@ -16,7 +16,7 @@ type RelayRequest = FastifyRequest & {
 
 @Controller('v1')
 export class RelayController {
-  constructor(private readonly relayService: RelayService) {}
+  constructor(@Inject(RelayService) private readonly relayService: RelayService) {}
 
   @Get('models')
   async listModels(@Req() request: RelayRequest, @Res() reply: FastifyReply) {

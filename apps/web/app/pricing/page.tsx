@@ -5,12 +5,11 @@ import {
   CopyOutlined,
   DollarOutlined,
   ReloadOutlined,
-  SearchOutlined,
-  WalletOutlined
+  SearchOutlined
 } from '@ant-design/icons';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
+import { ConsoleShell } from '../components/console-shell';
 import { getModelPricing, type PricingModel, type PricingResponse } from '../lib/pricing-api';
 
 export default function PricingPage() {
@@ -74,25 +73,8 @@ export default function PricingPage() {
   }
 
   return (
-    <main className="account-page">
-      <header className="topbar">
-        <Link className="auth-brand compact" href="/">
-          <span className="shell-logo-mark">R</span>
-          <span>Relay Console</span>
-        </Link>
-        <nav className="admin-top-actions" aria-label="费用说明导航">
-          <Link className="ghost-button" href="/account/profile">
-            <WalletOutlined />
-            账户
-          </Link>
-          <button className="ghost-button" disabled={isLoading} onClick={() => void loadPricing()} type="button">
-            <ReloadOutlined />
-            刷新
-          </button>
-        </nav>
-      </header>
-
-      <section className="account-grid">
+    <ConsoleShell activePath="/pricing" isRefreshing={isLoading} onRefresh={() => void loadPricing()}>
+      <section className="console-content-grid">
         <section className="account-panel account-summary">
           <div>
             <p className="eyebrow">费用说明</p>
@@ -184,7 +166,7 @@ export default function PricingPage() {
           </div>
         </section>
       </section>
-    </main>
+    </ConsoleShell>
   );
 }
 

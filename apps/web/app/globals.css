@@ -657,6 +657,13 @@ button {
   padding: 24px;
 }
 
+.console-content-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  min-width: 0;
+}
+
 .account-panel,
 .metric-panel {
   background: #ffffff;
@@ -1115,7 +1122,11 @@ button {
 .relay-account-sidebar {
   background: #ffffff;
   border-right: 1px solid #eceff3;
+  height: calc(100vh - 62px);
+  overflow-y: auto;
   padding: 10px 14px;
+  position: sticky;
+  top: 62px;
 }
 
 .relay-account-sidebar a {
@@ -1139,8 +1150,24 @@ button {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  min-height: calc(100vh - 62px);
   min-width: 0;
   padding: 42px;
+}
+
+.drawing-metrics {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.drawing-table {
+  min-width: 1040px;
 }
 
 .profile-card {
@@ -1533,7 +1560,8 @@ button {
     .log-filter-form,
     .availability-filter-form,
     .notification-form-grid,
-    .channel-grid {
+    .channel-grid,
+    .console-content-grid {
     grid-template-columns: 1fr;
   }
 
@@ -1606,8 +1634,10 @@ button {
     border-right: 0;
     display: flex;
     gap: 8px;
+    height: auto;
     overflow-x: auto;
     padding: 10px 16px;
+    position: static;
   }
 
   .relay-account-sidebar a {
@@ -1626,7 +1656,8 @@ button {
   .profile-referral-actions,
   .profile-referral-stats,
   .profile-info-grid,
-  .profile-metrics {
+  .profile-metrics,
+  .drawing-metrics {
     grid-template-columns: 1fr;
   }
 

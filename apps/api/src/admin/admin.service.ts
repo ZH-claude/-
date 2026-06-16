@@ -82,7 +82,7 @@ const BLOCKED_UPSTREAM_HOSTNAMES = new Set(['localhost', 'host.docker.internal',
 export class AdminService implements OnModuleInit {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
-    private readonly securityAuditService: SecurityAuditService
+    @Inject(SecurityAuditService) private readonly securityAuditService: SecurityAuditService
   ) {}
 
   async onModuleInit() {

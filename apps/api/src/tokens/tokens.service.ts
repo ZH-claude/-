@@ -39,8 +39,8 @@ const MAX_IP_WHITELIST_ENTRIES = 64;
 export class TokensService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
-    private readonly modelCatalogService: ModelCatalogService,
-    private readonly securityAuditService: SecurityAuditService
+    @Inject(ModelCatalogService) private readonly modelCatalogService: ModelCatalogService,
+    @Inject(SecurityAuditService) private readonly securityAuditService: SecurityAuditService
   ) {}
 
   async listTokens(user: AuthenticatedUser) {

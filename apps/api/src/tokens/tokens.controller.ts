@@ -4,6 +4,7 @@ import {
   Controller,
   Delete,
   Get,
+  Inject,
   Param,
   Post,
   Req,
@@ -16,7 +17,7 @@ import { TokensService } from './tokens.service';
 
 @Controller('tokens')
 export class TokensController {
-  constructor(private readonly tokensService: TokensService) {}
+  constructor(@Inject(TokensService) private readonly tokensService: TokensService) {}
 
   @Get()
   @UseGuards(AuthGuard)

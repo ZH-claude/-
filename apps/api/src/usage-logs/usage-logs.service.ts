@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { Prisma, UsageEventStatus } from '../generated/prisma/client';
 import { PrismaService } from '../prisma.service';
@@ -27,7 +27,7 @@ const MAX_MODEL_LENGTH = 120;
 
 @Injectable()
 export class UsageLogsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
   async listUsageLogs(user: AuthenticatedUser, query: UsageLogQuery) {
     const filters = this.normalizeFilters(query);

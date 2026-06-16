@@ -3,47 +3,25 @@
 import {
   ApiOutlined,
   BellOutlined,
-  ClockCircleOutlined,
   CloudServerOutlined,
   CreditCardOutlined,
-  DashboardOutlined,
   FileTextOutlined,
   KeyOutlined,
   LineChartOutlined,
-  NotificationOutlined,
-  PictureOutlined,
-  SettingOutlined,
-  ToolOutlined,
-  UserOutlined
+  PictureOutlined
 } from '@ant-design/icons';
-import { Alert, Card, Col, Empty, Layout, List, Menu, Row, Space, Spin, Statistic, Tag, Typography } from 'antd';
+import { Alert, Card, Col, Empty, List, Row, Space, Spin, Statistic, Typography } from 'antd';
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
+import { ConsoleShell } from './components/console-shell';
 import { listPublishedAnnouncements } from './lib/announcements-api';
 import type { AnnouncementFeedResponse, AnnouncementSection } from './lib/announcements-api';
-
-const { Header, Sider, Content } = Layout;
-
-const menuItems = [
-  { key: 'home', icon: <DashboardOutlined />, label: <Link href="/">首页</Link> },
-  { key: 'profile', icon: <UserOutlined />, label: <Link href="/account/profile">个人中心</Link> },
-  { key: 'token', icon: <KeyOutlined />, label: <Link href="/token">令牌</Link> },
-  { key: 'logs', icon: <FileTextOutlined />, label: <Link href="/log">日志</Link> },
-  { key: 'task', icon: <ClockCircleOutlined />, label: <Link href="/task">异步任务</Link> },
-  { key: 'midjourney', icon: <PictureOutlined />, label: <Link href="/midjourney">绘图日志</Link> },
-  { key: 'billing', icon: <CreditCardOutlined />, label: <Link href="/pricing">费用说明</Link> },
-  { key: 'status', icon: <LineChartOutlined />, label: <Link href="/groupAvailability">分组状态</Link> },
-  { key: 'uptime', icon: <CloudServerOutlined />, label: <Link href="/uptimeStatus">服务状态</Link> },
-  { key: 'settings', icon: <SettingOutlined />, label: <Link href="/account/notificationSettings">通知设置</Link> },
-  { key: 'admin', icon: <ToolOutlined />, label: <Link href="/admin">管理后台</Link> }
-];
 
 const documentEntries = [
   { title: '令牌管理', href: '/token', icon: <KeyOutlined /> },
   { title: '费用说明', href: '/pricing', icon: <CreditCardOutlined /> },
   { title: '调用日志', href: '/log', icon: <FileTextOutlined /> },
-  { title: '异步任务', href: '/task', icon: <ClockCircleOutlined /> },
-  { title: '绘图日志', href: '/midjourney', icon: <PictureOutlined /> },
+  { title: '绘图', href: '/midjourney', icon: <PictureOutlined /> },
   { title: '余额充值', href: '/account/topup/recharge', icon: <CreditCardOutlined /> },
   { title: '分组状态', href: '/groupAvailability', icon: <LineChartOutlined /> },
   { title: '服务状态', href: '/uptimeStatus', icon: <CloudServerOutlined /> },
@@ -107,90 +85,66 @@ export default function HomePage() {
   }, [feed.sections]);
 
   return (
-    <Layout style={{ minHeight: '100vh' }}>
-      <Sider breakpoint="lg" collapsedWidth="0" theme="light" width={224}>
-        <div style={{ padding: 20 }}>
-          <div className="shell-logo">
-            <span className="shell-logo-mark">R</span>
-            <span>Relay Console</span>
-          </div>
+    <ConsoleShell activePath="/">
+      <section className="profile-card account-summary">
+        <div>
+          <p className="eyebrow">首页</p>
+          <h1>Relay Console</h1>
+          <p className="page-subtitle">
+            <ApiOutlined /> API 中转站后台
+          </p>
         </div>
-        <Menu mode="inline" defaultSelectedKeys={['home']} items={menuItems} />
-      </Sider>
+      </section>
 
-      <Layout>
-        <Header
-          style={{
-            alignItems: 'center',
-            background: '#ffffff',
-            borderBottom: '1px solid #e5e7eb',
-            display: 'flex',
-            justifyContent: 'space-between',
-            padding: '0 24px'
-          }}
-        >
-          <Space>
-            <ApiOutlined />
-            <Typography.Text strong>API 中转站后台</Typography.Text>
-          </Space>
-          <Space>
-            <NotificationOutlined />
-            <Tag color="blue">T15 首页公告</Tag>
-          </Space>
-        </Header>
+      <Space orientation="vertical" size={20} style={{ width: '100%' }}>
+        {error ? <Alert message={error} showIcon type="error" /> : null}
 
-        <Content style={{ padding: 24 }}>
-          <Space orientation="vertical" size={20} style={{ width: '100%' }}>
-            {error ? <Alert message={error} showIcon type="error" /> : null}
-
-            <Row gutter={[16, 16]}>
-              <Col xs={24} md={8}>
-                <Card>
-                  <Statistic title="已发布内容" loading={isLoading} suffix="条" value={feed.total} />
-                </Card>
-              </Col>
-              <Col xs={24} md={8}>
-                <Card>
-                  <Statistic title="最新发布" loading={isLoading} value={latestPublishedAt} />
-                </Card>
-              </Col>
-              <Col xs={24} md={8}>
-                <Card>
-                  <Statistic title="文档入口" suffix="个" value={documentEntries.length} />
-                </Card>
-              </Col>
-            </Row>
-
-            {isLoading ? (
-              <Card>
-                <Spin />
-              </Card>
-            ) : (
-              <Row gutter={[16, 16]}>
-                {feed.sections.map((section) => (
-                  <Col key={section.key} xs={24} lg={8}>
-                    <AnnouncementSectionCard section={section} />
-                  </Col>
-                ))}
-              </Row>
-            )}
-
-            <Card title="文档入口">
-              <Row gutter={[12, 12]}>
-                {documentEntries.map((entry) => (
-                  <Col key={entry.href} xs={12} md={8} xl={4}>
-                    <Link className="home-doc-link" href={entry.href}>
-                      {entry.icon}
-                      <span>{entry.title}</span>
-                    </Link>
-                  </Col>
-                ))}
-              </Row>
+        <Row gutter={[16, 16]}>
+          <Col xs={24} md={8}>
+            <Card>
+              <Statistic title="已发布内容" loading={isLoading} suffix="条" value={feed.total} />
             </Card>
-          </Space>
-        </Content>
-      </Layout>
-    </Layout>
+          </Col>
+          <Col xs={24} md={8}>
+            <Card>
+              <Statistic title="最新发布" loading={isLoading} value={latestPublishedAt} />
+            </Card>
+          </Col>
+          <Col xs={24} md={8}>
+            <Card>
+              <Statistic title="文档入口" suffix="个" value={documentEntries.length} />
+            </Card>
+          </Col>
+        </Row>
+
+        {isLoading ? (
+          <Card>
+            <Spin />
+          </Card>
+        ) : (
+          <Row gutter={[16, 16]}>
+            {feed.sections.map((section) => (
+              <Col key={section.key} xs={24} lg={8}>
+                <AnnouncementSectionCard section={section} />
+              </Col>
+            ))}
+          </Row>
+        )}
+
+        <Card title="文档入口">
+          <Row gutter={[12, 12]}>
+            {documentEntries.map((entry) => (
+              <Col key={entry.href} xs={12} md={8} xl={4}>
+                <Link className="home-doc-link" href={entry.href}>
+                  {entry.icon}
+                  <span>{entry.title}</span>
+                </Link>
+              </Col>
+            ))}
+          </Row>
+        </Card>
+      </Space>
+    </ConsoleShell>
   );
 }
 

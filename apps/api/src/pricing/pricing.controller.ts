@@ -1,4 +1,4 @@
-import { BadRequestException, Controller, Get, Req, UseGuards } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Inject, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '../auth/auth.guard';
 import { AuthenticatedRequest } from '../auth/auth.types';
 import { PricingService } from './pricing.service';
@@ -6,7 +6,7 @@ import { PricingService } from './pricing.service';
 @Controller('pricing')
 @UseGuards(AuthGuard)
 export class PricingController {
-  constructor(private readonly pricingService: PricingService) {}
+  constructor(@Inject(PricingService) private readonly pricingService: PricingService) {}
 
   @Get('models')
   getModelPricing(@Req() request: AuthenticatedRequest) {

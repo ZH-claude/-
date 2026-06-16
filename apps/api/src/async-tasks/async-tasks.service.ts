@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { AsyncTaskKind, AsyncTaskStatus, Prisma } from '../generated/prisma/client';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { PrismaService } from '../prisma.service';
@@ -25,7 +25,7 @@ const MAX_FILTER_LENGTH = 120;
 
 @Injectable()
 export class AsyncTasksService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
   async listTasks(user: AuthenticatedUser, query: AsyncTaskQuery) {
     const filters = this.normalizeFilters(query);

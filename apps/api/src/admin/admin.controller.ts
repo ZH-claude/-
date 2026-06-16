@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Get,
+  Inject,
   Param,
   Post,
   Query,
@@ -17,7 +18,7 @@ import { AuthenticatedRequest } from '../auth/auth.types';
 @Controller('admin')
 @UseGuards(AuthGuard, AdminGuard)
 export class AdminController {
-  constructor(private readonly adminService: AdminService) {}
+  constructor(@Inject(AdminService) private readonly adminService: AdminService) {}
 
   @Get('users')
   listUsers(

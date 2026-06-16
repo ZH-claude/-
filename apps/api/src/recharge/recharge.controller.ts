@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Get,
+  Inject,
   Param,
   Post,
   Req,
@@ -16,7 +17,7 @@ import { RechargeService } from './recharge.service';
 @Controller('admin/recharge-codes')
 @UseGuards(AuthGuard, AdminGuard)
 export class AdminRechargeController {
-  constructor(private readonly rechargeService: RechargeService) {}
+  constructor(@Inject(RechargeService) private readonly rechargeService: RechargeService) {}
 
   @Get()
   listRechargeCodes() {
@@ -49,7 +50,7 @@ export class AdminRechargeController {
 @Controller('recharge')
 @UseGuards(AuthGuard)
 export class RechargeController {
-  constructor(private readonly rechargeService: RechargeService) {}
+  constructor(@Inject(RechargeService) private readonly rechargeService: RechargeService) {}
 
   @Get('records')
   listRechargeRecords(@Req() request: AuthenticatedRequest) {

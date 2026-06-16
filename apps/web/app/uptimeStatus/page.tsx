@@ -4,12 +4,11 @@ import {
   ApiOutlined,
   CloudServerOutlined,
   DatabaseOutlined,
-  HomeOutlined,
   LineChartOutlined,
   ReloadOutlined
 } from '@ant-design/icons';
-import Link from 'next/link';
 import { useEffect, useState } from 'react';
+import { ConsoleShell } from '../components/console-shell';
 import {
   getServiceStatus,
   type ServiceComponentStatus,
@@ -42,25 +41,8 @@ export default function UptimeStatusPage() {
   const summary = data?.summary;
 
   return (
-    <main className="account-page">
-      <header className="topbar">
-        <Link className="auth-brand compact" href="/">
-          <span className="shell-logo-mark">R</span>
-          <span>Relay Console</span>
-        </Link>
-        <nav className="admin-top-actions" aria-label="服务状态导航">
-          <Link className="ghost-button" href="/">
-            <HomeOutlined />
-            首页
-          </Link>
-          <button className="ghost-button" disabled={isLoading} onClick={() => void loadStatus()} type="button">
-            <ReloadOutlined />
-            刷新
-          </button>
-        </nav>
-      </header>
-
-      <section className="account-grid">
+    <ConsoleShell activePath="/uptimeStatus" isRefreshing={isLoading} onRefresh={() => void loadStatus()}>
+      <section className="console-content-grid">
         <section className="account-panel account-summary">
           <div>
             <p className="eyebrow">服务状态</p>
@@ -180,7 +162,7 @@ export default function UptimeStatusPage() {
           </div>
         </section>
       </section>
-    </main>
+    </ConsoleShell>
   );
 }
 

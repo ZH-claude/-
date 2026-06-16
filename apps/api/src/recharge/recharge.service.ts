@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
   NotFoundException
 } from '@nestjs/common';
@@ -30,7 +31,7 @@ const MAX_RECHARGE_CODE_COUNT = 100;
 
 @Injectable()
 export class RechargeService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
   async createRechargeCodes(adminUserId: string, body: CreateRechargeCodeInput) {
     const amountCents = this.positiveInt(body.amountCents, 'amountCents', 1, MAX_RECHARGE_AMOUNT_CENTS);

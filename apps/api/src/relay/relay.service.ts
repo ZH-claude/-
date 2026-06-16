@@ -73,10 +73,10 @@ const RETRYABLE_UPSTREAM_STATUS = new Set([502, 503, 504]);
 export class RelayService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
-    private readonly tokensService: TokensService,
-    private readonly billingService: BillingService,
-    private readonly relayPolicyService: RelayPolicyService,
-    private readonly requestLogsService: RequestLogsService
+    @Inject(TokensService) private readonly tokensService: TokensService,
+    @Inject(BillingService) private readonly billingService: BillingService,
+    @Inject(RelayPolicyService) private readonly relayPolicyService: RelayPolicyService,
+    @Inject(RequestLogsService) private readonly requestLogsService: RequestLogsService
   ) {}
 
   createRequestId() {

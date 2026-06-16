@@ -1,4 +1,4 @@
-import { BadRequestException, Controller, Get, Query, Req, UseGuards } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Inject, Query, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '../auth/auth.guard';
 import { AuthenticatedRequest } from '../auth/auth.types';
 import { AsyncTasksService } from './async-tasks.service';
@@ -6,7 +6,7 @@ import { AsyncTasksService } from './async-tasks.service';
 @Controller('async-tasks')
 @UseGuards(AuthGuard)
 export class AsyncTasksController {
-  constructor(private readonly asyncTasksService: AsyncTasksService) {}
+  constructor(@Inject(AsyncTasksService) private readonly asyncTasksService: AsyncTasksService) {}
 
   @Get()
   listTasks(@Req() request: AuthenticatedRequest, @Query() query: Record<string, unknown>) {

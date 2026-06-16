@@ -45,7 +45,7 @@ type NormalizedUsage = {
 export class BillingService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
-    private readonly notificationsService: NotificationsService
+    @Inject(NotificationsService) private readonly notificationsService: NotificationsService
   ) {}
 
   async assertCanStartUsage(userId: string, model: BillableModel) {

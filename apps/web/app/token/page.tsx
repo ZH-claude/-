@@ -8,9 +8,9 @@ import {
   StopOutlined,
   SyncOutlined
 } from '@ant-design/icons';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { type FormEvent, useEffect, useMemo, useState } from 'react';
+import { ConsoleShell } from '../components/console-shell';
 import { getProfile, type AvailableModel } from '../lib/auth-api';
 import {
   createToken,
@@ -224,24 +224,8 @@ export default function TokenPage() {
   }
 
   return (
-    <main className="account-page">
-      <header className="topbar">
-        <Link className="auth-brand compact" href="/">
-          <span className="shell-logo-mark">R</span>
-          <span>Relay Console</span>
-        </Link>
-        <div className="admin-top-actions">
-          <Link className="ghost-button" href="/account/profile">
-            个人中心
-          </Link>
-          <button className="ghost-button" disabled={isLoading} onClick={() => void loadTokenPage()} type="button">
-            <ReloadOutlined />
-            刷新
-          </button>
-        </div>
-      </header>
-
-      <section className="account-grid">
+    <ConsoleShell activePath="/token" isRefreshing={isLoading} onRefresh={() => void loadTokenPage()}>
+      <section className="console-content-grid">
         <section className="account-panel account-summary">
           <div>
             <p className="eyebrow">API 令牌</p>
@@ -497,7 +481,7 @@ export default function TokenPage() {
           </div>
         </section>
       </section>
-    </main>
+    </ConsoleShell>
   );
 }
 

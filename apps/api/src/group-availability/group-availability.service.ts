@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import {
   GroupStatus,
   ModelStatus,
@@ -39,7 +39,7 @@ const SUCCESS_RATE_PARTIAL_THRESHOLD = 0.95;
 
 @Injectable()
 export class GroupAvailabilityService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
   async getGroupAvailability(user: AuthenticatedUser, query: GroupAvailabilityQuery) {
     const filters = this.normalizeFilters(query);

@@ -2,14 +2,13 @@
 
 import {
   GiftOutlined,
-  LogoutOutlined,
   ReloadOutlined,
   WalletOutlined
 } from '@ant-design/icons';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
+import { ConsoleShell } from '../../../components/console-shell';
 import { getProfile, logout } from '../../../lib/auth-api';
 import type { PublicUser } from '../../../lib/auth-api';
 import {
@@ -78,25 +77,14 @@ export default function RechargePage() {
   }
 
   return (
-    <main className="account-page">
-      <header className="topbar">
-        <Link className="auth-brand compact" href="/">
-          <span className="shell-logo-mark">R</span>
-          <span>Relay Console</span>
-        </Link>
-        <nav className="admin-top-actions" aria-label="账户操作">
-          <Link className="ghost-button" href="/account/profile">
-            <WalletOutlined />
-            账户
-          </Link>
-          <button className="ghost-button" onClick={handleLogout} type="button">
-            <LogoutOutlined />
-            退出
-          </button>
-        </nav>
-      </header>
-
-      <section className="account-grid">
+    <ConsoleShell
+      activePath="/account/topup/recharge"
+      isRefreshing={isLoading}
+      onLogout={() => void handleLogout()}
+      onRefresh={() => void loadRechargeData()}
+      username={user?.username ?? null}
+    >
+      <section className="console-content-grid">
         <div className="account-panel account-summary">
           <div>
             <p className="eyebrow">余额充值</p>
@@ -169,7 +157,7 @@ export default function RechargePage() {
           </div>
         </section>
       </section>
-    </main>
+    </ConsoleShell>
   );
 }
 
