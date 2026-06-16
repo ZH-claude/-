@@ -150,7 +150,7 @@ QA/Review 重点：
 
 ### M05 商家端充值码管理页
 
-状态：待开始
+状态：已完成
 
 范围：
 - 从当前 `/admin` 大页面拆出充值码页面。
@@ -165,6 +165,15 @@ QA/Review 重点：
 - 防止明文充值码落入日志或审计响应。
 - 禁用已使用充值码应失败或无副作用。
 - 余额事务一致性。
+
+完成记录（2026-06-16）：
+- 已新增 `/merchant/recharge-codes` 独立充值码管理页，商家端顶部栏和左侧固定栏中的“充值码”现在进入该页，旧 `/admin#merchant-recharge-codes` 大页面保留兼容。
+- 页面复用 `requireMerchantProfile` 做服务端真实鉴权：未登录跳 `/login`，普通用户跳 `/account/profile`，商家/后台账号才渲染页面。
+- 充值码页通过真实 `/admin/recharge-codes` 生成、列表和禁用接口读写数据库；列表只展示金额、状态、创建人、使用人、使用时间、交易 ID 和操作，不展示明文充值码或 hash。
+- 本次生成的明文充值码只保存在当前页面状态中用于一次性复制；刷新或重新加载列表后不再从接口获得明文。
+- 已新增 `npm run qa:t22:merchant-recharge-codes`，通过真实 Postgres 临时创建管理员和普通用户，真实登录后验证商家页渲染/普通用户跳转、管理员生成充值码、列表不泄漏明文/hash、审计响应不泄漏明文/hash、普通用户兑换后余额和充值码状态真实变更、已使用码禁用无副作用、未使用码禁用后不可兑换；清理后用户、钱包、会话、充值码、钱包交易和审计残留均为 0。
+- 已复跑 M01-M04 回归：`qa:t22:merchant-routing`、`qa:t22:merchant-shell`、`qa:t22:merchant-dashboard`、`qa:t22:merchant-users` 均通过，确认双端分流、固定导航、Dashboard 和用户管理未回归。
+- 已用浏览器真实登录 `merchant_test_1 / merchant200611`，验证 1366 和 390 两个视口：`/merchant/recharge-codes` 存在、充值码导航 active、商家固定栏存在、普通用户菜单未泄漏、无横向溢出、控制台无错误。
 
 ### M06 商家端模型与上游配置页
 

@@ -29,7 +29,7 @@ type NavigationItem = {
 const merchantNavigationItems: NavigationItem[] = [
   { href: '/merchant', label: '首页', icon: <HomeOutlined />, topbar: true },
   { href: '/merchant/users', label: '用户', icon: <TeamOutlined />, topbar: true },
-  { href: '/admin#merchant-recharge-codes', label: '充值码', icon: <GiftOutlined />, topbar: true },
+  { href: '/merchant/recharge-codes', label: '充值码', icon: <GiftOutlined />, topbar: true },
   { href: '/admin#merchant-groups', label: '分组状态', icon: <AppstoreOutlined /> },
   { href: '/token', label: '令牌入口', icon: <KeyOutlined /> },
   { href: '/log', label: '请求日志', icon: <FileTextOutlined /> },

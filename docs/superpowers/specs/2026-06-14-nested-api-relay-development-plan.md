@@ -339,6 +339,9 @@ T22 商家端独立化进展记录（2026-06-16）：
 - 已新增 `GET /admin/groups`，由后台权限保护，只返回公开分组字段、用户数和模型授权数；用户页通过真实 `/admin/users` 分页读取用户，通过真实 `/admin/users/:id/group` 更新分组。
 - 已新增 `npm run qa:t22:merchant-users`，通过真实 Postgres 临时创建管理员、普通用户、两个分组和钱包，真实登录后验证用户列表、分组列表、分组更新、数据库持久化、普通用户 403、敏感字段不泄漏；结束后临时用户、钱包、会话、审计和分组残留为 0。
 - 已复跑 `qa:t22:merchant-routing`、`qa:t22:merchant-shell`、`qa:t22:merchant-dashboard`，确认 M01-M03 未回归；并用浏览器真实登录验证 `/merchant/users` 在 1920、1366、390 三个视口无控制台错误、无普通用户菜单泄漏、无横向页面溢出。
+- M05 商家端充值码管理页已完成：新增 `/merchant/recharge-codes` 独立页面，商家端导航“充值码”进入该页，旧 `/admin` 大页面保留兼容。
+- 已新增 `npm run qa:t22:merchant-recharge-codes`，通过真实 Postgres 临时创建后台账号和普通用户，真实登录后验证商家页权限、充值码生成、列表脱敏、后台审计脱敏、用户兑换余额入账、已使用码禁用无副作用、未使用码禁用后不可兑换；结束后用户、钱包、会话、充值码、钱包交易和审计残留为 0。
+- 已复跑 `qa:t22:merchant-routing`、`qa:t22:merchant-shell`、`qa:t22:merchant-dashboard`、`qa:t22:merchant-users`，确认 M01-M04 未回归；并用浏览器真实登录验证 `/merchant/recharge-codes` 在 1366 和 390 视口无控制台错误、无普通用户菜单泄漏、无横向页面溢出。
 
 账户中心功能对齐补强记录（2026-06-16）：
 
