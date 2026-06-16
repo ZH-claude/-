@@ -218,21 +218,35 @@
 | --- | --- | --- | --- |
 | `id` | uuid | PK | 日志 ID |
 | `request_id` | text | unique, not null | 请求 ID |
-| `user_id` | uuid | FK | 用户 |
-| `token_id` | uuid | FK | 令牌 |
+| `user_id` | uuid | nullable FK `users.id`, on delete set null | 用户 |
+| `token_id` | uuid | nullable FK `api_tokens.id`, on delete set null | 令牌 |
+| `upstream_provider_id` | uuid | nullable FK `upstream_providers.id`, on delete set null | 上游供应商 |
 | `method` | text | not null | HTTP 方法 |
 | `path` | text | not null | 请求路径 |
 | `model` | text | nullable | 模型 |
 | `status_code` | int | nullable | 响应状态 |
 | `error_code` | text | nullable | 平台错误码 |
-| `latency_ms` | int | nullable | 延迟 |
-| `upstream_latency_ms` | int | nullable | 上游延迟 |
+| `latency_ms` | int | nullable | 平台总延迟，毫秒 |
+| `upstream_latency_ms` | int | nullable | 上游请求延迟，毫秒 |
+| `upstream_status_code` | int | nullable | 上游 HTTP 状态码 |
+| `upstream_status` | text | nullable | 上游状态摘要，如 `success`、`http_error`、`failed`、`malformed_response`、`stream_started`、`not_required` |
 | `created_at` | timestamp | not null | 创建时间 |
+| `completed_at` | timestamp | nullable | 请求日志完成时间 |
 
 规则：
 
 - 不记录 API Key 明文。
 - 默认不保存完整 prompt。
+- `request_id` 唯一，作为 trace 查询入口，关联 `usage_events`、`wallet_transactions` 和上游状态。
+- 查询响应必须使用字段白名单，不返回 `token_hash`、上游 Key、连接串、`price_snapshot`、`idempotency_key` 或内部密钥。
+
+索引：
+
+- unique `request_logs_request_id_key(request_id)`
+- index `request_logs_user_created_at_idx(user_id, created_at)`
+- index `request_logs_token_created_at_idx(token_id, created_at)`
+- index `request_logs_status_created_at_idx(status_code, created_at)`
+- index `request_logs_error_created_at_idx(error_code, created_at)`
 
 ### `recharge_codes`
 
@@ -326,6 +340,7 @@
 | 创建用户 | `users` + `wallets` 同一事务 |
 | 创建 API Key | `api_tokens` + 可选 `api_token_model_accesses` 同一事务 |
 | 成功扣费 | `usage_events` + `wallet_transactions` + `wallets` 同一事务 |
+| Relay 请求日志 | `request_logs` 以 `request_id` upsert；日志写入失败不得影响已完成的鉴权、上游转发或计费结果 |
 | 卡密充值 | `recharge_codes` 状态更新 + `wallet_transactions` + `wallets` 同一事务 |
 | 管理员调账 | `wallet_transactions` + `wallets` + `admin_audit_logs` 同一事务 |
 | 用户安全动作 | 业务状态变更 + `security_audit_logs` 尽量同一事务 |

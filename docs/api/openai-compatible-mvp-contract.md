@@ -145,7 +145,59 @@ Authorization: Bearer sk-your-key
 - 不记录上游 API Key。
 - 用户 API Key 只存 hash，响应中只在创建时展示一次。
 - 请求体可以记录摘要、模型、token、费用、状态；完整 messages 默认不入库，后续可做用户可选开关。
-- 每次调用必须有 `request_id`，贯穿 request log、usage event、wallet transaction。
+- 每次调用必须有 `request_id`，响应头返回 `x-request-id`，并贯穿 request log、usage event、wallet transaction。
+- `request_logs` 记录方法、路径、模型、平台状态码、错误码、总延迟、上游延迟、上游 HTTP 状态码和上游状态摘要。
+- 控制面提供 `GET /usage/logs/{request_id}/trace`，用户登录后只能查询自己的请求链路。
+- trace 响应只返回白名单字段：usage event 摘要、令牌展示名/预览、钱包流水摘要、request log 摘要、upstream 状态摘要和 trace 布尔状态。
+- trace 响应不得返回 `Authorization`、上游 API Key、用户 API Key 明文、`tokenHash`、`passwordHash`、`priceSnapshot`、`idempotencyKey`、连接串、Webhook secret 或内部密钥。
+
+### Trace 响应示例
+
+```json
+{
+  "requestId": "req_...",
+  "usageEvent": {
+    "id": "uuid",
+    "model": "gpt-5.4",
+    "totalTokens": 150,
+    "costCents": 3,
+    "status": "billable",
+    "errorCode": null,
+    "token": {
+      "id": "uuid",
+      "name": "production-key",
+      "keyPreview": "sk-...abcd"
+    },
+    "walletTransaction": {
+      "id": "uuid",
+      "amountCents": -3,
+      "balanceAfterCents": 9997,
+      "createdAt": "2026-06-16T00:00:00.000Z"
+    }
+  },
+  "requestLog": {
+    "id": "uuid",
+    "method": "POST",
+    "path": "/v1/chat/completions",
+    "model": "gpt-5.4",
+    "statusCode": 200,
+    "errorCode": null,
+    "latencyMs": 320,
+    "createdAt": "2026-06-16T00:00:00.000Z",
+    "completedAt": "2026-06-16T00:00:00.320Z"
+  },
+  "upstream": {
+    "status": "success",
+    "statusCode": 200,
+    "latencyMs": 280
+  },
+  "trace": {
+    "hasUsageEvent": true,
+    "hasWalletTransaction": true,
+    "hasRequestLog": true
+  }
+}
+```
 
 ## 9. 兼容性验收
 
@@ -156,6 +208,8 @@ curl http://localhost:3001/v1/chat/completions \
   -H "Authorization: Bearer <用户Key>" \
   -H "Content-Type: application/json" \
   -d '{"model":"gpt-5.4","messages":[{"role":"user","content":"hello"}]}'
+curl http://localhost:3001/usage/logs/<request_id>/trace \
+  -H "Cookie: session_id=<登录会话>"
 ```
 
 MVP 实现前，以上 `/v1/*` 接口可返回 `501 not_implemented`；进入 T08 后必须按本合约实现。

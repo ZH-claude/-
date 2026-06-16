@@ -15,6 +15,7 @@ type HttpResult<T = unknown> = {
   json: T;
   headers: Headers;
   cookie?: string;
+  text: string;
 };
 
 type RegisterResponse = {
@@ -34,41 +35,36 @@ type CreateTokenResponse = {
   };
 };
 
-type UsageLogEntry = {
-  id: string;
+type TraceResponse = {
   requestId: string;
-  model: string;
-  promptTokens: number;
-  completionTokens: number;
-  totalTokens: number;
-  costCents: number;
-  status: string;
-  errorCode: string | null;
-  token: {
+  usageEvent: null | {
     id: string;
-    name: string;
-    keyPreview: string;
+    status: string;
+    costCents: number;
+    errorCode: string | null;
+    walletTransaction: null | {
+      id: string;
+      amountCents: number;
+    };
   };
-  walletTransaction: {
+  requestLog: null | {
     id: string;
-    amountCents: number;
-    balanceAfterCents: number;
-  } | null;
-};
-
-type UsageLogsResponse = {
-  items: UsageLogEntry[];
-  summary: {
-    total: number;
-    totalCostCents: number;
-    promptTokens: number;
-    completionTokens: number;
-    totalTokens: number;
-    statusCounts: Record<string, number>;
+    method: string;
+    path: string;
+    model: string | null;
+    statusCode: number | null;
+    errorCode: string | null;
+    latencyMs: number | null;
   };
-  filters: {
-    models: string[];
-    tokens: Array<{ id: string; name: string; keyPreview: string }>;
+  upstream: null | {
+    status: string | null;
+    statusCode: number | null;
+    latencyMs: number | null;
+  };
+  trace: {
+    hasUsageEvent: boolean;
+    hasWalletTransaction: boolean;
+    hasRequestLog: boolean;
   };
 };
 
@@ -78,7 +74,7 @@ const UPSTREAM_SECRET = process.env.UPSTREAM_KEY_ENCRYPTION_SECRET;
 const TEMP_UPSTREAM_PUBLIC_HOST = process.env.TEMP_UPSTREAM_PUBLIC_HOST ?? 'host.docker.internal';
 
 if (!DATABASE_URL) {
-  throw new Error('DATABASE_URL is required to run the T11 usage logs QA script');
+  throw new Error('DATABASE_URL is required to run the T20 observability QA script');
 }
 
 if (!UPSTREAM_SECRET || UPSTREAM_SECRET.length < 32) {
@@ -90,17 +86,17 @@ const prisma = new PrismaClient({
 });
 
 const suffix = `${Date.now().toString(36)}${randomBytes(3).toString('hex')}`;
-const TEMP_UPSTREAM_KEY = `qa-t11-upstream-key-${suffix}`;
-const prefix = `qa_t11_${suffix}`;
+const TEMP_UPSTREAM_KEY = `qa-t20-upstream-key-${suffix}`;
+const prefix = `qa_t20_${suffix}`;
 const password = `qa-password-${suffix}`;
 const publicModel = `${prefix}-model`;
 const upstreamModel = `${prefix}-upstream`;
 const providerName = `${prefix}-provider`;
+const requestIds: string[] = [];
 const checks: string[] = [];
 
 async function main() {
   const upstream = await startTemporaryUpstream();
-  let residualBeforeCleanup: Record<string, number> | null = null;
 
   try {
     const userACookie = await register(`${prefix}_user_a`);
@@ -115,100 +111,126 @@ async function main() {
     const userAToken = await createToken(userACookie, `${prefix}_token_a`);
     const userBToken = await createToken(userBCookie, `${prefix}_token_b`);
 
+    const models = await relayModels(userAToken.apiKey);
+    assert(models.status === 200, `models relay call failed with ${models.status}`);
+    const modelsRequestId = requireRequestId(models, 'models');
+    requestIds.push(modelsRequestId);
+
+    const rejected = await relayChat(userAToken.apiKey, 'model not allowed', `${prefix}-not-allowed`);
+    assert(rejected.status === 403, `pre-upstream rejected relay call should be 403, got ${rejected.status}`);
+    const rejectedRequestId = requireRequestId(rejected, 'pre-upstream rejected');
+    requestIds.push(rejectedRequestId);
+
     const billable = await relayChat(userAToken.apiKey, 'billable request');
     assert(billable.status === 200, `billable relay call failed with ${billable.status}`);
-    assert(Boolean(billable.headers.get('x-request-id')), 'billable relay call missing x-request-id');
-    assert(Boolean(billable.headers.get('x-usage-event-id')), 'billable relay call missing x-usage-event-id');
-    checks.push('real_billable_relay_call_created_usage_headers');
+    const billableRequestId = requireRequestId(billable, 'billable');
+    requestIds.push(billableRequestId);
 
     const failed = await relayChat(userAToken.apiKey, 'force failure');
-    assert(failed.status === 502, `failed relay call should normalize to 502, got ${failed.status}`);
-    assert(Boolean(failed.headers.get('x-request-id')), 'failed relay call missing x-request-id');
-    checks.push('real_failed_relay_call_created_request_id');
+    assert(failed.status === 502, `failed relay call should be 502, got ${failed.status}`);
+    const failedRequestId = requireRequestId(failed, 'failed');
+    requestIds.push(failedRequestId);
 
-    const meteringUnknown = await relayChat(userAToken.apiKey, 'missing usage');
-    assert(meteringUnknown.status === 200, `metering unknown relay call failed with ${meteringUnknown.status}`);
-    assert(Boolean(meteringUnknown.headers.get('x-usage-event-id')), 'metering unknown relay call missing usage event id');
-    checks.push('real_metering_unknown_relay_call_created_usage_event');
+    const malformed = await relayChat(userAToken.apiKey, 'malformed response');
+    assert(malformed.status === 502, `malformed relay call should be 502, got ${malformed.status}`);
+    const malformedRequestId = requireRequestId(malformed, 'malformed');
+    requestIds.push(malformedRequestId);
 
-    const allLogs = await get<UsageLogsResponse>(`/usage/logs?model=${encodeURIComponent(publicModel)}&limit=100`, userACookie);
-    assert(allLogs.status === 200, `usage logs query failed with ${allLogs.status}`);
-    assert(allLogs.json.items.length >= 3, `expected at least 3 usage log rows, got ${allLogs.json.items.length}`);
+    const modelsTrace = await get<TraceResponse>(`/usage/logs/${modelsRequestId}/trace`, userACookie);
+    assert(modelsTrace.status === 200, `models trace failed with ${modelsTrace.status}`);
+    assert(modelsTrace.json.usageEvent === null, 'models trace should not have usage event');
+    assert(modelsTrace.json.requestLog?.path === '/v1/models', 'models trace missing request log path');
+    assert(modelsTrace.json.upstream?.status === 'not_required', 'models trace upstream status mismatch');
+    checks.push('models_endpoint_writes_request_log_without_fake_usage_event');
 
-    const billableRow = requireRow(allLogs.json, billable.headers.get('x-request-id'), 'billable');
-    assert(billableRow.token.id === userAToken.token.id, 'billable row token mismatch');
-    assert(billableRow.walletTransaction !== null, 'billable row missing wallet transaction');
-    assert(billableRow.walletTransaction!.amountCents === -billableRow.costCents, 'billable wallet debit amount mismatch');
-    assert(billableRow.id === billable.headers.get('x-usage-event-id'), 'billable usage event id mismatch');
+    const rejectedTrace = await get<TraceResponse>(`/usage/logs/${rejectedRequestId}/trace`, userACookie);
+    assert(rejectedTrace.status === 200, `pre-upstream rejected trace failed with ${rejectedTrace.status}`);
+    assert(rejectedTrace.json.usageEvent === null, 'pre-upstream rejected trace should not have usage event');
+    assert(rejectedTrace.json.requestLog?.statusCode === 403, 'pre-upstream rejected trace request status mismatch');
+    assert(rejectedTrace.json.requestLog.errorCode === 'model_not_allowed', 'pre-upstream rejected trace error code mismatch');
+    assert(rejectedTrace.json.upstream?.status === 'rejected', 'pre-upstream rejected trace upstream status mismatch');
+    checks.push('pre_upstream_rejection_writes_request_log_without_usage_or_upstream_call');
 
-    const failedRow = requireRow(allLogs.json, failed.headers.get('x-request-id'), 'failed');
-    assert(failedRow.walletTransaction === null, 'failed row should not have wallet transaction');
-    assert(failedRow.errorCode === 'upstream_error', `failed row error code mismatch: ${failedRow.errorCode}`);
+    const billableTrace = await get<TraceResponse>(`/usage/logs/${billableRequestId}/trace`, userACookie);
+    assert(billableTrace.status === 200, `billable trace failed with ${billableTrace.status}`);
+    assert(billableTrace.json.trace.hasUsageEvent, 'billable trace missing usage event');
+    assert(billableTrace.json.trace.hasWalletTransaction, 'billable trace missing wallet transaction');
+    assert(billableTrace.json.trace.hasRequestLog, 'billable trace missing request log');
+    assert(billableTrace.json.usageEvent?.status === 'billable', 'billable trace usage status mismatch');
+    assert(billableTrace.json.requestLog?.statusCode === 200, 'billable trace request status mismatch');
+    assert(billableTrace.json.upstream?.status === 'success', 'billable trace upstream status mismatch');
+    checks.push('billable_trace_links_request_usage_wallet_and_upstream_status');
 
-    const unknownRow = requireRow(allLogs.json, meteringUnknown.headers.get('x-request-id'), 'metering_unknown');
-    assert(unknownRow.walletTransaction === null, 'metering unknown row should not have wallet transaction');
-    assert(unknownRow.costCents === 0, 'metering unknown row should not cost money');
-    checks.push('usage_logs_link_request_usage_and_wallet_truthfully');
+    const failedTrace = await get<TraceResponse>(`/usage/logs/${failedRequestId}/trace`, userACookie);
+    assert(failedTrace.status === 200, `failed trace failed with ${failedTrace.status}`);
+    assert(failedTrace.json.usageEvent?.status === 'failed', 'failed trace usage status mismatch');
+    assert(failedTrace.json.usageEvent.walletTransaction === null, 'failed trace should not have wallet transaction');
+    assert(failedTrace.json.requestLog?.statusCode === 502, 'failed trace request status mismatch');
+    assert(failedTrace.json.upstream?.status === 'http_error', 'failed trace upstream status mismatch');
+    assert(failedTrace.json.upstream.statusCode === 500, 'failed trace upstream HTTP status mismatch');
+    checks.push('failed_trace_links_error_usage_and_upstream_http_status');
 
-    const filteredByStatus = await get<UsageLogsResponse>(
-      `/usage/logs?model=${encodeURIComponent(publicModel)}&status=billable&limit=100`,
-      userACookie
-    );
-    assert(filteredByStatus.status === 200, `status filter failed with ${filteredByStatus.status}`);
-    assert(filteredByStatus.json.items.length >= 1, 'status filter returned no billable rows');
-    assert(filteredByStatus.json.items.every((item) => item.status === 'billable'), 'status filter leaked non-billable rows');
-    checks.push('status_filter_returns_only_requested_status');
+    const malformedTrace = await get<TraceResponse>(`/usage/logs/${malformedRequestId}/trace`, userACookie);
+    assert(malformedTrace.status === 200, `malformed trace failed with ${malformedTrace.status}`);
+    assert(malformedTrace.json.usageEvent?.status === 'failed', 'malformed trace usage status mismatch');
+    assert(malformedTrace.json.requestLog?.statusCode === 502, 'malformed trace request status mismatch');
+    assert(malformedTrace.json.upstream?.status === 'malformed_response', 'malformed trace upstream status mismatch');
+    assert(malformedTrace.json.upstream.statusCode === 200, 'malformed trace upstream HTTP status mismatch');
+    checks.push('malformed_trace_records_safe_error_classification');
 
-    const filteredByToken = await get<UsageLogsResponse>(
-      `/usage/logs?model=${encodeURIComponent(publicModel)}&tokenId=${userAToken.token.id}&limit=100`,
-      userACookie
-    );
-    assert(filteredByToken.status === 200, `token filter failed with ${filteredByToken.status}`);
-    assert(filteredByToken.json.items.length >= 3, 'token filter did not return user A rows');
-    assert(filteredByToken.json.items.every((item) => item.token.id === userAToken.token.id), 'token filter returned wrong token');
-    checks.push('token_filter_returns_only_requested_owned_token');
+    const foreignTrace = await get(`/usage/logs/${billableRequestId}/trace`, userBCookie);
+    assert(foreignTrace.status === 404, `foreign trace should be 404, got ${foreignTrace.status}`);
+    checks.push('trace_endpoint_is_user_scoped');
 
-    const foreignTokenQuery = await get<UsageLogsResponse>(
-      `/usage/logs?model=${encodeURIComponent(publicModel)}&tokenId=${userBToken.token.id}&limit=100`,
-      userACookie
-    );
-    assert(foreignTokenQuery.status === 200, `foreign token query failed with ${foreignTokenQuery.status}`);
-    assert(foreignTokenQuery.json.items.length === 0, 'user A can see rows by user B token id');
-    checks.push('foreign_token_id_query_does_not_leak_rows');
+    const databaseRows = await prisma.requestLog.findMany({
+      where: { requestId: { in: requestIds } },
+      orderBy: { createdAt: 'asc' }
+    });
+    assert(databaseRows.length === requestIds.length, `expected ${requestIds.length} request_logs, got ${databaseRows.length}`);
+    assert(databaseRows.every((row) => row.userId === userA.id), 'request log rows should belong to user A');
+    assert(databaseRows.every((row) => row.tokenId === userAToken.token.id), 'request log rows should belong to user A token');
+    checks.push('request_logs_are_real_database_rows_with_token_and_user_correlation');
 
-    const userBLogs = await get<UsageLogsResponse>(`/usage/logs?model=${encodeURIComponent(publicModel)}&limit=100`, userBCookie);
-    assert(userBLogs.status === 200, `user B usage logs query failed with ${userBLogs.status}`);
-    const userARequestIds = new Set([
-      billable.headers.get('x-request-id'),
-      failed.headers.get('x-request-id'),
-      meteringUnknown.headers.get('x-request-id')
-    ]);
-    assert(!userBLogs.json.items.some((item) => userARequestIds.has(item.requestId)), 'user B can see user A request ids');
-    checks.push('user_scope_blocks_cross_account_log_reads');
-
-    const serializedLogs = JSON.stringify(allLogs.json);
+    const serialized = JSON.stringify({
+      modelsTrace: modelsTrace.json,
+      billableTrace: billableTrace.json,
+      failedTrace: failedTrace.json,
+      malformedTrace: malformedTrace.json,
+      databaseRows: databaseRows.map((row) => ({
+        requestId: row.requestId,
+        method: row.method,
+        path: row.path,
+        model: row.model,
+        statusCode: row.statusCode,
+        errorCode: row.errorCode,
+        upstreamStatus: row.upstreamStatus,
+        upstreamStatusCode: row.upstreamStatusCode
+      }))
+    });
     for (const forbidden of [
-      'tokenHash',
-      'encryptedApiKey',
       TEMP_UPSTREAM_KEY,
+      upstream.baseUrl,
+      'encryptedApiKey',
+      'tokenHash',
+      'passwordHash',
       'priceSnapshot',
       'idempotencyKey',
       'upstreamProviderId',
-      'upstreamModel'
+      'DATABASE_URL',
+      'REDIS_URL'
     ]) {
-      assert(!serializedLogs.includes(forbidden), `usage logs response leaked forbidden field/value: ${forbidden}`);
+      assert(!serialized.includes(forbidden), `trace response leaked forbidden field/value: ${forbidden}`);
     }
-    checks.push('usage_logs_response_uses_sensitive_field_allowlist');
+    checks.push('trace_response_uses_sensitive_field_allowlist');
 
-    residualBeforeCleanup = await countResidual();
-
+    const residualBeforeCleanup = await countResidual();
     console.log(
       JSON.stringify(
         {
           ok: true,
           suffix,
           checks,
-          model: publicModel,
+          requestIds,
           residualBeforeCleanup
         },
         null,
@@ -296,14 +318,24 @@ async function createToken(cookie: string, name: string) {
   return result.json;
 }
 
-async function relayChat(apiKey: string, content: string) {
-  return request('POST', '/v1/chat/completions', {
-    model: publicModel,
-    messages: [{ role: 'user', content }]
-  }, undefined, apiKey);
+async function relayModels(apiKey: string) {
+  return request('GET', '/v1/models', undefined, undefined, apiKey);
 }
 
-async function get<T>(path: string, cookie?: string) {
+async function relayChat(apiKey: string, content: string, model = publicModel) {
+  return request(
+    'POST',
+    '/v1/chat/completions',
+    {
+      model,
+      messages: [{ role: 'user', content }]
+    },
+    undefined,
+    apiKey
+  );
+}
+
+async function get<T = unknown>(path: string, cookie?: string) {
   return request<T>('GET', path, undefined, cookie);
 }
 
@@ -329,21 +361,20 @@ async function request<T>(
   });
 
   const text = await response.text();
-  const json = text ? JSON.parse(text) : {};
+  const json = text ? (JSON.parse(text) as T) : ({} as T);
   return {
     status: response.status,
     json,
     headers: response.headers,
-    cookie: response.headers.get('set-cookie')?.split(';')[0]
+    cookie: response.headers.get('set-cookie')?.split(';')[0],
+    text
   };
 }
 
-function requireRow(logs: UsageLogsResponse, requestId: string | null, status: string) {
-  assert(requestId, `missing request id for ${status}`);
-  const row = logs.items.find((item) => item.requestId === requestId);
-  assert(row, `missing usage log row for ${status} request ${requestId}`);
-  assert(row!.status === status, `expected ${status} status for ${requestId}, got ${row!.status}`);
-  return row!;
+function requireRequestId(result: HttpResult, label: string) {
+  const requestId = result.headers.get('x-request-id');
+  assert(requestId, `${label} response missing x-request-id`);
+  return requestId;
 }
 
 async function countResidual() {
@@ -370,7 +401,8 @@ async function countResidual() {
           { userId: { in: userIds } },
           { tokenId: { in: tokenIds } },
           { upstreamProviderId: { in: providerIds } },
-          { model: publicModel }
+          { model: publicModel },
+          { requestId: { in: requestIds } }
         ]
       },
       select: { id: true }
@@ -390,14 +422,7 @@ async function countResidual() {
       where: { OR: [{ userId: { in: userIds } }, { usageEventId: { in: usageIds } }] }
     }),
     request_logs: await prisma.requestLog.count({
-      where: {
-        OR: [
-          { userId: { in: userIds } },
-          { tokenId: { in: tokenIds } },
-          { upstreamProviderId: { in: providerIds } },
-          { model: publicModel }
-        ]
-      }
+      where: { OR: [{ userId: { in: userIds } }, { tokenId: { in: tokenIds } }, { requestId: { in: requestIds } }] }
     }),
     upstream_providers: providers.length,
     upstream_models: await prisma.upstreamModel.count({
@@ -431,7 +456,8 @@ async function cleanup() {
           { userId: { in: userIds } },
           { tokenId: { in: tokenIds } },
           { upstreamProviderId: { in: providerIds } },
-          { model: publicModel }
+          { model: publicModel },
+          { requestId: { in: requestIds } }
         ]
       },
       select: { id: true }
@@ -443,19 +469,13 @@ async function cleanup() {
   });
 
   await prisma.requestLog.deleteMany({
-    where: {
-      OR: [
-        { userId: { in: userIds } },
-        { tokenId: { in: tokenIds } },
-        { upstreamProviderId: { in: providerIds } },
-        { model: publicModel }
-      ]
-    }
+    where: { OR: [{ userId: { in: userIds } }, { tokenId: { in: tokenIds } }, { requestId: { in: requestIds } }] }
   });
   await prisma.walletTransaction.deleteMany({
     where: { OR: [{ userId: { in: userIds } }, { usageEventId: { in: usageIds } }] }
   });
   await prisma.usageEvent.deleteMany({ where: { id: { in: usageIds } } });
+  await prisma.securityAuditLog.deleteMany({ where: { actorUserId: { in: userIds } } });
   await prisma.apiTokenModelAccess.deleteMany({
     where: { OR: [{ apiTokenId: { in: tokenIds } }, { model: publicModel }] }
   });
@@ -519,6 +539,12 @@ async function handleTemporaryUpstream(request: IncomingMessage, response: Serve
     return;
   }
 
+  if (content.includes('malformed response')) {
+    response.writeHead(200, { 'content-type': 'application/json' });
+    response.end('{not valid json');
+    return;
+  }
+
   response.writeHead(200, { 'content-type': 'application/json' });
   response.end(
     JSON.stringify({
@@ -532,15 +558,11 @@ async function handleTemporaryUpstream(request: IncomingMessage, response: Serve
           finish_reason: 'stop'
         }
       ],
-      ...(content.includes('missing usage')
-        ? {}
-        : {
-            usage: {
-              prompt_tokens: 100,
-              completion_tokens: 50,
-              total_tokens: 150
-            }
-          })
+      usage: {
+        prompt_tokens: 100,
+        completion_tokens: 50,
+        total_tokens: 150
+      }
     })
   );
 }
@@ -560,7 +582,7 @@ function assert(condition: unknown, message: string): asserts condition {
   }
 }
 
-main().catch(async (error) => {
+void main().catch(async (error) => {
   console.error(error);
   await prisma.$disconnect();
   process.exit(1);

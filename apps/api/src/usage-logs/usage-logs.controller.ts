@@ -1,4 +1,4 @@
-import { BadRequestException, Controller, Get, Query, Req, UseGuards } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Param, Query, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '../auth/auth.guard';
 import { AuthenticatedRequest } from '../auth/auth.types';
 import { UsageLogsService } from './usage-logs.service';
@@ -15,5 +15,14 @@ export class UsageLogsController {
     }
 
     return this.usageLogsService.listUsageLogs(request.auth.user, query);
+  }
+
+  @Get('logs/:requestId/trace')
+  getUsageTrace(@Req() request: AuthenticatedRequest, @Param('requestId') requestId: string) {
+    if (!request.auth?.user) {
+      throw new BadRequestException('Auth context missing');
+    }
+
+    return this.usageLogsService.getUsageTrace(request.auth.user, requestId);
   }
 }

@@ -471,6 +471,16 @@ async function countResidual() {
     wallet_transactions: await prisma.walletTransaction.count({
       where: { OR: [{ userId: { in: userIds } }, { usageEventId: { in: usageIds } }] }
     }),
+    request_logs: await prisma.requestLog.count({
+      where: {
+        OR: [
+          { userId: { in: userIds } },
+          { tokenId: { in: tokenIds } },
+          { upstreamProviderId: { in: providerIds } },
+          { model: publicModel }
+        ]
+      }
+    }),
     notification_preferences: await prisma.notificationPreference.count({ where: { userId: { in: userIds } } }),
     notification_channels: await prisma.notificationChannel.count({ where: { userId: { in: userIds } } }),
     notification_deliveries: await prisma.notificationDelivery.count({ where: { userId: { in: userIds } } }),
@@ -517,6 +527,16 @@ async function cleanup() {
     select: { id: true }
   });
 
+  await prisma.requestLog.deleteMany({
+    where: {
+      OR: [
+        { userId: { in: userIds } },
+        { tokenId: { in: tokenIds } },
+        { upstreamProviderId: { in: providerIds } },
+        { model: publicModel }
+      ]
+    }
+  });
   await prisma.notificationDelivery.deleteMany({ where: { userId: { in: userIds } } });
   await prisma.notificationChannel.deleteMany({ where: { userId: { in: userIds } } });
   await prisma.notificationPreference.deleteMany({ where: { userId: { in: userIds } } });

@@ -2,7 +2,7 @@
 
 创建日期：2026-06-14  
 目标：建设一个可部署到云服务器的前后端完整 API 中转站。你的平台作为第三方中转层，用户请求先进入你的系统，再由你的系统转发到另一个上游中转站。  
-当前状态：T19 安全加固已完成。工作区已接入 GitHub 推送流程。
+当前状态：T20 可观测性已完成。工作区已接入 GitHub 推送流程。
 数据库密码通过 `POSTGRES_PASSWORD` 配置，真实值只写入未提交的 `.env` 或服务器密钥管理。  
 Redis MVP 阶段默认不启用密码；如生产环境需要启用，通过 `REDIS_PASSWORD` 或托管 Redis 密钥配置，真实值不写入开发文档。
 
@@ -310,28 +310,39 @@ Loki/Prometheus/Grafana
 | [x] | T17 | 服务状态页 | Uptime Kuma 配置或内置探针 | 用户可看到平台和上游状态 |
 | [x] | T18 | 风控与限流 | 用户/令牌/IP/模型限流、IP 白名单、首次激活策略、异常熔断 | 超限请求被拒绝且不影响其他用户 |
 | [x] | T19 | 安全加固 | Key 脱敏、审计日志、越权测试 | 日志无明文 Key，越权测试通过 |
-| [ ] | T20 | 可观测性 | 结构化日志、trace_id、监控面板、告警 | 单次请求可追踪到上游和计费事件 |
+| [x] | T20 | 可观测性 | 结构化日志、trace_id、监控面板、告警 | 单次请求可追踪到上游和计费事件 |
 | [ ] | T21 | 云服务器部署 | HTTPS、域名、备份、回滚文档 | 生产环境可访问，重启后服务自动恢复 |
 | [ ] | T22 | 上线前验收 | 压测、安全检查、账单核对、运维手册 | 完成上线检查表并修复阻塞项 |
 
 ## 11. 下一次对话建议任务
 
-建议下一次从 T20 开始：可观测性。
+建议下一次从 T21 开始：云服务器部署。
 
-T20 的边界：
+T21 的边界：
 
-- 建立统一结构化日志字段，至少包含 `request_id`、用户/令牌引用、路径、状态、错误码、延迟和上游供应商引用。
-- 补齐 Relay、计费、钱包流水、usage event、request log 和安全审计之间的关联查询路径。
-- 设计 trace/correlation 机制，让一次用户请求可以追到上游调用、计费事件、钱包流水和错误分类。
-- 保持敏感字段脱敏，不把 prompt、明文 API Key、上游 Key、连接串、Webhook secret 或内部密钥写入普通日志。
-- T20 不应破坏现有 Relay、计费、限流、安全审计、日志页、通知、公告、异步任务和服务状态页。
+- 以当前 monorepo 和 Docker Compose 为基础，补齐云服务器部署说明、环境变量矩阵、HTTPS/反代、数据库迁移、备份和回滚步骤。
+- 明确生产环境真实密钥只进入服务器 `.env` 或密钥管理，不写入仓库、文档、CI 日志或截图。
+- 建立部署后 smoke test：`/health`、登录、令牌创建、`/v1/models`、`/v1/chat/completions`、usage trace、充值、通知和服务状态。
+- 明确进程自恢复策略，至少覆盖 API、Web、PostgreSQL、Redis 和反代重启后的恢复路径。
+- T21 不应改变业务功能逻辑；如发现部署阻塞，只做部署所需的最小兼容修改。
 
-T20 完成指标：
+T21 完成指标：
 
-- 任意一条 Relay 请求能从 `request_id` 查到 usage event、wallet transaction、request log 和上游调用状态。
-- API 日志和可查询日志响应均使用字段白名单或脱敏器，敏感字段扫描通过。
-- 可观测性 QA 使用真实 HTTP 调用、真实数据库记录和失败/成功路径，不用静态样例冒充链路。
-- 回归验证覆盖 T11、T18、T19，以及公告、异步任务、服务状态等受影响接口。
+- 文档能指导一台干净云服务器完成部署、迁移、启动、HTTPS 配置、备份和回滚。
+- `.env.example` 覆盖生产必需配置项，但不包含真实密钥。
+- 本地至少验证 Compose 配置、生产构建、迁移状态和部署 smoke test 脚本或等效命令。
+- 部署文档明确上线前不能伪造真实上游、真实支付或真实监控结果；未接入项必须显示为未配置。
+
+T20 完成记录（2026-06-16）：
+
+- 已新增 `request_logs` 表和 Prisma migration `20260616043000_t20_request_logs`，用 `request_id` 唯一关联用户、令牌、上游、路径、状态码、错误码、总延迟、上游延迟和上游状态。
+- 已新增 `RequestLogsService`，在 Relay 成功、上游 HTTP 错误、连接失败、malformed response、流式开始、前置拒绝和 `/v1/models` 路径写入真实请求日志；日志写入失败只记录内部 warning，不影响用户请求返回。
+- 已新增 `GET /usage/logs/:requestId/trace`，当前登录用户只能查询自己的请求链路；响应用白名单返回 usage event、wallet transaction、request log 和 upstream 摘要，不暴露上游 Key、token hash、连接串、price snapshot 或内部 provider id。
+- 已将视频参考里的“统一入口、标准 OpenAI API、密钥/负载/用量运营”思路落到工程路线：当前阶段先完成标准 API 请求可追踪和用量可核对；后续 T21/T22 再面向云部署、监控面板和生产运营。
+- 已新增 `apps/api/scripts/t20-observability-qa.ts` 和 `npm run qa:t20:observability`，通过真实注册、真实令牌、真实临时上游、真实 Relay HTTP 调用和真实 Postgres 记录验证成功、前置拒绝、上游 500、malformed JSON、`/v1/models` 和跨用户隔离。
+- 已修复旧 Relay QA 脚本在新增 `request_logs` 后的清理盲区：T11、T13、T14、T18 均已统计并清理 `request_logs`；T18 进一步捕获真实响应 `x-request-id` 做精确清理，避免前置拒绝日志在外键置空后残留。历史残留已按精确 request id 清理，当前 `request_logs` 总数为 0。
+- 已验证 `npm run typecheck`、`npm --prefix apps/api run build`、`npm --prefix apps/api exec -- prisma migrate status`、`npm run qa:t20:observability`、`npm run qa:t19:security-hardening`、`npm run qa:t18:rate-limits`、`npm run qa:t14:notifications`、`npm run qa:t13:group-availability`、`npm run qa:t11:usage-logs`。
+- T20 QA 和相关回归均使用真实数据库记录、真实 HTTP 请求、真实会话 Cookie 和真实临时上游，完成后清理为 0 残留。
 
 T19 完成记录（2026-06-16）：
 

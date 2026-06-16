@@ -154,6 +154,7 @@ model User {
   announcements      Announcement[]      @relation("AnnouncementCreator")
   adminActions       AdminAuditLog[]     @relation("AdminAuditActor")
   securityAuditLogs  SecurityAuditLog[]  @relation("SecurityAuditActor")
+  requestLogs        RequestLog[]        @relation("RequestLogUser")
   upstreamProviders  UpstreamProvider[]  @relation("UpstreamProviderCreator")
   createdRechargeCodes RechargeCode[]    @relation("RechargeCodeCreator")
   usedRechargeCodes    RechargeCode[]    @relation("RechargeCodeUser")
@@ -192,6 +193,7 @@ model ApiToken {
   modelAccesses ApiTokenModelAccess[]
   usageEvents   UsageEvent[]
   relayRateLimitEvents RelayRateLimitEvent[]
+  requestLogs   RequestLog[]           @relation("RequestLogToken")
   createdAt     DateTime              @default(now()) @map("created_at")
   updatedAt     DateTime              @updatedAt @map("updated_at")
 
@@ -431,6 +433,7 @@ model UpstreamProvider {
   createdByAdmin      User                   @relation("UpstreamProviderCreator", fields: [createdByAdminId], references: [id])
   upstreamModels      UpstreamModel[]
   usageEvents         UsageEvent[]
+  requestLogs         RequestLog[]         @relation("RequestLogUpstreamProvider")
   asyncTasks          AsyncTask[]
   createdAt           DateTime               @default(now()) @map("created_at")
   updatedAt           DateTime               @updatedAt @map("updated_at")
@@ -533,4 +536,32 @@ model RelayRateLimitEvent {
   @@index([tokenId, model, createdAt], map: "relay_rate_limit_events_token_model_created_at_idx")
   @@index([tokenId, ipAddress, createdAt], map: "relay_rate_limit_events_token_ip_created_at_idx")
   @@map("relay_rate_limit_events")
+}
+
+model RequestLog {
+  id                 String            @id @default(uuid()) @db.Uuid
+  requestId          String            @unique @map("request_id")
+  userId             String?           @map("user_id") @db.Uuid
+  user               User?             @relation("RequestLogUser", fields: [userId], references: [id], onDelete: SetNull)
+  tokenId            String?           @map("token_id") @db.Uuid
+  token              ApiToken?         @relation("RequestLogToken", fields: [tokenId], references: [id], onDelete: SetNull)
+  upstreamProviderId String?           @map("upstream_provider_id") @db.Uuid
+  upstreamProvider   UpstreamProvider? @relation("RequestLogUpstreamProvider", fields: [upstreamProviderId], references: [id], onDelete: SetNull)
+  method             String
+  path               String
+  model              String?
+  statusCode         Int?              @map("status_code")
+  errorCode          String?           @map("error_code")
+  latencyMs          Int?              @map("latency_ms")
+  upstreamLatencyMs  Int?              @map("upstream_latency_ms")
+  upstreamStatusCode Int?              @map("upstream_status_code")
+  upstreamStatus     String?           @map("upstream_status")
+  createdAt          DateTime          @default(now()) @map("created_at")
+  completedAt        DateTime?         @map("completed_at")
+
+  @@index([userId, createdAt], map: "request_logs_user_created_at_idx")
+  @@index([tokenId, createdAt], map: "request_logs_token_created_at_idx")
+  @@index([statusCode, createdAt], map: "request_logs_status_created_at_idx")
+  @@index([errorCode, createdAt], map: "request_logs_error_created_at_idx")
+  @@map("request_logs")
 }

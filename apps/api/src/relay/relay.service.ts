@@ -6,6 +6,7 @@ import { decryptUpstreamApiKey } from '../admin/upstream-key-crypto';
 import { BillingService } from '../billing/billing.service';
 import { ModelStatus, UpstreamProviderStatus } from '../generated/prisma/client';
 import { PrismaService } from '../prisma.service';
+import { RequestLogsService } from '../request-logs/request-logs.service';
 import { TokensService } from '../tokens/tokens.service';
 import { RelayPolicyService } from './relay-policy.service';
 
@@ -38,6 +39,22 @@ type ChatCompletionBody = {
   [key: string]: unknown;
 };
 
+type RelayRequestLogInput = {
+  requestId: string;
+  userId?: string | null;
+  tokenId?: string | null;
+  upstreamProviderId?: string | null;
+  method: string;
+  path: string;
+  model?: string | null;
+  statusCode?: number | null;
+  errorCode?: string | null;
+  latencyMs?: number | null;
+  upstreamLatencyMs?: number | null;
+  upstreamStatusCode?: number | null;
+  upstreamStatus?: string | null;
+};
+
 export class RelayHttpError extends Error {
   constructor(
     readonly status: number,
@@ -58,7 +75,8 @@ export class RelayService {
     @Inject(PrismaService) private readonly prisma: PrismaService,
     private readonly tokensService: TokensService,
     private readonly billingService: BillingService,
-    private readonly relayPolicyService: RelayPolicyService
+    private readonly relayPolicyService: RelayPolicyService,
+    private readonly requestLogsService: RequestLogsService
   ) {}
 
   createRequestId() {
@@ -67,6 +85,29 @@ export class RelayService {
 
   createError(status: number, code: string, type: string, message: string) {
     return new RelayHttpError(status, code, type, message);
+  }
+
+  async recordRejectedRelayRequest(input: {
+    requestId: string;
+    method: string;
+    path: string;
+    model?: string | null;
+    startedAt: number;
+    error: unknown;
+  }) {
+    const normalizedError = this.normalizeError(input.error);
+    await this.recordRequestLogIfAbsentSafe({
+      requestId: input.requestId,
+      method: input.method,
+      path: input.path,
+      model: input.model ?? null,
+      statusCode: normalizedError.status,
+      errorCode: normalizedError.code,
+      latencyMs: Date.now() - input.startedAt,
+      upstreamLatencyMs: null,
+      upstreamStatusCode: null,
+      upstreamStatus: 'rejected'
+    });
   }
 
   normalizeError(error: unknown) {
@@ -112,30 +153,79 @@ export class RelayService {
   }
 
   async listModels(apiKey: string, requestId: string, clientIp: string | null) {
-    const auth = await this.tokensService.verifyApiToken(apiKey);
-    await this.relayPolicyService.assertAllowed({
-      requestId,
-      user: auth.user,
-      token: auth.token,
-      model: null,
-      clientIp
-    });
-    await this.tokensService.activateApiTokenIfNeeded(auth.token);
+    const startedAt = Date.now();
+    let userId: string | null = null;
+    let tokenId: string | null = null;
 
-    return {
-      object: 'list',
-      data: auth.allowedModels.map((model) => ({
-        id: model.model,
-        object: 'model',
-        owned_by: 'nested-relay'
-      })),
-      request_id: requestId
-    };
+    try {
+      const auth = await this.tokensService.verifyApiToken(apiKey);
+      userId = auth.user.id;
+      tokenId = auth.token.id;
+      await this.relayPolicyService.assertAllowed({
+        requestId,
+        user: auth.user,
+        token: auth.token,
+        model: null,
+        clientIp
+      });
+      await this.tokensService.activateApiTokenIfNeeded(auth.token);
+      await this.recordRequestLogSafe({
+        requestId,
+        userId,
+        tokenId,
+        method: 'GET',
+        path: '/v1/models',
+        model: null,
+        statusCode: 200,
+        errorCode: null,
+        latencyMs: Date.now() - startedAt,
+        upstreamLatencyMs: null,
+        upstreamStatusCode: null,
+        upstreamStatus: 'not_required'
+      });
+
+      return {
+        object: 'list',
+        data: auth.allowedModels.map((model) => ({
+          id: model.model,
+          object: 'model',
+          owned_by: 'nested-relay'
+        })),
+        request_id: requestId
+      };
+    } catch (error) {
+      const normalizedError = this.normalizeError(error);
+      await this.recordRequestLogIfAbsentSafe({
+        requestId,
+        userId,
+        tokenId,
+        method: 'GET',
+        path: '/v1/models',
+        model: null,
+        statusCode: normalizedError.status,
+        errorCode: normalizedError.code,
+        latencyMs: Date.now() - startedAt,
+        upstreamLatencyMs: null,
+        upstreamStatusCode: null,
+        upstreamStatus: 'rejected'
+      });
+      throw error;
+    }
   }
 
   async createChatCompletion(input: ChatCompletionInput): Promise<RelayJsonResult | RelayStreamResult> {
+    const startedAt = Date.now();
+    let userId: string | null = null;
+    let tokenId: string | null = null;
+    let upstreamProviderId: string | null = null;
+    let model: string | null = null;
+
+    try {
     const auth = await this.tokensService.verifyApiToken(input.apiKey);
+    userId = auth.user.id;
+    tokenId = auth.token.id;
     const body = this.normalizeChatCompletionBody(input.body);
+    model = body.model;
     const allowedModel = auth.allowedModels.find((model) => model.model === body.model);
     if (!allowedModel) {
       throw this.createError(403, 'model_not_allowed', 'permission_error', 'Model is not allowed for this API key');
@@ -150,6 +240,7 @@ export class RelayService {
     });
 
     const mapping = await this.findUpstreamMapping(body.model, Boolean(body.stream));
+    upstreamProviderId = mapping.provider.id;
     const billingPrincipal = {
       userId: auth.user.id,
       tokenId: auth.token.id
@@ -169,19 +260,39 @@ export class RelayService {
 
     if (body.stream) {
       let upstreamResponse: Response;
+      const upstreamStartedAt = Date.now();
+      let upstreamLatencyMs: number | null = null;
 
       try {
         upstreamResponse = await this.fetchUpstreamChatCompletion(mapping.provider.baseUrl, upstreamApiKey, upstreamBody, {
           stream: true,
           acceptHeader: input.acceptHeader
         });
+        upstreamLatencyMs = Date.now() - upstreamStartedAt;
       } catch (error) {
+        upstreamLatencyMs = Date.now() - upstreamStartedAt;
+        const normalizedError = this.normalizeError(error);
         await this.billingService.recordFailedChat({
           requestId: input.requestId,
           principal: billingPrincipal,
           model: allowedModel,
           upstream: billingTarget,
-          errorCode: this.normalizeError(error).code
+          errorCode: normalizedError.code
+        });
+        await this.recordRequestLogSafe({
+          requestId: input.requestId,
+          userId: auth.user.id,
+          tokenId: auth.token.id,
+          upstreamProviderId: mapping.provider.id,
+          method: 'POST',
+          path: '/v1/chat/completions',
+          model: body.model,
+          statusCode: normalizedError.status,
+          errorCode: normalizedError.code,
+          latencyMs: Date.now() - startedAt,
+          upstreamLatencyMs,
+          upstreamStatusCode: null,
+          upstreamStatus: 'failed'
         });
         throw error;
       }
@@ -195,6 +306,21 @@ export class RelayService {
           upstream: billingTarget,
           errorCode: upstreamError.code
         });
+        await this.recordRequestLogSafe({
+          requestId: input.requestId,
+          userId: auth.user.id,
+          tokenId: auth.token.id,
+          upstreamProviderId: mapping.provider.id,
+          method: 'POST',
+          path: '/v1/chat/completions',
+          model: body.model,
+          statusCode: upstreamError.status,
+          errorCode: upstreamError.code,
+          latencyMs: Date.now() - startedAt,
+          upstreamLatencyMs,
+          upstreamStatusCode: upstreamResponse.status,
+          upstreamStatus: 'http_error'
+        });
         throw upstreamError;
       }
 
@@ -203,6 +329,21 @@ export class RelayService {
         principal: billingPrincipal,
         model: allowedModel,
         upstream: billingTarget
+      });
+      await this.recordRequestLogSafe({
+        requestId: input.requestId,
+        userId: auth.user.id,
+        tokenId: auth.token.id,
+        upstreamProviderId: mapping.provider.id,
+        method: 'POST',
+        path: '/v1/chat/completions',
+        model: body.model,
+        statusCode: upstreamResponse.status,
+        errorCode: null,
+        latencyMs: Date.now() - startedAt,
+        upstreamLatencyMs,
+        upstreamStatusCode: upstreamResponse.status,
+        upstreamStatus: 'stream_started'
       });
 
       return {
@@ -214,16 +355,36 @@ export class RelayService {
     }
 
     let upstreamResponse: Response;
+    const upstreamStartedAt = Date.now();
+    let upstreamLatencyMs: number | null = null;
 
     try {
       upstreamResponse = await this.fetchUpstreamChatCompletionWithRetry(mapping.provider.baseUrl, upstreamApiKey, upstreamBody);
+      upstreamLatencyMs = Date.now() - upstreamStartedAt;
     } catch (error) {
+      upstreamLatencyMs = Date.now() - upstreamStartedAt;
+      const normalizedError = this.normalizeError(error);
       await this.billingService.recordFailedChat({
         requestId: input.requestId,
         principal: billingPrincipal,
         model: allowedModel,
         upstream: billingTarget,
-        errorCode: this.normalizeError(error).code
+        errorCode: normalizedError.code
+      });
+      await this.recordRequestLogSafe({
+        requestId: input.requestId,
+        userId: auth.user.id,
+        tokenId: auth.token.id,
+        upstreamProviderId: mapping.provider.id,
+        method: 'POST',
+        path: '/v1/chat/completions',
+        model: body.model,
+        statusCode: normalizedError.status,
+        errorCode: normalizedError.code,
+        latencyMs: Date.now() - startedAt,
+        upstreamLatencyMs,
+        upstreamStatusCode: null,
+        upstreamStatus: 'failed'
       });
       throw error;
     }
@@ -236,6 +397,21 @@ export class RelayService {
         model: allowedModel,
         upstream: billingTarget,
         errorCode: upstreamError.code
+      });
+      await this.recordRequestLogSafe({
+        requestId: input.requestId,
+        userId: auth.user.id,
+        tokenId: auth.token.id,
+        upstreamProviderId: mapping.provider.id,
+        method: 'POST',
+        path: '/v1/chat/completions',
+        model: body.model,
+        statusCode: upstreamError.status,
+        errorCode: upstreamError.code,
+        latencyMs: Date.now() - startedAt,
+        upstreamLatencyMs,
+        upstreamStatusCode: upstreamResponse.status,
+        upstreamStatus: 'http_error'
       });
       throw upstreamError;
     }
@@ -251,6 +427,22 @@ export class RelayService {
         upstream: billingTarget,
         errorCode: this.normalizeError(error).code
       });
+      const normalizedError = this.normalizeError(error);
+      await this.recordRequestLogSafe({
+        requestId: input.requestId,
+        userId: auth.user.id,
+        tokenId: auth.token.id,
+        upstreamProviderId: mapping.provider.id,
+        method: 'POST',
+        path: '/v1/chat/completions',
+        model: body.model,
+        statusCode: normalizedError.status,
+        errorCode: normalizedError.code,
+        latencyMs: Date.now() - startedAt,
+        upstreamLatencyMs,
+        upstreamStatusCode: upstreamResponse.status,
+        upstreamStatus: 'malformed_response'
+      });
       throw error;
     }
 
@@ -261,6 +453,21 @@ export class RelayService {
       upstream: billingTarget,
       responseBody: upstreamBodyJson
     });
+    await this.recordRequestLogSafe({
+      requestId: input.requestId,
+      userId: auth.user.id,
+      tokenId: auth.token.id,
+      upstreamProviderId: mapping.provider.id,
+      method: 'POST',
+      path: '/v1/chat/completions',
+      model: body.model,
+      statusCode: upstreamResponse.status,
+      errorCode: null,
+      latencyMs: Date.now() - startedAt,
+      upstreamLatencyMs,
+      upstreamStatusCode: upstreamResponse.status,
+      upstreamStatus: 'success'
+    });
 
     return {
       stream: false,
@@ -268,6 +475,25 @@ export class RelayService {
       headers: this.buildJsonHeaders(input.requestId, upstreamResponse, billingRecord.usageEventId),
       body: upstreamBodyJson
     };
+    } catch (error) {
+      const normalizedError = this.normalizeError(error);
+      await this.recordRequestLogIfAbsentSafe({
+        requestId: input.requestId,
+        userId,
+        tokenId,
+        upstreamProviderId,
+        method: 'POST',
+        path: '/v1/chat/completions',
+        model,
+        statusCode: normalizedError.status,
+        errorCode: normalizedError.code,
+        latencyMs: Date.now() - startedAt,
+        upstreamLatencyMs: null,
+        upstreamStatusCode: null,
+        upstreamStatus: 'rejected'
+      });
+      throw error;
+    }
   }
 
   async pipeUpstreamStream(upstreamResponse: Response, response: ServerResponse) {
@@ -489,5 +715,17 @@ export class RelayService {
 
   private isRetryableUpstreamError(error: unknown) {
     return error instanceof RelayHttpError && error.status === 502 && error.code === 'upstream_error';
+  }
+
+  private async recordRequestLogSafe(input: RelayRequestLogInput) {
+    await this.requestLogsService.recordRelayRequest(input).catch((error) => {
+      console.warn('request_log_write_failed', error instanceof Error ? error.message : 'unknown error');
+    });
+  }
+
+  private async recordRequestLogIfAbsentSafe(input: RelayRequestLogInput) {
+    await this.requestLogsService.recordRelayRequestIfAbsent(input).catch((error) => {
+      console.warn('request_log_write_failed', error instanceof Error ? error.message : 'unknown error');
+    });
   }
 }

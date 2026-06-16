@@ -593,6 +593,16 @@ async function countResidual() {
     wallets: await prisma.wallet.count({ where: { userId: { in: userIds } } }),
     api_tokens: tokenIds.length,
     usage_events: usageIds.length,
+    request_logs: await prisma.requestLog.count({
+      where: {
+        OR: [
+          { userId: { in: userIds } },
+          { tokenId: { in: tokenIds } },
+          { upstreamProviderId: { in: providerIds } },
+          { model: { startsWith: prefix } }
+        ]
+      }
+    }),
     model_prices: modelPrices.length,
     model_group_accesses: await prisma.modelGroupAccess.count({
       where: { OR: [{ modelPriceId: { in: modelPriceIds } }, { groupId: { in: groupIds } }] }
@@ -645,6 +655,16 @@ async function cleanup() {
     })
   ).map((event) => event.id);
 
+  await prisma.requestLog.deleteMany({
+    where: {
+      OR: [
+        { userId: { in: userIds } },
+        { tokenId: { in: tokenIds } },
+        { upstreamProviderId: { in: providerIds } },
+        { model: { startsWith: prefix } }
+      ]
+    }
+  });
   await prisma.walletTransaction.deleteMany({ where: { usageEventId: { in: usageIds } } });
   await prisma.usageEvent.deleteMany({ where: { id: { in: usageIds } } });
   await prisma.apiTokenModelAccess.deleteMany({

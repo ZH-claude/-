@@ -20,13 +20,19 @@ export class RelayController {
 
   @Get('models')
   async listModels(@Req() request: RelayRequest, @Res() reply: FastifyReply) {
+    const startedAt = Date.now();
     const requestId = this.relayService.createRequestId();
 
     try {
       const result = await this.relayService.listModels(this.getBearerApiKey(request), requestId, this.getClientIp(request));
       reply.header('x-request-id', requestId).send(result);
     } catch (error) {
-      this.sendRelayError(reply, error, requestId);
+      await this.sendRelayError(reply, error, requestId, {
+        startedAt,
+        method: 'GET',
+        path: '/v1/models',
+        model: null
+      });
     }
   }
 
@@ -36,6 +42,7 @@ export class RelayController {
     @Res() reply: FastifyReply,
     @Body() body: unknown
   ) {
+    const startedAt = Date.now();
     const requestId = this.relayService.createRequestId();
 
     try {
@@ -60,14 +67,30 @@ export class RelayController {
 
       reply.code(result.status).headers(result.headers).send(result.body);
     } catch (error) {
-      this.sendRelayError(reply, error, requestId);
+      await this.sendRelayError(reply, error, requestId, {
+        startedAt,
+        method: 'POST',
+        path: '/v1/chat/completions',
+        model: this.getBodyModel(body)
+      });
     }
   }
 
   @All('*')
-  unsupported(@Res() reply: FastifyReply) {
+  async unsupported(@Req() request: RelayRequest, @Res() reply: FastifyReply) {
+    const startedAt = Date.now();
     const requestId = this.relayService.createRequestId();
-    this.sendRelayError(reply, this.relayService.createError(501, 'not_implemented', 'invalid_request_error', 'This endpoint is not implemented in MVP'), requestId);
+    await this.sendRelayError(
+      reply,
+      this.relayService.createError(501, 'not_implemented', 'invalid_request_error', 'This endpoint is not implemented in MVP'),
+      requestId,
+      {
+        startedAt,
+        method: request.method,
+        path: request.url,
+        model: null
+      }
+    );
   }
 
   private getBearerApiKey(request: RelayRequest) {
@@ -84,8 +107,21 @@ export class RelayController {
     return token;
   }
 
-  private sendRelayError(reply: FastifyReply, error: unknown, requestId: string) {
+  private async sendRelayError(
+    reply: FastifyReply,
+    error: unknown,
+    requestId: string,
+    logInput: { startedAt: number; method: string; path: string; model: string | null }
+  ) {
     const relayError = this.relayService.normalizeError(error);
+    await this.relayService.recordRejectedRelayRequest({
+      requestId,
+      method: logInput.method,
+      path: logInput.path,
+      model: logInput.model,
+      startedAt: logInput.startedAt,
+      error
+    });
     reply
       .code(relayError.status)
       .header('x-request-id', requestId)
@@ -97,6 +133,12 @@ export class RelayController {
           request_id: requestId
         }
       });
+  }
+
+  private getBodyModel(body: unknown) {
+    return body && typeof body === 'object' && !Array.isArray(body) && typeof (body as { model?: unknown }).model === 'string'
+      ? (body as { model: string }).model
+      : null;
   }
 
   private getClientIp(request: RelayRequest) {

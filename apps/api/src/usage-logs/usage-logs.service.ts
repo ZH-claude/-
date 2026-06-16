@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { Prisma, UsageEventStatus } from '../generated/prisma/client';
 import { PrismaService } from '../prisma.service';
@@ -142,6 +142,100 @@ export class UsageLogsService {
     };
   }
 
+  async getUsageTrace(user: AuthenticatedUser, requestId: string) {
+    const normalizedRequestId = this.requiredRequestId(requestId);
+    const [usageEvent, requestLog] = await this.prisma.$transaction([
+      this.prisma.usageEvent.findFirst({
+        where: {
+          requestId: normalizedRequestId,
+          userId: user.id
+        },
+        include: {
+          token: {
+            select: {
+              id: true,
+              name: true,
+              keyPreview: true
+            }
+          },
+          walletTransaction: {
+            select: {
+              id: true,
+              amountCents: true,
+              balanceAfterCents: true,
+              createdAt: true
+            }
+          }
+        }
+      }),
+      this.prisma.requestLog.findFirst({
+        where: {
+          requestId: normalizedRequestId,
+          userId: user.id
+        }
+      })
+    ]);
+
+    if (!usageEvent && !requestLog) {
+      throw new NotFoundException('request trace not found');
+    }
+
+    return {
+      requestId: normalizedRequestId,
+      usageEvent: usageEvent
+        ? {
+            id: usageEvent.id,
+            model: usageEvent.model,
+            promptTokens: usageEvent.promptTokens,
+            completionTokens: usageEvent.completionTokens,
+            totalTokens: usageEvent.totalTokens,
+            costCents: usageEvent.costCents,
+            status: usageEvent.status.toLowerCase(),
+            errorCode: usageEvent.errorCode,
+            createdAt: usageEvent.createdAt.toISOString(),
+            token: {
+              id: usageEvent.token.id,
+              name: usageEvent.token.name,
+              keyPreview: usageEvent.token.keyPreview
+            },
+            walletTransaction: usageEvent.walletTransaction
+              ? {
+                  id: usageEvent.walletTransaction.id,
+                  amountCents: usageEvent.walletTransaction.amountCents,
+                  balanceAfterCents: usageEvent.walletTransaction.balanceAfterCents,
+                  createdAt: usageEvent.walletTransaction.createdAt.toISOString()
+                }
+              : null
+          }
+        : null,
+      requestLog: requestLog
+        ? {
+            id: requestLog.id,
+            method: requestLog.method,
+            path: requestLog.path,
+            model: requestLog.model,
+            statusCode: requestLog.statusCode,
+            errorCode: requestLog.errorCode,
+            latencyMs: requestLog.latencyMs,
+            createdAt: requestLog.createdAt.toISOString(),
+            completedAt: requestLog.completedAt?.toISOString() ?? null
+          }
+        : null,
+      upstream: requestLog
+        ? {
+            status: requestLog.upstreamStatus,
+            statusCode: requestLog.upstreamStatusCode,
+            latencyMs: requestLog.upstreamLatencyMs
+          }
+        : null,
+      trace: {
+        hasUsageEvent: Boolean(usageEvent),
+        hasWalletTransaction: Boolean(usageEvent?.walletTransaction),
+        hasRequestLog: Boolean(requestLog)
+      }
+    };
+  }
+
   private buildWhere(userId: string, filters: NormalizedUsageLogFilters): Prisma.UsageEventWhereInput {
     return {
       userId,
@@ -174,6 +268,14 @@ export class UsageLogsService {
       status: this.optionalStatus(query.status),
       limit: this.optionalLimit(query.limit)
     };
+  }
+
+  private requiredRequestId(value: unknown) {
+    if (typeof value !== 'string' || !/^[a-zA-Z0-9_-]{8,120}$/.test(value)) {
+      throw new BadRequestException('requestId must be a valid request id');
+    }
+
+    return value;
   }
 
   private optionalDate(value: unknown, field: string) {

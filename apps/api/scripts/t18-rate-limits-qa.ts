@@ -74,6 +74,7 @@ const password = `qa-password-${suffix}`;
 const publicModel = `${prefix}-model`;
 const upstreamModel = `${prefix}-upstream`;
 const providerName = `${prefix}-provider`;
+const requestIds: string[] = [];
 const checks: string[] = [];
 let providerId = '';
 
@@ -454,6 +455,10 @@ async function request<T>(
 
   const text = await response.text();
   const json = text ? JSON.parse(text) : {};
+  const requestId = response.headers.get('x-request-id') ?? ((json as RelayErrorResponse).error?.request_id ?? null);
+  if (requestId && !requestIds.includes(requestId)) {
+    requestIds.push(requestId);
+  }
   return {
     status: response.status,
     json,
@@ -549,6 +554,17 @@ async function countResidual() {
     wallet_transactions: await prisma.walletTransaction.count({
       where: { OR: [{ userId: { in: userIds } }, { usageEventId: { in: usageIds } }] }
     }),
+    request_logs: await prisma.requestLog.count({
+      where: {
+        OR: [
+          { userId: { in: userIds } },
+          { tokenId: { in: tokenIds } },
+          { upstreamProviderId: { in: providerIds } },
+          { model: publicModel },
+          { requestId: { in: requestIds } }
+        ]
+      }
+    }),
     upstream_providers: providers.length,
     upstream_models: await prisma.upstreamModel.count({
       where: { OR: [{ providerId: { in: providerIds } }, { publicModel }] }
@@ -592,6 +608,17 @@ async function cleanup() {
     select: { id: true }
   });
 
+  await prisma.requestLog.deleteMany({
+    where: {
+      OR: [
+        { userId: { in: userIds } },
+        { tokenId: { in: tokenIds } },
+        { upstreamProviderId: { in: providerIds } },
+        { model: publicModel },
+        { requestId: { in: requestIds } }
+      ]
+    }
+  });
   await prisma.walletTransaction.deleteMany({
     where: { OR: [{ userId: { in: userIds } }, { usageEventId: { in: usageIds } }] }
   });
