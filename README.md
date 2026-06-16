@@ -69,7 +69,9 @@ T21 生产部署资产：
 - `compose.prod.yml`：生产 Compose，不暴露 PostgreSQL/Redis 公网端口。
 - `ops/caddy/Caddyfile`：Caddy HTTPS 和反向代理。
 - `ops/backup/postgres-backup.sh`：PostgreSQL 备份。
+- `ops/deploy/deploy.sh`：Linux 生产部署入口。
 - `ops/deploy/preflight.mjs`：生产 `.env`、Docker、DNS、端口和 Compose 预检。
+- `ops/deploy/restart-verify.sh`：生产重启恢复验证。
 - `ops/deploy/rollback.sh`：按 Git ref 回滚。
 - `ops/smoke/t21-deploy-smoke.mjs`：部署后真实 HTTP smoke test。
 - `docs/deployment/cloud-server-deployment.md`：完整云服务器部署手册。
@@ -78,8 +80,10 @@ T21 生产部署资产：
 
 ```bash
 npm run preflight:t21:prod
-docker compose -p nested-api-relay --env-file .env -f compose.prod.yml config
-docker compose -p nested-api-relay --env-file .env -f compose.prod.yml up -d --build
+RUN_SMOKE=true RUN_RESTART_VERIFY=true \
+SMOKE_API_URL=https://api.example.com \
+SMOKE_WEB_URL=https://app.example.com \
+sh ops/deploy/deploy.sh
 ```
 
 部署后 smoke test：

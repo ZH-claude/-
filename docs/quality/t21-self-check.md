@@ -12,6 +12,8 @@
 | HTTPS 反代配置 | `ops/caddy/Caddyfile` | 完成 |
 | PostgreSQL 备份脚本 | `ops/backup/postgres-backup.sh` | 完成 |
 | 生产预检脚本 | `ops/deploy/preflight.mjs`、`package.json` | 完成 |
+| Linux 部署脚本 | `ops/deploy/deploy.sh`、`package.json` | 完成 |
+| 重启恢复验证脚本 | `ops/deploy/restart-verify.sh`、`package.json` | 完成 |
 | 回滚脚本 | `ops/deploy/rollback.sh` | 完成，默认先备份 |
 | 部署后 smoke test | `ops/smoke/t21-deploy-smoke.mjs` | 完成 |
 | 生产变量模板 | `.env.example` | 完成，不含真实密钥 |
@@ -28,6 +30,8 @@
 | HTTPS | Caddy 根据 `CADDY_WEB_DOMAIN`、`CADDY_API_DOMAIN` 和 `ACME_EMAIL` 自动申请证书 |
 | 备份 | `ops/backup/postgres-backup.sh` 生成 custom dump 和 sha256 |
 | 预检 | `ops/deploy/preflight.mjs` 检查 `.env`、占位值、密钥长度、Compose URL、HTTPS 域名、DNS、80/443、Git/Docker/Compose 和生产 Compose 展开 |
+| 部署 | `ops/deploy/deploy.sh` 先预检，再可选备份、build/up、迁移、health、smoke 和可选重启验证 |
+| 自恢复 | `ops/deploy/restart-verify.sh` 执行 Compose restart、API health 和可选真实 smoke |
 | 回滚 | `ops/deploy/rollback.sh <git-ref>` 默认先备份，再切换 ref、重建 API/Web、启动并可选 smoke |
 | Smoke test | 真实 HTTP 检查 `/health`、Web 首页、`/service-status`；登录、令牌、模型、chat、充值、通知缺少真实配置时显示 `skip` |
 | 防伪造 | `SMOKE_STRICT=true` 时任何 `skip` 或 `fail` 都返回失败，不能用未配置项冒充生产通过 |
@@ -41,6 +45,7 @@
 | `node --check ops/deploy/preflight.mjs` | 通过 |
 | `node ops/deploy/preflight.mjs --env-file .env.example --skip-dns --skip-ports --json` | 按预期失败，拒绝占位值、短密码和非生产 Cookie |
 | 临时生产形态 `.env` 跳过 DNS/端口后的 preflight | 通过，随后已删除临时文件，不提交测试凭据 |
+| Docker/Alpine `sh -n` 检查 deploy、restart、backup、rollback | 通过，覆盖 Linux shell 语法 |
 | `npm run typecheck` | 通过 |
 | `npm run build` | 通过 |
 | Docker 本地镜像重建 | 通过；BuildKit 在中文路径触发 gRPC header 错误，使用 `DOCKER_BUILDKIT=0` 后成功 |
@@ -81,7 +86,8 @@
 - QA：本轮部署验证使用当前代码重建的真实容器、真实 HTTP 端口、真实 Postgres/Redis、真实服务状态和真实 Relay trace；没有用静态假数据冒充接口可用。
 - 修复记录：T20 回归第一次失败是因为本机旧 API 容器未包含 trace 路由；已用当前代码重建并重启 API/Web，复测 T20 通过。
 - 预检增量：新增 production preflight 后，`.env.example` 会被明确拒绝，避免直接拿模板上线；脚本不打印真实密钥值。
-- Worker workshare：T21 前置 `gpt-5.3-codex-spark` 侧车尝试失败，错误为 `wss://chatgpt.com/backend-api/codex/responses` 连接被拒绝/stream disconnected；后续预检增量再次尝试侧车也因同一 websocket/API 连接问题失败；Codex 本地完成部署资产、验证、审查和文档更新。
+- 部署脚本增量：新增 `deploy.sh` 和 `restart-verify.sh` 后，服务器侧可用同一套 env/project 参数执行部署和重启恢复验证；smoke 默认 `auto`，设为 `true` 时缺少真实公网地址会直接失败。
+- Worker workshare：T21 前置 `gpt-5.3-codex-spark` 侧车尝试失败，错误为 `wss://chatgpt.com/backend-api/codex/responses` 连接被拒绝/stream disconnected；后续预检和部署脚本增量再次尝试侧车也因同一 websocket/API 连接问题失败；Codex 本地完成部署资产、验证、审查和文档更新。
 
 ## CEO + CTO 审查
 
@@ -96,4 +102,4 @@
 - 未验证真实 DNS A 记录、Caddy ACME 证书签发和公网 HTTPS。
 - 未执行生产服务器重启后的公网恢复验证。
 - 未配置真实上游、真实余额、真实充值码和真实通知渠道，因此 strict smoke 尚不能作为上线通过项。
-- 未完成本机 shell 语法器检查；脚本逻辑已通过人工审查和部署文档约束，生产执行前建议在 Linux 服务器上运行 `sh -n ops/backup/postgres-backup.sh ops/deploy/rollback.sh`。
+- 本机 Windows 无可用 Git Bash；Linux shell 语法改由 Docker/Alpine `sh -n` 覆盖。

@@ -20,6 +20,8 @@
     "qa:t19:security-hardening": "npm --prefix apps/api run qa:t19:security-hardening",
     "qa:t20:observability": "npm --prefix apps/api run qa:t20:observability",
     "preflight:t21:prod": "node ops/deploy/preflight.mjs --env-file .env",
+    "deploy:t21:prod": "sh ops/deploy/deploy.sh",
+    "verify:t21:restart": "sh ops/deploy/restart-verify.sh",
     "smoke:t21:deploy": "node ops/smoke/t21-deploy-smoke.mjs",
     "start:api": "npm --prefix apps/api run start",
     "start:web": "npm --prefix apps/web run start"

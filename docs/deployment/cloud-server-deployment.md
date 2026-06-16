@@ -21,7 +21,9 @@
 | `compose.prod.yml` | 生产 Compose 编排，不暴露 PostgreSQL/Redis 公网端口 |
 | `ops/caddy/Caddyfile` | Caddy HTTPS 和反向代理配置 |
 | `ops/backup/postgres-backup.sh` | PostgreSQL 逻辑备份脚本 |
+| `ops/deploy/deploy.sh` | Linux 服务器部署入口 |
 | `ops/deploy/preflight.mjs` | 上线前服务器和 `.env` 预检 |
+| `ops/deploy/restart-verify.sh` | 重启恢复验证 |
 | `ops/deploy/rollback.sh` | 指定 Git ref 的回滚脚本 |
 | `ops/smoke/t21-deploy-smoke.mjs` | 部署后真实 HTTP smoke test |
 | `.env.example` | 生产环境变量模板，不含真实密钥 |
@@ -100,7 +102,11 @@ docker compose -p nested-api-relay --env-file .env -f compose.prod.yml config >/
 构建并启动：
 
 ```bash
-docker compose -p nested-api-relay --env-file .env -f compose.prod.yml up -d --build
+RUN_SMOKE=true \
+RUN_RESTART_VERIFY=true \
+SMOKE_API_URL=https://api.example.com \
+SMOKE_WEB_URL=https://app.example.com \
+sh ops/deploy/deploy.sh
 ```
 
 API 容器启动命令会自动执行：
@@ -211,9 +217,10 @@ sh ops/deploy/rollback.sh <commit-sha-or-tag>
 Compose 中所有生产服务均设置 `restart: unless-stopped`。验证：
 
 ```bash
-docker compose -p nested-api-relay --env-file .env -f compose.prod.yml restart api web postgres redis caddy
-docker compose -p nested-api-relay --env-file .env -f compose.prod.yml ps
-SMOKE_API_URL=https://api.example.com SMOKE_WEB_URL=https://app.example.com npm run smoke:t21:deploy
+SMOKE_API_URL=https://api.example.com \
+SMOKE_WEB_URL=https://app.example.com \
+RUN_SMOKE=true \
+sh ops/deploy/restart-verify.sh
 ```
 
 服务器重启验证：
