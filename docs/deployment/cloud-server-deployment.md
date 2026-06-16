@@ -21,6 +21,7 @@
 | `compose.prod.yml` | 生产 Compose 编排，不暴露 PostgreSQL/Redis 公网端口 |
 | `ops/caddy/Caddyfile` | Caddy HTTPS 和反向代理配置 |
 | `ops/backup/postgres-backup.sh` | PostgreSQL 逻辑备份脚本 |
+| `ops/deploy/preflight.mjs` | 上线前服务器和 `.env` 预检 |
 | `ops/deploy/rollback.sh` | 指定 Git ref 的回滚脚本 |
 | `ops/smoke/t21-deploy-smoke.mjs` | 部署后真实 HTTP smoke test |
 | `.env.example` | 生产环境变量模板，不含真实密钥 |
@@ -79,6 +80,14 @@ openssl rand -hex 32
 ```
 
 不要把真实 `.env` 提交、发给 AI、写进 issue、写进 README 或保存到截图。
+
+上线前先跑预检：
+
+```bash
+npm run preflight:t21:prod
+```
+
+预检会检查 `.env` 是否存在、Linux 权限是否安全、密钥是否仍是占位值、`DATABASE_URL`/`REDIS_URL` 是否匹配 Compose 服务名、生产 URL 是否是 HTTPS、Caddy 域名是否和公网 URL 一致、DNS 是否可解析、80/443 是否可供 Caddy 绑定、Git/Docker/Compose 是否可用，以及生产 Compose 配置是否能展开。预检不会输出真实密钥值。
 
 ## 5. 启动和迁移
 

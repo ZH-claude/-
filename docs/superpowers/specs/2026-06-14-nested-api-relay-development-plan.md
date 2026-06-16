@@ -338,9 +338,10 @@ T21 仓库侧进展记录（2026-06-16）：
 - 已新增生产部署编排 `compose.prod.yml`，包含 PostgreSQL、Redis、API、Web 和 Caddy；生产只暴露 80/443，PostgreSQL/Redis 不暴露公网。
 - 已新增 `ops/caddy/Caddyfile`，通过 `CADDY_WEB_DOMAIN`、`CADDY_API_DOMAIN` 和 `ACME_EMAIL` 支持自动 HTTPS。
 - 已新增 `ops/backup/postgres-backup.sh` 和 `ops/deploy/rollback.sh`；回滚默认先做 PostgreSQL 备份，再切换 Git ref、重建 API/Web 并可选执行 smoke。
+- 已新增 `ops/deploy/preflight.mjs` 和 `npm run preflight:t21:prod`，上线前检查 `.env`、占位值、密钥长度、Compose URL、HTTPS 域名、DNS、80/443、Git/Docker/Compose 和生产 Compose 展开，且不输出真实密钥。
 - 已新增 `ops/smoke/t21-deploy-smoke.mjs` 和 `npm run smoke:t21:deploy`，用真实 HTTP 检查 `/health`、Web 首页、`/service-status`、登录、令牌、`/v1/models`、`/v1/chat/completions`、usage trace、充值和通知；缺少真实配置时输出 `skip`，`SMOKE_STRICT=true` 时任何 `skip` 都失败。
 - 已更新 `.env.example`、`README.md` 和 `docs/deployment/cloud-server-deployment.md`，明确生产密钥只进入服务器 `.env` 或密钥管理，不写入仓库、文档、CI 日志或截图。
-- 已验证 `docker compose -p nested-api-relay --env-file .env.example -f compose.prod.yml config`、`node --check ops/smoke/t21-deploy-smoke.mjs`、`npm run typecheck`、`npm run build`、本地 Docker 镜像重建、Prisma migrate status、本地 smoke、`npm run qa:t17:service-status` 和 `npm run qa:t20:observability`。
+- 已验证 `docker compose -p nested-api-relay --env-file .env.example -f compose.prod.yml config`、`node --check ops/smoke/t21-deploy-smoke.mjs`、`node --check ops/deploy/preflight.mjs`、preflight 拒绝 `.env.example`、临时生产形态 env preflight 通过、`npm run typecheck`、`npm run build`、本地 Docker 镜像重建、Prisma migrate status、本地 smoke、`npm run qa:t17:service-status` 和 `npm run qa:t20:observability`。
 - 已创建 `docs/quality/t21-self-check.md`，记录真实验证、跳过项、旧容器导致的 T20 回归失败根因和复测通过证据。
 - 未勾选 T21：真实云服务器 SSH 部署、DNS、Caddy ACME 证书签发、公网 HTTPS、生产 `.env`、真实账号/模型/上游/充值/通知 strict smoke 和服务器重启恢复尚未执行。
 

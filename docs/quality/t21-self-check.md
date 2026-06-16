@@ -11,6 +11,7 @@
 | 生产 Compose | `compose.prod.yml` | 完成 |
 | HTTPS 反代配置 | `ops/caddy/Caddyfile` | 完成 |
 | PostgreSQL 备份脚本 | `ops/backup/postgres-backup.sh` | 完成 |
+| 生产预检脚本 | `ops/deploy/preflight.mjs`、`package.json` | 完成 |
 | 回滚脚本 | `ops/deploy/rollback.sh` | 完成，默认先备份 |
 | 部署后 smoke test | `ops/smoke/t21-deploy-smoke.mjs` | 完成 |
 | 生产变量模板 | `.env.example` | 完成，不含真实密钥 |
@@ -26,6 +27,7 @@
 | 迁移 | API 容器启动前执行 `npm --prefix apps/api run db:migrate` |
 | HTTPS | Caddy 根据 `CADDY_WEB_DOMAIN`、`CADDY_API_DOMAIN` 和 `ACME_EMAIL` 自动申请证书 |
 | 备份 | `ops/backup/postgres-backup.sh` 生成 custom dump 和 sha256 |
+| 预检 | `ops/deploy/preflight.mjs` 检查 `.env`、占位值、密钥长度、Compose URL、HTTPS 域名、DNS、80/443、Git/Docker/Compose 和生产 Compose 展开 |
 | 回滚 | `ops/deploy/rollback.sh <git-ref>` 默认先备份，再切换 ref、重建 API/Web、启动并可选 smoke |
 | Smoke test | 真实 HTTP 检查 `/health`、Web 首页、`/service-status`；登录、令牌、模型、chat、充值、通知缺少真实配置时显示 `skip` |
 | 防伪造 | `SMOKE_STRICT=true` 时任何 `skip` 或 `fail` 都返回失败，不能用未配置项冒充生产通过 |
@@ -36,6 +38,9 @@
 | --- | --- |
 | `docker compose -p nested-api-relay --env-file .env.example -f compose.prod.yml config` | 通过 |
 | `node --check ops/smoke/t21-deploy-smoke.mjs` | 通过 |
+| `node --check ops/deploy/preflight.mjs` | 通过 |
+| `node ops/deploy/preflight.mjs --env-file .env.example --skip-dns --skip-ports --json` | 按预期失败，拒绝占位值、短密码和非生产 Cookie |
+| 临时生产形态 `.env` 跳过 DNS/端口后的 preflight | 通过，随后已删除临时文件，不提交测试凭据 |
 | `npm run typecheck` | 通过 |
 | `npm run build` | 通过 |
 | Docker 本地镜像重建 | 通过；BuildKit 在中文路径触发 gRPC header 错误，使用 `DOCKER_BUILDKIT=0` 后成功 |
@@ -75,7 +80,8 @@
 - Pre-landing review：重点检查生产密钥不入库、不入文档、不入 Git；PostgreSQL/Redis 不暴露公网；回滚先备份；smoke test 不接受假数据；生产失败项必须显示失败或未配置。
 - QA：本轮部署验证使用当前代码重建的真实容器、真实 HTTP 端口、真实 Postgres/Redis、真实服务状态和真实 Relay trace；没有用静态假数据冒充接口可用。
 - 修复记录：T20 回归第一次失败是因为本机旧 API 容器未包含 trace 路由；已用当前代码重建并重启 API/Web，复测 T20 通过。
-- Worker workshare：T21 前置 `gpt-5.3-codex-spark` 侧车尝试失败，错误为 `wss://chatgpt.com/backend-api/codex/responses` 连接被拒绝/stream disconnected；Codex 本地完成部署资产、验证、审查和文档更新。
+- 预检增量：新增 production preflight 后，`.env.example` 会被明确拒绝，避免直接拿模板上线；脚本不打印真实密钥值。
+- Worker workshare：T21 前置 `gpt-5.3-codex-spark` 侧车尝试失败，错误为 `wss://chatgpt.com/backend-api/codex/responses` 连接被拒绝/stream disconnected；后续预检增量再次尝试侧车也因同一 websocket/API 连接问题失败；Codex 本地完成部署资产、验证、审查和文档更新。
 
 ## CEO + CTO 审查
 
