@@ -7,6 +7,8 @@ import {
   Prisma,
   AnnouncementCategory,
   AnnouncementStatus,
+  AsyncTaskKind,
+  AsyncTaskStatus,
   GroupStatus,
   ModelStatus,
   RechargeCodeStatus,
@@ -23,6 +25,17 @@ import { decryptUpstreamApiKey, encryptUpstreamApiKey, maskUpstreamApiKey } from
 type ListUsersOptions = {
   page: number;
   limit: number;
+};
+
+type ListRequestLogsOptions = ListUsersOptions & {
+  status?: string;
+  model?: string;
+};
+
+type ListImageTasksOptions = ListUsersOptions & {
+  status?: string;
+  platform?: string;
+  model?: string;
 };
 
 type ModelConfigurationOptions = {
@@ -422,6 +435,221 @@ export class AdminService implements OnModuleInit {
 
   async listSecurityAuditLogs(options: ListUsersOptions) {
     return this.securityAuditService.listSecurityAuditLogs(options);
+  }
+
+  async listRequestLogs(options: ListRequestLogsOptions) {
+    const { page, limit } = options;
+    const skip = (page - 1) * limit;
+    const model = this.optionalFilterText(options.model, 'model');
+    const status = this.normalizeRequestLogStatus(options.status);
+    const where: Prisma.RequestLogWhereInput = {
+      ...(model ? { model } : {}),
+      ...this.requestLogStatusWhere(status)
+    };
+
+    const [logs, total, successCount, errorCount] = await Promise.all([
+      this.prisma.requestLog.findMany({
+        where,
+        skip,
+        take: limit,
+        include: {
+          user: {
+            select: {
+              id: true,
+              username: true
+            }
+          },
+          token: {
+            select: {
+              id: true,
+              name: true,
+              keyPreview: true
+            }
+          },
+          upstreamProvider: {
+            select: {
+              id: true,
+              name: true,
+              status: true,
+              healthStatus: true
+            }
+          }
+        },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }]
+      }),
+      this.prisma.requestLog.count({ where }),
+      this.prisma.requestLog.count({
+        where: {
+          ...where,
+          errorCode: null,
+          statusCode: { lt: 400 }
+        }
+      }),
+      this.prisma.requestLog.count({
+        where: {
+          ...where,
+          OR: [{ errorCode: { not: null } }, { statusCode: { gte: 400 } }]
+        }
+      })
+    ]);
+
+    return {
+      items: logs.map((log) => ({
+        id: log.id,
+        requestId: log.requestId,
+        method: log.method,
+        path: log.path,
+        model: log.model,
+        statusCode: log.statusCode,
+        errorCode: log.errorCode,
+        latencyMs: log.latencyMs,
+        upstreamLatencyMs: log.upstreamLatencyMs,
+        upstreamStatusCode: log.upstreamStatusCode,
+        upstreamStatus: log.upstreamStatus,
+        createdAt: log.createdAt.toISOString(),
+        completedAt: log.completedAt?.toISOString() ?? null,
+        user: log.user
+          ? {
+              id: log.user.id,
+              username: log.user.username
+            }
+          : null,
+        token: log.token
+          ? {
+              id: log.token.id,
+              name: log.token.name,
+              keyPreview: log.token.keyPreview
+            }
+          : null,
+        upstreamProvider: log.upstreamProvider
+          ? {
+              id: log.upstreamProvider.id,
+              name: log.upstreamProvider.name,
+              status: log.upstreamProvider.status.toLowerCase(),
+              healthStatus: log.upstreamProvider.healthStatus.toLowerCase()
+            }
+          : null
+      })),
+      summary: {
+        total,
+        successCount,
+        errorCount
+      },
+      total,
+      page,
+      limit
+    };
+  }
+
+  async listImageTasks(options: ListImageTasksOptions) {
+    const { page, limit } = options;
+    const skip = (page - 1) * limit;
+    const status = this.optionalAsyncTaskStatus(options.status);
+    const platform = this.optionalFilterText(options.platform, 'platform');
+    const model = this.optionalFilterText(options.model, 'model');
+    const where: Prisma.AsyncTaskWhereInput = {
+      kind: AsyncTaskKind.IMAGE,
+      ...(status ? { status } : {}),
+      ...(platform ? { platform } : {}),
+      ...(model ? { model } : {})
+    };
+
+    const [items, total, statusGroups, platformRows, modelRows] = await Promise.all([
+      this.prisma.asyncTask.findMany({
+        where,
+        skip,
+        take: limit,
+        include: {
+          user: {
+            select: {
+              id: true,
+              username: true
+            }
+          },
+          upstreamProvider: {
+            select: {
+              id: true,
+              name: true,
+              status: true,
+              healthStatus: true
+            }
+          }
+        },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }]
+      }),
+      this.prisma.asyncTask.count({ where }),
+      this.prisma.asyncTask.groupBy({
+        by: ['status'],
+        where,
+        _count: { _all: true },
+        orderBy: { status: 'asc' }
+      }),
+      this.prisma.asyncTask.findMany({
+        where: { kind: AsyncTaskKind.IMAGE },
+        distinct: ['platform'],
+        orderBy: { platform: 'asc' },
+        select: { platform: true },
+        take: 100
+      }),
+      this.prisma.asyncTask.findMany({
+        where: {
+          kind: AsyncTaskKind.IMAGE,
+          model: { not: null }
+        },
+        distinct: ['model'],
+        orderBy: { model: 'asc' },
+        select: { model: true },
+        take: 100
+      })
+    ]);
+
+    return {
+      items: items.map((task) => ({
+        id: task.id,
+        externalTaskId: task.externalTaskId,
+        platform: task.platform,
+        kind: task.kind.toLowerCase(),
+        status: task.status.toLowerCase(),
+        model: task.model,
+        prompt: task.prompt,
+        progress: task.progress,
+        result: task.resultJson,
+        errorMessage: task.errorMessage,
+        submittedAt: task.submittedAt.toISOString(),
+        startedAt: task.startedAt?.toISOString() ?? null,
+        completedAt: task.completedAt?.toISOString() ?? null,
+        createdAt: task.createdAt.toISOString(),
+        updatedAt: task.updatedAt.toISOString(),
+        user: {
+          id: task.user.id,
+          username: task.user.username
+        },
+        upstreamProvider: task.upstreamProvider
+          ? {
+              id: task.upstreamProvider.id,
+              name: task.upstreamProvider.name,
+              status: task.upstreamProvider.status.toLowerCase(),
+              healthStatus: task.upstreamProvider.healthStatus.toLowerCase()
+            }
+          : null
+      })),
+      summary: {
+        total,
+        statusCounts: this.toAsyncTaskStatusCounts(statusGroups)
+      },
+      filters: {
+        platforms: platformRows.map((entry) => entry.platform),
+        models: modelRows.map((entry) => entry.model).filter((entry): entry is string => Boolean(entry)),
+        statuses: ['queued', 'running', 'succeeded', 'failed', 'canceled']
+      },
+      capabilities: {
+        imageSubmissionSupported: false,
+        statusSyncSupported: false
+      },
+      total,
+      page,
+      limit
+    };
   }
 
   async createAnnouncement(adminUserId: string, body: AnnouncementInput) {
@@ -1167,6 +1395,102 @@ export class AdminService implements OnModuleInit {
     }
 
     throw new BadRequestException('supportsStream must be true or false');
+  }
+
+  private optionalFilterText(value: unknown, field: string) {
+    if (value === undefined || value === null || value === '') {
+      return undefined;
+    }
+
+    if (typeof value !== 'string') {
+      throw new BadRequestException(`${field} must be text`);
+    }
+
+    const normalized = value.trim();
+    if (!normalized) {
+      return undefined;
+    }
+
+    if (normalized.length > 120 || !/^[a-zA-Z0-9._:/+ -]+$/.test(normalized)) {
+      throw new BadRequestException(`${field} contains unsupported characters`);
+    }
+
+    return normalized;
+  }
+
+  private normalizeRequestLogStatus(value: unknown) {
+    if (value === undefined || value === null || value === '' || value === 'all') {
+      return 'all';
+    }
+
+    if (value === 'success' || value === 'error') {
+      return value;
+    }
+
+    throw new BadRequestException('status must be all, success, or error');
+  }
+
+  private requestLogStatusWhere(status: 'all' | 'success' | 'error'): Prisma.RequestLogWhereInput {
+    if (status === 'success') {
+      return {
+        errorCode: null,
+        statusCode: { lt: 400 }
+      };
+    }
+
+    if (status === 'error') {
+      return {
+        OR: [{ errorCode: { not: null } }, { statusCode: { gte: 400 } }]
+      };
+    }
+
+    return {};
+  }
+
+  private optionalAsyncTaskStatus(value: unknown) {
+    if (value === undefined || value === null || value === '' || value === 'all') {
+      return undefined;
+    }
+
+    if (typeof value !== 'string') {
+      throw new BadRequestException('status must be queued, running, succeeded, failed, or canceled');
+    }
+
+    const normalized = value.toUpperCase();
+    if (normalized === AsyncTaskStatus.QUEUED) {
+      return AsyncTaskStatus.QUEUED;
+    }
+    if (normalized === AsyncTaskStatus.RUNNING) {
+      return AsyncTaskStatus.RUNNING;
+    }
+    if (normalized === AsyncTaskStatus.SUCCEEDED) {
+      return AsyncTaskStatus.SUCCEEDED;
+    }
+    if (normalized === AsyncTaskStatus.FAILED) {
+      return AsyncTaskStatus.FAILED;
+    }
+    if (normalized === AsyncTaskStatus.CANCELED) {
+      return AsyncTaskStatus.CANCELED;
+    }
+
+    throw new BadRequestException('status must be queued, running, succeeded, failed, or canceled');
+  }
+
+  private toAsyncTaskStatusCounts(groups: Array<{ status: AsyncTaskStatus; _count?: true | { _all?: number } }>) {
+    const counts = {
+      queued: 0,
+      running: 0,
+      succeeded: 0,
+      failed: 0,
+      canceled: 0
+    };
+
+    for (const group of groups) {
+      const count = typeof group._count === 'object' && group._count ? group._count._all ?? 0 : 0;
+      counts[group.status.toLowerCase() as keyof typeof counts] = count;
+    }
+
+    return counts;
   }
 
   private isUuid(value: string) {

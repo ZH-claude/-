@@ -207,6 +207,69 @@ export type SecurityAuditLog = {
   createdAt: string;
 };
 
+export type AdminRequestLogStatusFilter = 'all' | 'success' | 'error';
+
+export type AdminRequestLog = {
+  id: string;
+  requestId: string;
+  method: string;
+  path: string;
+  model: string | null;
+  statusCode: number | null;
+  errorCode: string | null;
+  latencyMs: number | null;
+  upstreamLatencyMs: number | null;
+  upstreamStatusCode: number | null;
+  upstreamStatus: string | null;
+  createdAt: string;
+  completedAt: string | null;
+  user: {
+    id: string;
+    username: string;
+  } | null;
+  token: {
+    id: string;
+    name: string;
+    keyPreview: string;
+  } | null;
+  upstreamProvider: {
+    id: string;
+    name: string;
+    status: string;
+    healthStatus: string;
+  } | null;
+};
+
+export type AdminImageTaskStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled';
+
+export type AdminImageTask = {
+  id: string;
+  externalTaskId: string;
+  platform: string;
+  kind: 'image';
+  status: AdminImageTaskStatus;
+  model: string | null;
+  prompt: string | null;
+  progress: number | null;
+  result: unknown;
+  errorMessage: string | null;
+  submittedAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  user: {
+    id: string;
+    username: string;
+  };
+  upstreamProvider: {
+    id: string;
+    name: string;
+    status: string;
+    healthStatus: string;
+  } | null;
+};
+
 export type CreatedRechargeCode = {
   id: string;
   code: string;
@@ -269,6 +332,38 @@ type AdminAuditLogListResponse = {
 
 type SecurityAuditLogListResponse = {
   items: SecurityAuditLog[];
+  total: number;
+  page: number;
+  limit: number;
+};
+
+type AdminRequestLogListResponse = {
+  items: AdminRequestLog[];
+  summary: {
+    total: number;
+    successCount: number;
+    errorCount: number;
+  };
+  total: number;
+  page: number;
+  limit: number;
+};
+
+type AdminImageTaskListResponse = {
+  items: AdminImageTask[];
+  summary: {
+    total: number;
+    statusCounts: Record<AdminImageTaskStatus, number>;
+  };
+  filters: {
+    platforms: string[];
+    models: string[];
+    statuses: AdminImageTaskStatus[];
+  };
+  capabilities: {
+    imageSubmissionSupported: boolean;
+    statusSyncSupported: boolean;
+  };
   total: number;
   page: number;
   limit: number;
@@ -405,6 +500,46 @@ export async function listSecurityAuditLogs(options: { page?: number; limit?: nu
   params.set('page', String(page));
   params.set('limit', String(limit));
   return request<SecurityAuditLogListResponse>(`/admin/security-audit-logs?${params.toString()}`);
+}
+
+export async function listAdminRequestLogs(options: {
+  page?: number;
+  limit?: number;
+  status?: AdminRequestLogStatusFilter;
+  model?: string;
+} = {}) {
+  const params = new URLSearchParams();
+  params.set('page', String(options.page ?? 1));
+  params.set('limit', String(options.limit ?? 20));
+  if (options.status && options.status !== 'all') {
+    params.set('status', options.status);
+  }
+  if (options.model) {
+    params.set('model', options.model);
+  }
+  return request<AdminRequestLogListResponse>(`/admin/request-logs?${params.toString()}`);
+}
+
+export async function listAdminImageTasks(options: {
+  page?: number;
+  limit?: number;
+  status?: AdminImageTaskStatus | '';
+  platform?: string;
+  model?: string;
+} = {}) {
+  const params = new URLSearchParams();
+  params.set('page', String(options.page ?? 1));
+  params.set('limit', String(options.limit ?? 20));
+  if (options.status) {
+    params.set('status', options.status);
+  }
+  if (options.platform) {
+    params.set('platform', options.platform);
+  }
+  if (options.model) {
+    params.set('model', options.model);
+  }
+  return request<AdminImageTaskListResponse>(`/admin/image-tasks?${params.toString()}`);
 }
 
 export async function getDashboardSummary() {

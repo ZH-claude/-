@@ -608,6 +608,14 @@ button {
   min-width: 980px;
 }
 
+.merchant-request-log-table {
+  min-width: 1060px;
+}
+
+.merchant-drawing-log-table {
+  min-width: 1120px;
+}
+
 .table-identity {
   align-items: flex-start;
   display: flex;

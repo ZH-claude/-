@@ -32,12 +32,12 @@ const merchantNavigationItems: NavigationItem[] = [
   { href: '/merchant/recharge-codes', label: '充值码', icon: <GiftOutlined />, topbar: true },
   { href: '/admin#merchant-groups', label: '分组状态', icon: <AppstoreOutlined /> },
   { href: '/token', label: '令牌入口', icon: <KeyOutlined /> },
-  { href: '/log', label: '请求日志', icon: <FileTextOutlined /> },
-  { href: '/midjourney', label: '绘图日志', icon: <PictureOutlined /> },
+  { href: '/merchant/request-logs', label: '请求日志', icon: <FileTextOutlined /> },
+  { href: '/merchant/drawing-logs', label: '绘图日志', icon: <PictureOutlined /> },
   { href: '/merchant/model-config', label: '上游/模型', icon: <ApiOutlined />, topbar: true },
   { href: '/merchant/announcements', label: '公告', icon: <BellOutlined />, topbar: true },
   { href: '/merchant/audit', label: '审计', icon: <FileTextOutlined />, topbar: true },
-  { href: '/admin#merchant-service-status', label: '服务状态', icon: <CloudServerOutlined />, topbar: true }
+  { href: '/merchant/service-status', label: '服务状态', icon: <CloudServerOutlined />, topbar: true }
 ];
 
 export function MerchantShell({

@@ -75,6 +75,33 @@ export class AdminController {
     return this.adminService.listSecurityAuditLogs({ page, limit });
   }
 
+  @Get('request-logs')
+  listRequestLogs(
+    @Query('page') pageValue?: string,
+    @Query('limit') limitValue?: string,
+    @Query('status') status?: string,
+    @Query('model') model?: string
+  ) {
+    const page = this.parsePositiveInt(pageValue, 1, 1000000);
+    const limit = this.parsePositiveInt(limitValue, 20, 100);
+
+    return this.adminService.listRequestLogs({ page, limit, status, model });
+  }
+
+  @Get('image-tasks')
+  listImageTasks(
+    @Query('page') pageValue?: string,
+    @Query('limit') limitValue?: string,
+    @Query('status') status?: string,
+    @Query('platform') platform?: string,
+    @Query('model') model?: string
+  ) {
+    const page = this.parsePositiveInt(pageValue, 1, 1000000);
+    const limit = this.parsePositiveInt(limitValue, 20, 100);
+
+    return this.adminService.listImageTasks({ page, limit, status, platform, model });
+  }
+
   @Get('upstreams')
   listUpstreamProviders() {
     return this.adminService.listUpstreamProviders();
