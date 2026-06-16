@@ -2,7 +2,7 @@
 
 创建日期：2026-06-14  
 目标：建设一个可部署到云服务器的前后端完整 API 中转站。你的平台作为第三方中转层，用户请求先进入你的系统，再由你的系统转发到另一个上游中转站。  
-当前状态：T20 可观测性已完成。工作区已接入 GitHub 推送流程。
+当前状态：T21 云服务器部署资产已完成并通过本地验证；真实云服务器部署、HTTPS 证书和公网重启恢复验证待服务器 SSH、域名 DNS、生产 `.env` 和真实 smoke 账号。
 数据库密码通过 `POSTGRES_PASSWORD` 配置，真实值只写入未提交的 `.env` 或服务器密钥管理。  
 Redis MVP 阶段默认不启用密码；如生产环境需要启用，通过 `REDIS_PASSWORD` 或托管 Redis 密钥配置，真实值不写入开发文档。
 
@@ -316,7 +316,7 @@ Loki/Prometheus/Grafana
 
 ## 11. 下一次对话建议任务
 
-建议下一次从 T21 开始：云服务器部署。
+建议下一次继续完成 T21 的真实云服务器部署：拿到服务器、域名和生产 `.env` 后，上云执行并跑 strict smoke。
 
 T21 的边界：
 
@@ -332,6 +332,17 @@ T21 完成指标：
 - `.env.example` 覆盖生产必需配置项，但不包含真实密钥。
 - 本地至少验证 Compose 配置、生产构建、迁移状态和部署 smoke test 脚本或等效命令。
 - 部署文档明确上线前不能伪造真实上游、真实支付或真实监控结果；未接入项必须显示为未配置。
+
+T21 仓库侧进展记录（2026-06-16）：
+
+- 已新增生产部署编排 `compose.prod.yml`，包含 PostgreSQL、Redis、API、Web 和 Caddy；生产只暴露 80/443，PostgreSQL/Redis 不暴露公网。
+- 已新增 `ops/caddy/Caddyfile`，通过 `CADDY_WEB_DOMAIN`、`CADDY_API_DOMAIN` 和 `ACME_EMAIL` 支持自动 HTTPS。
+- 已新增 `ops/backup/postgres-backup.sh` 和 `ops/deploy/rollback.sh`；回滚默认先做 PostgreSQL 备份，再切换 Git ref、重建 API/Web 并可选执行 smoke。
+- 已新增 `ops/smoke/t21-deploy-smoke.mjs` 和 `npm run smoke:t21:deploy`，用真实 HTTP 检查 `/health`、Web 首页、`/service-status`、登录、令牌、`/v1/models`、`/v1/chat/completions`、usage trace、充值和通知；缺少真实配置时输出 `skip`，`SMOKE_STRICT=true` 时任何 `skip` 都失败。
+- 已更新 `.env.example`、`README.md` 和 `docs/deployment/cloud-server-deployment.md`，明确生产密钥只进入服务器 `.env` 或密钥管理，不写入仓库、文档、CI 日志或截图。
+- 已验证 `docker compose -p nested-api-relay --env-file .env.example -f compose.prod.yml config`、`node --check ops/smoke/t21-deploy-smoke.mjs`、`npm run typecheck`、`npm run build`、本地 Docker 镜像重建、Prisma migrate status、本地 smoke、`npm run qa:t17:service-status` 和 `npm run qa:t20:observability`。
+- 已创建 `docs/quality/t21-self-check.md`，记录真实验证、跳过项、旧容器导致的 T20 回归失败根因和复测通过证据。
+- 未勾选 T21：真实云服务器 SSH 部署、DNS、Caddy ACME 证书签发、公网 HTTPS、生产 `.env`、真实账号/模型/上游/充值/通知 strict smoke 和服务器重启恢复尚未执行。
 
 T20 完成记录（2026-06-16）：
 

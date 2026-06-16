@@ -1,0 +1,13 @@
+{
+	email {$ACME_EMAIL}
+}
+
+{$CADDY_WEB_DOMAIN} {
+	encode gzip zstd
+	reverse_proxy web:3000
+}
+
+{$CADDY_API_DOMAIN} {
+	encode gzip zstd
+	reverse_proxy api:3001
+}

@@ -1,6 +1,6 @@
 # API 中转站 Monorepo
 
-这是一个面向“API 中转站套娃”场景的全栈项目骨架。当前 T01 只完成基础工程、前后端空壳、PostgreSQL、Redis 和 Docker Compose 启动链路，不实现业务功能。
+这是一个面向“API 中转站套娃”场景的全栈项目。当前已完成 MVP 用户端、管理端、Relay、计费、日志、通知、限流、安全审计和请求可观测性；T21 增加云服务器部署资产。
 
 ## 目录结构
 
@@ -12,6 +12,8 @@
 ├── docs         # 规划文档
 ├── Dockerfile
 ├── docker-compose.yml
+├── compose.prod.yml
+├── ops          # 生产部署、备份、回滚、smoke test
 ├── package.json
 ├── .env.example
 └── README.md
@@ -60,6 +62,34 @@ docker compose -p nested-api-relay up --build
 - 前端后台壳页面：http://localhost:3000
 - 后端健康检查：http://localhost:3001/health
 
+## 云服务器部署
+
+T21 生产部署资产：
+
+- `compose.prod.yml`：生产 Compose，不暴露 PostgreSQL/Redis 公网端口。
+- `ops/caddy/Caddyfile`：Caddy HTTPS 和反向代理。
+- `ops/backup/postgres-backup.sh`：PostgreSQL 备份。
+- `ops/deploy/rollback.sh`：按 Git ref 回滚。
+- `ops/smoke/t21-deploy-smoke.mjs`：部署后真实 HTTP smoke test。
+- `docs/deployment/cloud-server-deployment.md`：完整云服务器部署手册。
+
+生产部署入口：
+
+```bash
+docker compose -p nested-api-relay --env-file .env -f compose.prod.yml config
+docker compose -p nested-api-relay --env-file .env -f compose.prod.yml up -d --build
+```
+
+部署后 smoke test：
+
+```bash
+SMOKE_API_URL=https://api.example.com \
+SMOKE_WEB_URL=https://app.example.com \
+npm run smoke:t21:deploy
+```
+
+缺少真实账号、真实模型、真实上游、真实充值码或真实通知配置时，smoke test 会显示 `skip`，不会把未配置功能伪造成通过。
+
 ## 本地开发命令
 
 安装依赖：
@@ -92,14 +122,11 @@ npm run typecheck
 npm run build
 ```
 
-## T01 边界
+## 常用验证
 
-T01 只做项目初始化：
-
-- monorepo 根工作区
-- `apps/web` 前端空壳
-- `apps/api` 后端空壳和 `/health`
-- PostgreSQL、Redis、Docker Compose
-- README 和 `.env.example`
-
-T01 不做用户系统、计费、Relay 转发、上游配置、数据库表结构、管理后台业务功能。
+```bash
+npm run typecheck
+npm run build
+npm --prefix apps/api run db:migrate
+npm run qa:t20:observability
+```

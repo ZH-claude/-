@@ -1,0 +1,96 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+    command: >
+      sh -c 'if [ -n "$$REDIS_PASSWORD" ]; then
+        redis-server --requirepass "$$REDIS_PASSWORD";
+      else
+        redis-server;
+      fi'
+    healthcheck:
+      test: ["CMD-SHELL", "if [ -n \"$${REDIS_PASSWORD}\" ]; then redis-cli -a \"$${REDIS_PASSWORD}\" ping; else redis-cli ping; fi"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      API_PORT: 3001
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      REDIS_URL: ${REDIS_URL:?REDIS_URL is required}
+      SESSION_COOKIE_SECURE: "true"
+      ADMIN_BOOTSTRAP_USERNAME: ${ADMIN_BOOTSTRAP_USERNAME:-}
+      ADMIN_BOOTSTRAP_PASSWORD: ${ADMIN_BOOTSTRAP_PASSWORD:-}
+      ADMIN_BOOTSTRAP_FORCE_RESET: ${ADMIN_BOOTSTRAP_FORCE_RESET:-false}
+      UPSTREAM_KEY_ENCRYPTION_SECRET: ${UPSTREAM_KEY_ENCRYPTION_SECRET:?UPSTREAM_KEY_ENCRYPTION_SECRET is required}
+      NOTIFICATION_SECRET_ENCRYPTION_SECRET: ${NOTIFICATION_SECRET_ENCRYPTION_SECRET:?NOTIFICATION_SECRET_ENCRYPTION_SECRET is required}
+      WEB_HEALTH_URL: http://web:3000
+      UPTIME_KUMA_STATUS_URL: ${UPTIME_KUMA_STATUS_URL:-}
+    command: sh -c "npm --prefix apps/api run db:migrate && npm run start:api"
+    expose:
+      - "3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      INTERNAL_API_BASE_URL: http://api:3001
+      NEXT_PUBLIC_API_BASE_URL: ${PUBLIC_API_URL:?PUBLIC_API_URL is required}
+    command: npm run start:web
+    expose:
+      - "3000"
+    depends_on:
+      api:
+        condition: service_started
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      CADDY_WEB_DOMAIN: ${CADDY_WEB_DOMAIN:?CADDY_WEB_DOMAIN is required}
+      CADDY_API_DOMAIN: ${CADDY_API_DOMAIN:?CADDY_API_DOMAIN is required}
+      ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL is required}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./ops/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
+      - api
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:

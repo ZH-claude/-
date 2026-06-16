@@ -6,3 +6,5 @@ apps/api/dist
 .git
 npm-debug.log
 coverage
+backups
+logs

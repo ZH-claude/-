@@ -19,6 +19,7 @@
     "qa:t18:rate-limits": "npm --prefix apps/api run qa:t18:rate-limits",
     "qa:t19:security-hardening": "npm --prefix apps/api run qa:t19:security-hardening",
     "qa:t20:observability": "npm --prefix apps/api run qa:t20:observability",
+    "smoke:t21:deploy": "node ops/smoke/t21-deploy-smoke.mjs",
     "start:api": "npm --prefix apps/api run start",
     "start:web": "npm --prefix apps/web run start"
   },
