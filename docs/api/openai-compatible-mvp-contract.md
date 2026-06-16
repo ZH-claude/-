@@ -2,7 +2,7 @@
 
 状态：冻结草案  
 所属任务：T02  
-更新日期：2026-06-14
+更新日期：2026-06-16
 
 ## 1. 基础约定
 
@@ -64,6 +64,7 @@ Authorization: Bearer sk-your-key
 - 只返回用户分组可见且启用的模型。
 - 如果模型在上游不可用但平台仍启用，返回列表中可以保留，但调用时需要给出明确错误。
 - 不返回上游真实渠道 ID。
+- 同样执行用户、令牌、IP 白名单、IP 限流和首次激活策略。
 
 ## 5. `/v1/chat/completions`
 
@@ -102,9 +103,14 @@ Authorization: Bearer sk-your-key
 | 401 | `invalid_api_key` | Key 不存在、hash 不匹配 | 否 |
 | 403 | `token_disabled` | Key 被禁用或过期 | 否 |
 | 403 | `model_not_allowed` | 用户分组或令牌不允许该模型 | 否 |
+| 403 | `ip_not_allowed` | 请求 IP 不在令牌白名单 | 否 |
+| 403 | `ip_required` | 令牌启用 IP 限流但服务端无法取得客户端 IP | 否 |
+| 403 | `token_activation_expired` | 首次激活有效期已过 | 否 |
 | 402 | `insufficient_balance` | 余额不足 | 否 |
 | 408 | `upstream_timeout` | 上游超时 | 否 |
-| 429 | `rate_limited` | 用户、令牌、IP 或模型限流 | 否 |
+| 429 | `rate_limit_exceeded` | 用户、令牌、IP 或模型限流 | 否 |
+| 429 | `risk_limit_exceeded` | 用户被风控锁定或近 5 分钟失败事件触发熔断 | 否 |
+| 429 | `rate_limited` | 上游返回 429 限流错误 | 否 |
 | 500 | `internal_error` | 平台未知错误 | 否 |
 | 502 | `upstream_error` | 上游 5xx 或连接失败 | 否 |
 | 502 | `upstream_malformed_response` | 上游返回无法解析 | 否 |

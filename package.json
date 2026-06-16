@@ -16,6 +16,7 @@
     "qa:t15:announcements": "npm --prefix apps/api run qa:t15:announcements",
     "qa:t16:async-tasks": "npm --prefix apps/api run qa:t16:async-tasks",
     "qa:t17:service-status": "npm --prefix apps/api run qa:t17:service-status",
+    "qa:t18:rate-limits": "npm --prefix apps/api run qa:t18:rate-limits",
     "start:api": "npm --prefix apps/api run start",
     "start:web": "npm --prefix apps/web run start"
   },

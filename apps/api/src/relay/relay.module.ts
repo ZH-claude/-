@@ -4,11 +4,12 @@ import { ModelCatalogService } from '../model-catalog.service';
 import { BillingModule } from '../billing/billing.module';
 import { TokensModule } from '../tokens/tokens.module';
 import { RelayController } from './relay.controller';
+import { RelayPolicyService } from './relay-policy.service';
 import { RelayService } from './relay.service';
 
 @Module({
   imports: [BillingModule, TokensModule],
   controllers: [RelayController],
-  providers: [RelayService, PrismaService, ModelCatalogService]
+  providers: [RelayService, RelayPolicyService, PrismaService, ModelCatalogService]
 })
 export class RelayModule {}

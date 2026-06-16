@@ -37,6 +37,11 @@ export default function TokenPage() {
   const [expiresAt, setExpiresAt] = useState('');
   const [note, setNote] = useState('');
   const [modelNames, setModelNames] = useState<string[]>([]);
+  const [rateLimitRequestsPerMinute, setRateLimitRequestsPerMinute] = useState('');
+  const [modelRateLimitRequestsPerMinute, setModelRateLimitRequestsPerMinute] = useState('');
+  const [ipRateLimitRequestsPerMinute, setIpRateLimitRequestsPerMinute] = useState('');
+  const [ipWhitelist, setIpWhitelist] = useState('');
+  const [activationTtlMinutes, setActivationTtlMinutes] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
   const [busyTokenId, setBusyTokenId] = useState('');
@@ -80,6 +85,30 @@ export default function TokenPage() {
       return;
     }
 
+    const tokenLimitValue = normalizePositiveInteger(rateLimitRequestsPerMinute, '令牌每分钟请求数');
+    if (tokenLimitValue instanceof Error) {
+      setError(tokenLimitValue.message);
+      return;
+    }
+
+    const modelLimitValue = normalizePositiveInteger(modelRateLimitRequestsPerMinute, '单模型每分钟请求数');
+    if (modelLimitValue instanceof Error) {
+      setError(modelLimitValue.message);
+      return;
+    }
+
+    const ipLimitValue = normalizePositiveInteger(ipRateLimitRequestsPerMinute, '单 IP 每分钟请求数');
+    if (ipLimitValue instanceof Error) {
+      setError(ipLimitValue.message);
+      return;
+    }
+
+    const activationTtlValue = normalizePositiveInteger(activationTtlMinutes, '首次激活有效分钟数');
+    if (activationTtlValue instanceof Error) {
+      setError(activationTtlValue.message);
+      return;
+    }
+
     setIsCreating(true);
 
     try {
@@ -88,7 +117,12 @@ export default function TokenPage() {
         quotaCents: quotaValue,
         expiresAt: expiresAt ? new Date(expiresAt).toISOString() : undefined,
         note: note.trim() || undefined,
-        modelNames
+        modelNames,
+        rateLimitRequestsPerMinute: tokenLimitValue,
+        modelRateLimitRequestsPerMinute: modelLimitValue,
+        ipRateLimitRequestsPerMinute: ipLimitValue,
+        ipWhitelist: normalizeIpWhitelistInput(ipWhitelist),
+        activationTtlSeconds: activationTtlValue === undefined ? undefined : activationTtlValue * 60
       });
 
       setOneTimeKey({
@@ -101,6 +135,11 @@ export default function TokenPage() {
       setExpiresAt('');
       setNote('');
       setModelNames([]);
+      setRateLimitRequestsPerMinute('');
+      setModelRateLimitRequestsPerMinute('');
+      setIpRateLimitRequestsPerMinute('');
+      setIpWhitelist('');
+      setActivationTtlMinutes('');
       setMessage('令牌已创建，请立即保存明文 API Key');
       await loadTokenPage();
     } catch (nextError) {
@@ -304,6 +343,63 @@ export default function TokenPage() {
                 </select>
               </label>
             </div>
+            <div className="form-row">
+              <label>
+                令牌 RPM
+                <input
+                  min={1}
+                  onChange={(event) => setRateLimitRequestsPerMinute(event.target.value)}
+                  placeholder="留空表示不限制"
+                  step={1}
+                  type="number"
+                  value={rateLimitRequestsPerMinute}
+                />
+              </label>
+              <label>
+                单模型 RPM
+                <input
+                  min={1}
+                  onChange={(event) => setModelRateLimitRequestsPerMinute(event.target.value)}
+                  placeholder="留空表示不限制"
+                  step={1}
+                  type="number"
+                  value={modelRateLimitRequestsPerMinute}
+                />
+              </label>
+            </div>
+            <div className="form-row">
+              <label>
+                单 IP RPM
+                <input
+                  min={1}
+                  onChange={(event) => setIpRateLimitRequestsPerMinute(event.target.value)}
+                  placeholder="留空表示不限制"
+                  step={1}
+                  type="number"
+                  value={ipRateLimitRequestsPerMinute}
+                />
+              </label>
+              <label>
+                首次激活有效分钟
+                <input
+                  min={1}
+                  onChange={(event) => setActivationTtlMinutes(event.target.value)}
+                  placeholder="留空表示永久"
+                  step={1}
+                  type="number"
+                  value={activationTtlMinutes}
+                />
+              </label>
+            </div>
+            <label>
+              IP 白名单
+              <textarea
+                onChange={(event) => setIpWhitelist(event.target.value)}
+                placeholder="每行或逗号分隔一个 IP，留空表示不限制"
+                rows={3}
+                value={ipWhitelist}
+              />
+            </label>
             <label>
               备注
               <textarea maxLength={240} onChange={(event) => setNote(event.target.value)} rows={3} value={note} />
@@ -345,6 +441,7 @@ export default function TokenPage() {
                       <td>
                         <strong>{token.name}</strong>
                         {token.note ? <span className="table-note">{token.note}</span> : null}
+                        {renderPolicySummary(token)}
                       </td>
                       <td>{token.keyPreview}</td>
                       <td>{renderTokenState(token)}</td>
@@ -415,6 +512,45 @@ function normalizeQuotaCents(value: string) {
   }
 
   return numericValue;
+}
+
+function normalizePositiveInteger(value: string, label: string) {
+  if (!value.trim()) {
+    return undefined;
+  }
+
+  const numericValue = Number(value);
+  if (!Number.isInteger(numericValue) || numericValue < 1) {
+    return new Error(`${label}必须是大于 0 的整数`);
+  }
+
+  return numericValue;
+}
+
+function normalizeIpWhitelistInput(value: string) {
+  return [...new Set(value.split(/[,\s]+/).map((entry) => entry.trim()).filter(Boolean))];
+}
+
+function renderPolicySummary(token: ApiToken) {
+  const parts = [
+    token.rateLimitRequestsPerMinute ? `token ${token.rateLimitRequestsPerMinute} RPM` : null,
+    token.modelRateLimitRequestsPerMinute ? `model ${token.modelRateLimitRequestsPerMinute} RPM` : null,
+    token.ipRateLimitRequestsPerMinute ? `IP ${token.ipRateLimitRequestsPerMinute} RPM` : null,
+    (token.ipWhitelist ?? []).length > 0 ? `IP whitelist ${(token.ipWhitelist ?? []).length}` : null,
+    token.activationTtlSeconds ? `activation ${formatDuration(token.activationTtlSeconds)}` : null,
+    token.activatedAt ? `activated ${formatDateTime(token.activatedAt)}` : null,
+    token.activationExpiresAt ? `activation expires ${formatDateTime(token.activationExpiresAt)}` : null
+  ].filter((part): part is string => Boolean(part));
+
+  return <span className="table-note">Policy: {parts.length > 0 ? parts.join(' · ') : 'unlimited'}</span>;
+}
+
+function formatDuration(seconds: number) {
+  if (seconds % 60 === 0) {
+    return `${seconds / 60} min`;
+  }
+
+  return `${seconds}s`;
 }
 
 function renderTokenState(token: ApiToken) {

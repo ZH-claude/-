@@ -7,6 +7,7 @@ import { BillingService } from '../billing/billing.service';
 import { ModelStatus, UpstreamProviderStatus } from '../generated/prisma/client';
 import { PrismaService } from '../prisma.service';
 import { TokensService } from '../tokens/tokens.service';
+import { RelayPolicyService } from './relay-policy.service';
 
 type RelayJsonResult = {
   stream: false;
@@ -26,6 +27,7 @@ type ChatCompletionInput = {
   apiKey: string;
   body: unknown;
   requestId: string;
+  clientIp: string | null;
   acceptHeader?: string;
 };
 
@@ -55,7 +57,8 @@ export class RelayService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     private readonly tokensService: TokensService,
-    private readonly billingService: BillingService
+    private readonly billingService: BillingService,
+    private readonly relayPolicyService: RelayPolicyService
   ) {}
 
   createRequestId() {
@@ -77,18 +80,25 @@ export class RelayService {
 
     if (error instanceof ForbiddenException) {
       const response = error.getResponse();
-      if (
-        response &&
-        typeof response === 'object' &&
-        'code' in response &&
-        response.code === 'insufficient_balance'
-      ) {
-        return this.createError(
-          402,
-          'insufficient_balance',
-          'billing_error',
-          this.normalizeExceptionMessage(error, 'API token quota exceeded')
-        );
+      const code = response && typeof response === 'object' && 'code' in response ? String(response.code) : '';
+      switch (code) {
+        case 'insufficient_balance':
+          return this.createError(
+            402,
+            'insufficient_balance',
+            'billing_error',
+            this.normalizeExceptionMessage(error, 'API token quota exceeded')
+          );
+        case 'rate_limit_exceeded':
+          return this.createError(429, 'rate_limit_exceeded', 'rate_limit_error', this.normalizeExceptionMessage(error, 'Rate limit exceeded'));
+        case 'risk_limit_exceeded':
+          return this.createError(429, 'risk_limit_exceeded', 'rate_limit_error', this.normalizeExceptionMessage(error, 'Risk control blocked the request'));
+        case 'ip_not_allowed':
+          return this.createError(403, 'ip_not_allowed', 'permission_error', this.normalizeExceptionMessage(error, 'Client IP is not allowed'));
+        case 'ip_required':
+          return this.createError(403, 'ip_required', 'permission_error', this.normalizeExceptionMessage(error, 'Client IP is required'));
+        case 'token_activation_expired':
+          return this.createError(403, 'token_activation_expired', 'permission_error', this.normalizeExceptionMessage(error, 'API token activation window expired'));
       }
 
       return this.createError(403, 'token_disabled', 'authentication_error', this.normalizeExceptionMessage(error, 'Token is not allowed'));
@@ -101,8 +111,16 @@ export class RelayService {
     return this.createError(500, 'internal_error', 'server_error', 'Internal server error');
   }
 
-  async listModels(apiKey: string, requestId: string) {
+  async listModels(apiKey: string, requestId: string, clientIp: string | null) {
     const auth = await this.tokensService.verifyApiToken(apiKey);
+    await this.relayPolicyService.assertAllowed({
+      requestId,
+      user: auth.user,
+      token: auth.token,
+      model: null,
+      clientIp
+    });
+    await this.tokensService.activateApiTokenIfNeeded(auth.token);
 
     return {
       object: 'list',
@@ -123,6 +141,14 @@ export class RelayService {
       throw this.createError(403, 'model_not_allowed', 'permission_error', 'Model is not allowed for this API key');
     }
 
+    await this.relayPolicyService.assertAllowed({
+      requestId: input.requestId,
+      user: auth.user,
+      token: auth.token,
+      model: body.model,
+      clientIp: input.clientIp
+    });
+
     const mapping = await this.findUpstreamMapping(body.model, Boolean(body.stream));
     const billingPrincipal = {
       userId: auth.user.id,
@@ -133,6 +159,7 @@ export class RelayService {
       upstreamModel: mapping.upstreamModel
     };
     await this.billingService.assertCanStartUsage(auth.user.id, allowedModel);
+    await this.tokensService.activateApiTokenIfNeeded(auth.token);
 
     const upstreamBody = {
       ...body,

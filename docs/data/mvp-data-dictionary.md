@@ -2,7 +2,7 @@
 
 状态：冻结草案  
 所属任务：T02  
-更新日期：2026-06-14
+更新日期：2026-06-16
 
 ## 1. 数据库约定
 
@@ -30,6 +30,9 @@
 | `group_id` | uuid | FK `user_groups.id` | 用户分组 |
 | `inviter_id` | uuid | nullable FK `users.id` | 邀请人 |
 | `timezone` | text | default `UTC` | 展示时区 |
+| `rate_limit_requests_per_minute` | int | nullable | 用户级每分钟 Relay 请求限制 |
+| `risk_locked_until` | timestamp | nullable | 风控锁定结束时间 |
+| `risk_reason` | text | nullable | 风控原因说明 |
 | `deleted_at` | timestamp | nullable | 软删除 |
 
 索引：
@@ -60,7 +63,14 @@
 | `quota_cents` | bigint | nullable | 令牌额度上限 |
 | `used_cents` | bigint | default 0 | 已使用额度 |
 | `expires_at` | timestamp | nullable | 过期时间 |
-| `first_used_at` | timestamp | nullable | 首次使用 |
+| `last_used_at` | timestamp | nullable | 最近一次 API Key 验证时间 |
+| `rate_limit_requests_per_minute` | int | nullable | 令牌级每分钟 Relay 请求限制 |
+| `model_rate_limit_requests_per_minute` | int | nullable | 同一令牌单模型每分钟请求限制 |
+| `ip_rate_limit_requests_per_minute` | int | nullable | 同一令牌单 IP 每分钟请求限制 |
+| `ip_whitelist` | text[] | not null, default empty | 精确 IP 白名单，空数组表示不限制 |
+| `activation_ttl_seconds` | int | nullable | 首次策略放行后有效秒数 |
+| `activated_at` | timestamp | nullable | 首次策略放行的 Relay 请求时间 |
+| `activation_expires_at` | timestamp | nullable | 首次激活过期时间 |
 | `deleted_at` | timestamp | nullable | 软删除 |
 
 约束：
@@ -69,16 +79,36 @@
 - 创建后只返回一次明文。
 - `used_cents <= quota_cents` 仅在 `quota_cents` 不为空时校验。
 
-### `api_token_policies`
+### `api_token_model_accesses`
 
 | 字段 | 类型 | 约束 | 说明 |
 | --- | --- | --- | --- |
-| `token_id` | uuid | PK/FK `api_tokens.id` | 对应令牌 |
-| `allowed_models` | jsonb | nullable | 模型白名单 |
-| `ip_allowlist` | jsonb | nullable | IP 白名单 |
-| `rpm_limit` | int | nullable | 每分钟请求数 |
-| `tpm_limit` | int | nullable | 每分钟 token 数 |
-| `first_use_valid_days` | int | nullable | 首次使用后有效天数 |
+| `id` | uuid | PK | 记录 ID |
+| `api_token_id` | uuid | FK `api_tokens.id` | 对应令牌 |
+| `model` | text | not null | 允许该令牌调用的模型 |
+
+规则：
+
+- T18 MVP 不使用独立 `api_token_policies` 表；限流、IP 白名单和首次激活策略直接保存在 `api_tokens`。
+- 模型白名单使用 `api_token_model_accesses` 记录；无记录表示继承用户分组可见模型。
+
+### `relay_rate_limit_events`
+
+| 字段 | 类型 | 约束 | 说明 |
+| --- | --- | --- | --- |
+| `id` | uuid | PK | 限流事件 ID |
+| `request_id` | text | unique, not null | Relay 请求 ID |
+| `user_id` | uuid | FK `users.id`, not null | 用户 |
+| `token_id` | uuid | FK `api_tokens.id`, not null | 令牌 |
+| `model` | text | nullable | 平台模型名，`/v1/models` 可为空 |
+| `ip_address` | text | nullable | 归一化后的客户端 IP |
+| `created_at` | timestamp | not null | 事件创建时间 |
+
+规则：
+
+- 只在策略放行后写入，用于 60 秒滑动窗口限流计数。
+- 超限、IP 白名单拒绝、风险熔断和激活过期请求不写入成功用量、不扣费、不触达上游。
+- 长期商用需要归档或清理历史事件，避免事件表无限增长。
 
 ### `upstream_providers`
 
@@ -274,7 +304,7 @@
 | 操作 | 事务要求 |
 | --- | --- |
 | 创建用户 | `users` + `wallets` 同一事务 |
-| 创建 API Key | `api_tokens` + `api_token_policies` 同一事务 |
+| 创建 API Key | `api_tokens` + 可选 `api_token_model_accesses` 同一事务 |
 | 成功扣费 | `usage_events` + `wallet_transactions` + `wallets` 同一事务 |
 | 卡密充值 | `recharge_codes` 状态更新 + `wallet_transactions` + `wallets` 同一事务 |
 | 管理员调账 | `wallet_transactions` + `wallets` + `admin_audit_logs` 同一事务 |

@@ -8,6 +8,13 @@ export type ApiToken = {
   expiresAt: string | null;
   note?: string | null;
   lastUsedAt?: string | null;
+  rateLimitRequestsPerMinute?: number | null;
+  modelRateLimitRequestsPerMinute?: number | null;
+  ipRateLimitRequestsPerMinute?: number | null;
+  ipWhitelist: string[];
+  activationTtlSeconds?: number | null;
+  activatedAt?: string | null;
+  activationExpiresAt?: string | null;
   revokedAt?: string | null;
   modelNames: string[];
   createdAt: string;
@@ -20,6 +27,11 @@ export type CreateApiTokenPayload = {
   quotaCents?: number | null;
   expiresAt?: string | null;
   modelNames?: string[];
+  rateLimitRequestsPerMinute?: number | null;
+  modelRateLimitRequestsPerMinute?: number | null;
+  ipRateLimitRequestsPerMinute?: number | null;
+  ipWhitelist?: string[];
+  activationTtlSeconds?: number | null;
 };
 
 type TokenListResponse = {

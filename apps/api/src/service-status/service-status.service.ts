@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import net from 'node:net';
 import tls from 'node:tls';
 import { UpstreamHealthStatus, UpstreamProviderStatus } from '../generated/prisma/client';
@@ -26,7 +26,7 @@ const HTTP_HEALTHY_MAX = 399;
 
 @Injectable()
 export class ServiceStatusService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
   async getServiceStatus() {
     const generatedAt = new Date();

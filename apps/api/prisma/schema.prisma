@@ -139,10 +139,14 @@ model User {
   timezone           String              @default("UTC")
   lastLoginAt        DateTime?           @map("last_login_at")
   lastLoginIp        String?             @map("last_login_ip")
+  rateLimitRequestsPerMinute Int?        @map("rate_limit_requests_per_minute")
+  riskLockedUntil    DateTime?           @map("risk_locked_until")
+  riskReason         String?             @map("risk_reason")
   wallet             Wallet?
   sessions           Session[]
   apiTokens          ApiToken[]
   usageEvents        UsageEvent[]
+  relayRateLimitEvents RelayRateLimitEvent[]
   walletTransactions WalletTransaction[]
   createdAt          DateTime            @default(now()) @map("created_at")
   updatedAt          DateTime            @updatedAt @map("updated_at")
@@ -175,10 +179,18 @@ model ApiToken {
   expiresAt     DateTime?             @map("expires_at")
   note          String?
   lastUsedAt    DateTime?             @map("last_used_at")
+  rateLimitRequestsPerMinute      Int?      @map("rate_limit_requests_per_minute")
+  modelRateLimitRequestsPerMinute Int?      @map("model_rate_limit_requests_per_minute")
+  ipRateLimitRequestsPerMinute    Int?      @map("ip_rate_limit_requests_per_minute")
+  ipWhitelist                     String[]  @default([]) @map("ip_whitelist")
+  activationTtlSeconds            Int?      @map("activation_ttl_seconds")
+  activatedAt                     DateTime? @map("activated_at")
+  activationExpiresAt             DateTime? @map("activation_expires_at")
   revokedAt     DateTime?             @map("revoked_at")
   deletedAt     DateTime?             @map("deleted_at")
   modelAccesses ApiTokenModelAccess[]
   usageEvents   UsageEvent[]
+  relayRateLimitEvents RelayRateLimitEvent[]
   createdAt     DateTime              @default(now()) @map("created_at")
   updatedAt     DateTime              @updatedAt @map("updated_at")
 
@@ -485,4 +497,22 @@ model UsageEvent {
   @@index([model, createdAt], map: "usage_events_model_created_at_idx")
   @@index([status, createdAt], map: "usage_events_status_created_at_idx")
   @@map("usage_events")
+}
+
+model RelayRateLimitEvent {
+  id        String   @id @default(uuid()) @db.Uuid
+  requestId String   @unique @map("request_id")
+  userId    String   @map("user_id") @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenId   String   @map("token_id") @db.Uuid
+  token     ApiToken @relation(fields: [tokenId], references: [id], onDelete: Cascade)
+  model     String?
+  ipAddress String?  @map("ip_address")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([userId, createdAt], map: "relay_rate_limit_events_user_created_at_idx")
+  @@index([tokenId, createdAt], map: "relay_rate_limit_events_token_created_at_idx")
+  @@index([tokenId, model, createdAt], map: "relay_rate_limit_events_token_model_created_at_idx")
+  @@index([tokenId, ipAddress, createdAt], map: "relay_rate_limit_events_token_ip_created_at_idx")
+  @@map("relay_rate_limit_events")
 }

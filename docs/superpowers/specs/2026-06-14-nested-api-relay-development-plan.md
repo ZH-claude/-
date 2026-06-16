@@ -217,8 +217,9 @@ Relay 必须支持：
 | --- | --- |
 | `users` | 用户账户 |
 | `user_groups` | 用户分组与倍率 |
-| `api_tokens` | 用户 API Key 元数据、额度、过期、状态、备注 |
-| `api_token_policies` | 单令牌模型限制、IP 白名单、限流器、首次激活策略 |
+| `api_tokens` | 用户 API Key 元数据、额度、过期、状态、备注、限流器、IP 白名单、首次激活策略 |
+| `api_token_model_accesses` | 单令牌模型白名单 |
+| `relay_rate_limit_events` | Relay 限流窗口事件 |
 | `upstream_providers` | 上游中转站配置 |
 | `upstream_models` | 上游模型与映射 |
 | `model_prices` | 模型价格和倍率 |
@@ -306,7 +307,7 @@ Loki/Prometheus/Grafana
 | [x] | T15 | 首页公告与文档入口 | 公告列表、更新日志、使用建议 | 管理员发布后用户首页可见 |
 | [x] | T16 | 异步任务与绘图日志 | async_tasks、任务查询页 | 若上游支持异步任务，能查询进度和结果 |
 | [x] | T17 | 服务状态页 | Uptime Kuma 配置或内置探针 | 用户可看到平台和上游状态 |
-| [ ] | T18 | 风控与限流 | 用户/令牌/IP/模型限流、IP 白名单、首次激活策略、异常熔断 | 超限请求被拒绝且不影响其他用户 |
+| [x] | T18 | 风控与限流 | 用户/令牌/IP/模型限流、IP 白名单、首次激活策略、异常熔断 | 超限请求被拒绝且不影响其他用户 |
 | [ ] | T19 | 安全加固 | Key 脱敏、审计日志、越权测试 | 日志无明文 Key，越权测试通过 |
 | [ ] | T20 | 可观测性 | 结构化日志、trace_id、监控面板、告警 | 单次请求可追踪到上游和计费事件 |
 | [ ] | T21 | 云服务器部署 | HTTPS、域名、备份、回滚文档 | 生产环境可访问，重启后服务自动恢复 |
@@ -314,22 +315,37 @@ Loki/Prometheus/Grafana
 
 ## 11. 下一次对话建议任务
 
-建议下一次从 T18 开始：风控与限流。
+建议下一次从 T19 开始：安全加固。
 
-T18 的边界：
+T19 的边界：
 
-- 基于真实用户、令牌、IP、模型和余额状态实现限流与风控；不使用前端假拦截或仅页面提示代替后端保护。
-- 先做 MVP 可验证的服务端限流：用户级、令牌级、IP 级、模型级，以及令牌 IP 白名单和首次激活策略。
-- 超限请求必须返回稳定错误码，不转发上游、不扣费、不写成功 usage event。
-- 异常熔断应基于真实失败/消费事件，不写死风控命中或模拟异常消费。
-- T18 不应破坏现有 Relay、计费幂等、日志查询、通知、公告、异步任务和服务状态页。
+- 检查并加固所有 Key、token hash、密码 hash、连接串、Webhook secret、上游 Base URL 和内部错误信息的脱敏边界。
+- 新增或补齐审计日志，优先覆盖登录、管理员操作、上游 Key 变更、充值码生成/禁用、令牌创建/重置/删除和风控相关动作。
+- 做真实越权测试：普通用户不能读取或修改其他用户资源，管理员接口必须由管理员身份访问，跨用户 token/log/task/notification 查询不得泄露。
+- 不用前端隐藏代替后端鉴权，不用假数据证明安全；所有检查都必须走真实 API、真实数据库和真实会话。
+- T19 不应破坏现有 Relay、计费、限流、日志、通知、公告、异步任务和服务状态页。
 
-T18 完成指标：
+T19 完成指标：
 
-- 超过用户/令牌/IP/模型限额的真实 Relay 请求被拒绝，且不会触达上游。
-- 未超限的现有 `/v1/models`、`/v1/chat/completions` 和流式路径保持可用。
-- IP 白名单、首次激活和异常熔断都有真实数据库字段或策略来源，用户侧可看到明确配置状态。
-- QA 覆盖并发请求、跨用户隔离、失败不扣费、日志/通知兼容和残留清理。
+- 日志和 API 响应中不出现明文 API Key、上游 Key、token hash、密码 hash、连接串或内部密钥。
+- 高风险操作写入可查询的审计日志，并能证明普通用户不能伪造或读取管理员审计结果。
+- 越权测试覆盖用户资料、钱包、令牌、日志、通知、任务、公告管理和上游管理。
+- QA 覆盖真实登录态、普通用户、管理员、跨用户访问、失败状态和残留清理。
+
+T18 完成记录（2026-06-16）：
+
+- 已新增用户、令牌和限流事件相关字段：用户级 RPM、风险锁定时间/原因、令牌级 RPM、单模型 RPM、单 IP RPM、IP 白名单、首次激活 TTL、激活时间和激活过期时间。
+- 已新增 `relay_rate_limit_events` 表，按用户、令牌、模型、IP 和创建时间建立查询索引，使用 request id 保证事件唯一。
+- 已新增 `RelayPolicyService`，在 Relay 上游转发和计费之前执行风险锁定、IP 白名单、失败熔断、用户/令牌/模型/IP 限流。
+- 已使用 PostgreSQL advisory lock 序列化同一限流 scope，防止并发请求穿透限额。
+- 已将 `/v1/models` 和 `/v1/chat/completions` 接入同一真实令牌/IP 策略；超限返回稳定错误码 `rate_limit_exceeded`，IP 白名单返回 `ip_not_allowed`，激活过期返回 `token_activation_expired`，风险熔断返回 `risk_limit_exceeded`。
+- 已修复审查中发现的首次激活副作用：策略拒绝请求不会写入 `activated_at` 或 `activation_expires_at`，只有策略放行后的真实 Relay 请求才启动首次激活窗口。
+- 已在 `/token` 用户页面新增令牌 RPM、单模型 RPM、单 IP RPM、IP 白名单和首次激活有效分钟配置，并在令牌列表展示策略摘要。
+- 已新增 `apps/api/scripts/t18-rate-limits-qa.ts` 和 `npm run qa:t18:rate-limits`，通过真实注册用户、真实数据库字段、真实临时上游和真实 Relay HTTP 请求验证。
+- 已完成浏览器 QA：真实创建带限流策略的令牌，页面展示 token/model/IP RPM、IP 白名单数量和激活有效期。
+- 已验证 `npm run typecheck`、`npm --prefix apps/api run build`、`npx prisma migrate status`、`npm run qa:t18:rate-limits`、`npm run qa:t11:usage-logs`、`npm run qa:t14:notifications`、`npm run qa:t15:announcements`、`npm run qa:t16:async-tasks`、`npm run qa:t17:service-status`、api/web audit 和 `git diff --check`。
+- T18 QA 与浏览器临时记录均使用真实数据库记录和真实 HTTP/浏览器路径，完成后清理为 0 残留。
+- Docker 镜像重建本轮未作为通过项：依赖拉取出现 `ECONNRESET`，后续重建超时；已记录在 `docs/quality/t18-self-check.md` 的未覆盖项中。
 
 T17 完成记录（2026-06-15）：
 

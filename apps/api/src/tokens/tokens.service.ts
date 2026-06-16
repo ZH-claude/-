@@ -8,6 +8,7 @@ import {
   UnauthorizedException
 } from '@nestjs/common';
 import { createHash, randomBytes } from 'node:crypto';
+import { isIP } from 'node:net';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { ApiTokenStatus, Prisma, UserStatus } from '../generated/prisma/client';
 import { ModelCatalogService } from '../model-catalog.service';
@@ -19,11 +20,19 @@ type TokenInput = {
   expiresAt?: unknown;
   note?: unknown;
   modelNames?: unknown;
+  rateLimitRequestsPerMinute?: unknown;
+  modelRateLimitRequestsPerMinute?: unknown;
+  ipRateLimitRequestsPerMinute?: unknown;
+  ipWhitelist?: unknown;
+  activationTtlSeconds?: unknown;
 };
 
 const API_KEY_PREFIX = 'sk-nr';
 const API_KEY_COLLISION_RETRIES = 3;
 const MAX_QUOTA_CENTS = 100_000_000_000;
+const MAX_RATE_LIMIT_REQUESTS_PER_MINUTE = 1_000_000;
+const MAX_ACTIVATION_TTL_SECONDS = 31_536_000;
+const MAX_IP_WHITELIST_ENTRIES = 64;
 
 @Injectable()
 export class TokensService {
@@ -56,6 +65,27 @@ export class TokensService {
     const quotaCents = this.optionalNonNegativeInt(body.quotaCents, 'quotaCents', MAX_QUOTA_CENTS);
     const expiresAt = this.optionalFutureDate(body.expiresAt, 'expiresAt');
     const note = this.optionalText(body.note, 'note', 1, 240) ?? null;
+    const rateLimitRequestsPerMinute = this.optionalPositiveInt(
+      body.rateLimitRequestsPerMinute,
+      'rateLimitRequestsPerMinute',
+      MAX_RATE_LIMIT_REQUESTS_PER_MINUTE
+    );
+    const modelRateLimitRequestsPerMinute = this.optionalPositiveInt(
+      body.modelRateLimitRequestsPerMinute,
+      'modelRateLimitRequestsPerMinute',
+      MAX_RATE_LIMIT_REQUESTS_PER_MINUTE
+    );
+    const ipRateLimitRequestsPerMinute = this.optionalPositiveInt(
+      body.ipRateLimitRequestsPerMinute,
+      'ipRateLimitRequestsPerMinute',
+      MAX_RATE_LIMIT_REQUESTS_PER_MINUTE
+    );
+    const ipWhitelist = this.normalizeIpWhitelist(body.ipWhitelist);
+    const activationTtlSeconds = this.optionalPositiveInt(
+      body.activationTtlSeconds,
+      'activationTtlSeconds',
+      MAX_ACTIVATION_TTL_SECONDS
+    );
     const modelNames = await this.normalizeModelNames(user, body.modelNames);
 
     return this.createTokenWithKeyRetry(async (apiKey, tokenHash, keyPreview) => {
@@ -68,7 +98,12 @@ export class TokensService {
             keyPreview,
             quotaCents,
             expiresAt,
-            note
+            note,
+            rateLimitRequestsPerMinute,
+            modelRateLimitRequestsPerMinute,
+            ipRateLimitRequestsPerMinute,
+            ipWhitelist,
+            activationTtlSeconds
           }
         });
 
@@ -130,7 +165,9 @@ export class TokensService {
           keyPreview,
           status: ApiTokenStatus.ACTIVE,
           revokedAt: null,
-          lastUsedAt: null
+          lastUsedAt: null,
+          activatedAt: null,
+          activationExpiresAt: null
         },
         include: {
           modelAccesses: {
@@ -187,11 +224,13 @@ export class TokensService {
       }
     });
 
+    const now = new Date();
+
     if (!token || token.deletedAt || token.revokedAt || token.status !== ApiTokenStatus.ACTIVE) {
       throw new UnauthorizedException('API Key 无效或已停用');
     }
 
-    if (token.expiresAt && token.expiresAt <= new Date()) {
+    if (token.expiresAt && token.expiresAt <= now) {
       throw new UnauthorizedException('API Key 已过期');
     }
 
@@ -208,6 +247,13 @@ export class TokensService {
       });
     }
 
+    if (token.activationExpiresAt && token.activationExpiresAt <= now) {
+      throw new ForbiddenException({
+        code: 'token_activation_expired',
+        message: 'API token activation window expired'
+      });
+    }
+
     const availableModels = await this.modelCatalogService.listAvailableModelsForGroup(token.user.group.id);
     const restrictedModels = token.modelAccesses.map((access) => access.model);
     const allowedModels =
@@ -217,7 +263,7 @@ export class TokensService {
 
     const updatedToken = await this.prisma.apiToken.update({
       where: { id: token.id },
-      data: { lastUsedAt: new Date() },
+      data: { lastUsedAt: now },
       include: {
         modelAccesses: {
           orderBy: { model: 'asc' }
@@ -231,6 +277,9 @@ export class TokensService {
       user: {
         id: token.user.id,
         username: token.user.username,
+        rateLimitRequestsPerMinute: token.user.rateLimitRequestsPerMinute,
+        riskLockedUntil: token.user.riskLockedUntil,
+        riskReason: token.user.riskReason,
         group: {
           id: token.user.group.id,
           code: token.user.group.code,
@@ -239,6 +288,34 @@ export class TokensService {
       },
       allowedModels
     };
+  }
+
+  async activateApiTokenIfNeeded(token: {
+    id: string;
+    activatedAt?: string | Date | null;
+    activationTtlSeconds?: number | null;
+  }) {
+    if (token.activatedAt) {
+      return;
+    }
+
+    const now = new Date();
+    await this.prisma.apiToken.updateMany({
+      where: {
+        id: token.id,
+        activatedAt: null,
+        deletedAt: null,
+        revokedAt: null,
+        status: ApiTokenStatus.ACTIVE
+      },
+      data: {
+        activatedAt: now,
+        activationExpiresAt:
+          token.activationTtlSeconds === null || token.activationTtlSeconds === undefined
+            ? null
+            : new Date(now.getTime() + token.activationTtlSeconds * 1000)
+      }
+    });
   }
 
   private async findOwnedActiveOrDisabledToken(userId: string, tokenId: string) {
@@ -338,6 +415,62 @@ export class TokensService {
     return numericValue;
   }
 
+  private optionalPositiveInt(value: unknown, field: string, max: number) {
+    if (value === undefined || value === null || value === '') {
+      return null;
+    }
+
+    const numericValue = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : Number.NaN;
+    if (!Number.isInteger(numericValue) || numericValue < 1 || numericValue > max) {
+      throw new BadRequestException(`${field} must be an integer between 1 and ${max}`);
+    }
+
+    return numericValue;
+  }
+
+  private normalizeIpWhitelist(value: unknown) {
+    if (value === undefined || value === null || value === '') {
+      return [];
+    }
+
+    const entries =
+      typeof value === 'string'
+        ? value.split(/[,\s]+/)
+        : Array.isArray(value)
+          ? value
+          : (() => {
+              throw new BadRequestException('ipWhitelist must be an array of IP addresses');
+            })();
+
+    const normalized = entries
+      .map((entry) => this.normalizeIpAddress(entry))
+      .filter((entry): entry is string => Boolean(entry));
+    const unique = [...new Set(normalized)];
+
+    if (unique.length > MAX_IP_WHITELIST_ENTRIES) {
+      throw new BadRequestException(`ipWhitelist cannot contain more than ${MAX_IP_WHITELIST_ENTRIES} entries`);
+    }
+
+    return unique;
+  }
+
+  private normalizeIpAddress(value: unknown) {
+    if (typeof value !== 'string') {
+      throw new BadRequestException('ipWhitelist contains an invalid IP address');
+    }
+
+    const ip = value.trim().replace(/^\[|\]$/g, '').replace(/^::ffff:/i, '');
+    if (!ip) {
+      return null;
+    }
+
+    if (isIP(ip) === 0) {
+      throw new BadRequestException('ipWhitelist contains an invalid IP address');
+    }
+
+    return ip;
+  }
+
   private optionalFutureDate(value: unknown, field: string) {
     if (value === undefined || value === null || value === '') {
       return null;
@@ -394,6 +527,13 @@ export class TokensService {
     expiresAt: Date | null;
     note: string | null;
     lastUsedAt: Date | null;
+    rateLimitRequestsPerMinute: number | null;
+    modelRateLimitRequestsPerMinute: number | null;
+    ipRateLimitRequestsPerMinute: number | null;
+    ipWhitelist: string[];
+    activationTtlSeconds: number | null;
+    activatedAt: Date | null;
+    activationExpiresAt: Date | null;
     revokedAt: Date | null;
     createdAt: Date;
     updatedAt: Date;
@@ -409,6 +549,13 @@ export class TokensService {
       expiresAt: token.expiresAt?.toISOString() ?? null,
       note: token.note,
       lastUsedAt: token.lastUsedAt?.toISOString() ?? null,
+      rateLimitRequestsPerMinute: token.rateLimitRequestsPerMinute,
+      modelRateLimitRequestsPerMinute: token.modelRateLimitRequestsPerMinute,
+      ipRateLimitRequestsPerMinute: token.ipRateLimitRequestsPerMinute,
+      ipWhitelist: token.ipWhitelist,
+      activationTtlSeconds: token.activationTtlSeconds,
+      activatedAt: token.activatedAt?.toISOString() ?? null,
+      activationExpiresAt: token.activationExpiresAt?.toISOString() ?? null,
       revokedAt: token.revokedAt?.toISOString() ?? null,
       modelNames: token.modelAccesses.map((access) => access.model),
       createdAt: token.createdAt.toISOString(),
@@ -422,7 +569,10 @@ export class TokensService {
     }
 
     if (status === UserStatus.RISK_LOCKED) {
-      throw new ForbiddenException('账号已被风控锁定');
+      throw new ForbiddenException({
+        code: 'risk_limit_exceeded',
+        message: 'Account is locked by risk control'
+      });
     }
   }
 

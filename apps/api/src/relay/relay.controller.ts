@@ -6,6 +6,11 @@ type RelayRequest = FastifyRequest & {
   headers: {
     authorization?: string;
     accept?: string;
+    'x-forwarded-for'?: string | string[];
+  };
+  ip?: string;
+  socket?: {
+    remoteAddress?: string;
   };
 };
 
@@ -18,7 +23,7 @@ export class RelayController {
     const requestId = this.relayService.createRequestId();
 
     try {
-      const result = await this.relayService.listModels(this.getBearerApiKey(request), requestId);
+      const result = await this.relayService.listModels(this.getBearerApiKey(request), requestId, this.getClientIp(request));
       reply.header('x-request-id', requestId).send(result);
     } catch (error) {
       this.sendRelayError(reply, error, requestId);
@@ -38,6 +43,7 @@ export class RelayController {
         apiKey: this.getBearerApiKey(request),
         body,
         requestId,
+        clientIp: this.getClientIp(request),
         acceptHeader: request.headers.accept
       });
 
@@ -91,5 +97,12 @@ export class RelayController {
           request_id: requestId
         }
       });
+  }
+
+  private getClientIp(request: RelayRequest) {
+    const forwardedFor = request.headers['x-forwarded-for'];
+    const headerValue = Array.isArray(forwardedFor) ? forwardedFor[0] : forwardedFor;
+    const candidate = headerValue?.split(',')[0]?.trim() || request.ip || request.socket?.remoteAddress || null;
+    return candidate?.replace(/^\[|\]$/g, '').replace(/^::ffff:/i, '') ?? null;
   }
 }
