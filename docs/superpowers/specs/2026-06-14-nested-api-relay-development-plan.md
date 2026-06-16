@@ -326,6 +326,10 @@ T22 商家端独立化进展记录（2026-06-16）：
 - 已新增服务端动态入口 `/merchant`，用真实 HttpOnly cookie 调用后端 `/auth/me` 做角色判断：未登录跳 `/login`，普通用户跳 `/account/profile`，后台/商家账号跳 `/admin`。
 - 已新增前端角色路由 helper，当前兼容 `admin`，并预留未来 `merchant` 角色字符串；数据库仍保持 MVP 的 `USER/ADMIN` 双角色，不做伪造角色。
 - 已新增 `npm run qa:t22:merchant-routing`，通过真实 Postgres 临时用户、真实登录、真实 session、真实 `/merchant` HTTP 重定向和真实 `/admin/users` 权限检查验证双端互通，结束后临时用户、钱包、会话和安全审计残留为 0。
+- M02 商家端 Shell 与固定导航已完成：新增独立 `MerchantShell`，`/admin` 使用商家端顶部栏和左侧固定栏，不再显示普通用户中心侧栏。
+- 商家端固定栏已包含首页、用户、充值码、分组状态、令牌入口、请求日志、绘图日志、上游/模型、公告、审计、服务状态；后台审计和安全审计区域来自真实后端接口并只展示脱敏字段。
+- 已新增 `npm run qa:t22:merchant-shell`，通过真实 Postgres、真实登录、真实 session、真实 `/admin` 页面和真实后台 API 权限验证商家 Shell 与双端兼容，结束后临时用户、钱包、会话和安全审计残留为 0。
+- 已完成本地浏览器真实登录验证：`merchant_test_1 / merchant200611` 在 1920、1366、390 三个视口下商家 Shell 存在、普通用户菜单未泄漏、无横向溢出、控制台无错误。
 
 账户中心功能对齐补强记录（2026-06-16）：
 

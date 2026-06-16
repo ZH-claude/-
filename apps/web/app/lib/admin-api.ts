@@ -111,6 +111,31 @@ export type AdminRechargeCode = {
   createdAt: string;
 };
 
+export type AdminAuditLog = {
+  id: string;
+  action: string;
+  targetType: string;
+  targetId: string | null;
+  admin: {
+    id: string;
+    username: string;
+  };
+  createdAt: string;
+};
+
+export type SecurityAuditLog = {
+  id: string;
+  action: string;
+  targetType: string;
+  targetId: string | null;
+  actor: {
+    id: string;
+    username: string;
+  } | null;
+  ipAddress: string | null;
+  createdAt: string;
+};
+
 export type CreatedRechargeCode = {
   id: string;
   code: string;
@@ -158,6 +183,20 @@ type RechargeCodeListResponse = {
 
 type CreateRechargeCodesResponse = {
   items: CreatedRechargeCode[];
+};
+
+type AdminAuditLogListResponse = {
+  items: AdminAuditLog[];
+  total: number;
+  page: number;
+  limit: number;
+};
+
+type SecurityAuditLogListResponse = {
+  items: SecurityAuditLog[];
+  total: number;
+  page: number;
+  limit: number;
 };
 
 const API_BASE_URL = '/api';
@@ -266,6 +305,16 @@ export async function checkUpstreamHealth(providerId: string) {
 
 export async function listRechargeCodes() {
   return request<RechargeCodeListResponse>('/admin/recharge-codes');
+}
+
+export async function listAdminAuditLogs(options: { limit?: number } = {}) {
+  const limit = options.limit ?? 10;
+  return request<AdminAuditLogListResponse>(`/admin/audit-logs?limit=${encodeURIComponent(String(limit))}`);
+}
+
+export async function listSecurityAuditLogs(options: { limit?: number } = {}) {
+  const limit = options.limit ?? 10;
+  return request<SecurityAuditLogListResponse>(`/admin/security-audit-logs?limit=${encodeURIComponent(String(limit))}`);
 }
 
 export async function createRechargeCodes(payload: { amountCents: number; count: number }) {

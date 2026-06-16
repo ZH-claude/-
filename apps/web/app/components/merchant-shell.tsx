@@ -1,0 +1,198 @@
+'use client';
+
+import {
+  ApiOutlined,
+  AppstoreOutlined,
+  BellOutlined,
+  CloudServerOutlined,
+  FileTextOutlined,
+  GiftOutlined,
+  HomeOutlined,
+  KeyOutlined,
+  LogoutOutlined,
+  PictureOutlined,
+  ReloadOutlined,
+  TeamOutlined
+} from '@ant-design/icons';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { type ReactNode, useEffect, useMemo, useState } from 'react';
+import { getProfile, logout } from '../lib/auth-api';
+
+type NavigationItem = {
+  href: string;
+  label: string;
+  icon: ReactNode;
+  topbar?: boolean;
+};
+
+const merchantNavigationItems: NavigationItem[] = [
+  { href: '/admin#merchant-dashboard', label: '首页', icon: <HomeOutlined />, topbar: true },
+  { href: '/admin#merchant-users', label: '用户', icon: <TeamOutlined />, topbar: true },
+  { href: '/admin#merchant-recharge-codes', label: '充值码', icon: <GiftOutlined />, topbar: true },
+  { href: '/admin#merchant-groups', label: '分组状态', icon: <AppstoreOutlined /> },
+  { href: '/token', label: '令牌入口', icon: <KeyOutlined /> },
+  { href: '/log', label: '请求日志', icon: <FileTextOutlined /> },
+  { href: '/midjourney', label: '绘图日志', icon: <PictureOutlined /> },
+  { href: '/admin#merchant-models', label: '上游/模型', icon: <ApiOutlined />, topbar: true },
+  { href: '/admin#merchant-announcements', label: '公告', icon: <BellOutlined />, topbar: true },
+  { href: '/admin#merchant-audit', label: '审计', icon: <FileTextOutlined />, topbar: true },
+  { href: '/admin#merchant-service-status', label: '服务状态', icon: <CloudServerOutlined />, topbar: true }
+];
+
+export function MerchantShell({
+  activePath,
+  username,
+  role,
+  isRefreshing,
+  onRefresh,
+  onLogout,
+  children
+}: {
+  activePath: string;
+  username?: string | null;
+  role?: string | null;
+  isRefreshing?: boolean;
+  onRefresh?: () => void;
+  onLogout?: () => void;
+  children: ReactNode;
+}) {
+  const router = useRouter();
+  const [loadedProfile, setLoadedProfile] = useState<{ username: string; role: string } | null>(null);
+  const [activeHash, setActiveHash] = useState('merchant-dashboard');
+
+  useEffect(() => {
+    function syncHash() {
+      setActiveHash(window.location.hash.replace(/^#/, '') || 'merchant-dashboard');
+    }
+
+    syncHash();
+    window.addEventListener('hashchange', syncHash);
+
+    return () => window.removeEventListener('hashchange', syncHash);
+  }, []);
+
+  useEffect(() => {
+    if (username !== undefined && role !== undefined) {
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadShellProfile() {
+      try {
+        const result = await getProfile();
+        if (!cancelled) {
+          setLoadedProfile({
+            username: result.user.username,
+            role: result.user.role
+          });
+        }
+      } catch {
+        if (!cancelled) {
+          setLoadedProfile(null);
+        }
+      }
+    }
+
+    void loadShellProfile();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [role, username]);
+
+  const displayUsername = username !== undefined ? username : loadedProfile?.username ?? null;
+  const displayRole = role !== undefined ? role : loadedProfile?.role ?? null;
+  const logoutHandler = useMemo(() => onLogout ?? handleDefaultLogout, [onLogout]);
+  const topbarItems = merchantNavigationItems.filter((item) => item.topbar);
+
+  async function handleDefaultLogout() {
+    await logout().catch(() => undefined);
+    router.replace('/login');
+  }
+
+  function handleAnchorClick(item: NavigationItem) {
+    const hash = getHrefHash(item.href);
+    if (hash) {
+      setActiveHash(hash);
+    }
+  }
+
+  return (
+    <main className="merchant-shell-page" data-console="merchant">
+      <header className="merchant-shell-topbar">
+        <Link className="merchant-shell-brand" href="/admin#merchant-dashboard" onClick={() => setActiveHash('merchant-dashboard')}>
+          <span className="shell-logo-mark">R</span>
+          <span>Relay Console</span>
+        </Link>
+        <nav className="merchant-primary-nav" aria-label="商家端主导航">
+          {topbarItems.map((item) => (
+            <Link
+              className={isActive(activePath, activeHash, item.href) ? 'active' : ''}
+              href={item.href}
+              key={item.href}
+              onClick={() => handleAnchorClick(item)}
+            >
+              {item.icon}
+              <span>{item.label}</span>
+            </Link>
+          ))}
+        </nav>
+        <div className="merchant-topbar-actions">
+          {onRefresh ? (
+            <button className="icon-button" disabled={isRefreshing} onClick={onRefresh} title="刷新商家端数据" type="button">
+              <ReloadOutlined />
+            </button>
+          ) : null}
+          <button className="ghost-button" onClick={logoutHandler} type="button">
+            <LogoutOutlined />
+            退出
+          </button>
+          <div className="merchant-account-chip" title={displayUsername ?? undefined}>
+            <strong>{displayUsername ?? '-'}</strong>
+            <span>{displayRole ?? 'admin'}</span>
+          </div>
+        </div>
+      </header>
+
+      <section className="merchant-shell-body">
+        <aside className="merchant-sidebar" aria-label="商家端固定导航">
+          {merchantNavigationItems.map((item) => (
+            <Link
+              className={isActive(activePath, activeHash, item.href) ? 'active' : ''}
+              href={item.href}
+              key={item.href}
+              onClick={() => handleAnchorClick(item)}
+            >
+              {item.icon}
+              <span>{item.label}</span>
+            </Link>
+          ))}
+        </aside>
+
+        <section className="merchant-shell-content">{children}</section>
+      </section>
+    </main>
+  );
+}
+
+function getHrefHash(href: string) {
+  const [, hash] = href.split('#');
+  return hash ?? '';
+}
+
+function getHrefPath(href: string) {
+  return href.split('#')[0] || '/';
+}
+
+function isActive(activePath: string, activeHash: string, href: string) {
+  const itemPath = getHrefPath(href);
+  const itemHash = getHrefHash(href);
+
+  if (itemPath === '/admin') {
+    return activePath === '/admin' && (itemHash ? activeHash === itemHash : activeHash === 'merchant-dashboard');
+  }
+
+  return activePath === itemPath || activePath.startsWith(`${itemPath}/`);
+}

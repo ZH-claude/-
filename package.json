@@ -21,6 +21,7 @@
     "qa:t20:observability": "npm --prefix apps/api run qa:t20:observability",
     "qa:profile-alignment": "npm --prefix apps/api run qa:profile-alignment",
     "qa:t22:merchant-routing": "npm --prefix apps/api run qa:t22:merchant-routing",
+    "qa:t22:merchant-shell": "npm --prefix apps/api run qa:t22:merchant-shell",
     "seed:merchant-test-accounts": "npm --prefix apps/api run seed:merchant-test-accounts",
     "preflight:t21:prod": "node ops/deploy/preflight.mjs --env-file .env",
     "deploy:t21:prod": "sh ops/deploy/deploy.sh",

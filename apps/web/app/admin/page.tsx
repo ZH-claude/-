@@ -4,20 +4,18 @@ import {
   ApiOutlined,
   BellOutlined,
   CloudServerOutlined,
-  DashboardOutlined,
   ExperimentOutlined,
+  FileTextOutlined,
   GiftOutlined,
   LeftOutlined,
-  LogoutOutlined,
-  ReloadOutlined,
   RightOutlined,
   SendOutlined,
   TeamOutlined
 } from '@ant-design/icons';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
+import { MerchantShell } from '../components/merchant-shell';
 import {
   assignUserGroup,
   checkUpstreamHealth,
@@ -28,13 +26,16 @@ import {
   createUpstreamProvider,
   createUserGroup,
   disableRechargeCode,
+  listAdminAuditLogs,
   listAdminUsers,
   listAnnouncements,
   listModelConfiguration,
   listRechargeCodes,
+  listSecurityAuditLogs,
   listUpstreamProviders
 } from '../lib/admin-api';
 import type {
+  AdminAuditLog,
   AdminGroup,
   AdminModelPrice,
   AdminRechargeCode,
@@ -42,6 +43,7 @@ import type {
   Announcement,
   AnnouncementCategory,
   CreatedRechargeCode,
+  SecurityAuditLog,
   UpstreamModelMapping,
   UpstreamProvider
 } from '../lib/admin-api';
@@ -64,6 +66,8 @@ export default function AdminPage() {
   const [models, setModels] = useState<AdminModelPrice[]>([]);
   const [upstreamModels, setUpstreamModels] = useState<UpstreamModelMapping[]>([]);
   const [rechargeCodes, setRechargeCodes] = useState<AdminRechargeCode[]>([]);
+  const [adminAuditLogs, setAdminAuditLogs] = useState<AdminAuditLog[]>([]);
+  const [securityAuditLogs, setSecurityAuditLogs] = useState<SecurityAuditLog[]>([]);
   const [createdRechargeCodes, setCreatedRechargeCodes] = useState<CreatedRechargeCode[]>([]);
   const [upstreamModelPagination, setUpstreamModelPagination] = useState(DEFAULT_UPSTREAM_MODEL_PAGINATION);
   const [totalUsers, setTotalUsers] = useState(0);
@@ -117,7 +121,15 @@ export default function AdminPage() {
     setError('');
 
     try {
-      const [userResult, announcementResult, upstreamResult, modelConfigResult, rechargeCodeResult] = await Promise.all([
+      const [
+        userResult,
+        announcementResult,
+        upstreamResult,
+        modelConfigResult,
+        rechargeCodeResult,
+        adminAuditResult,
+        securityAuditResult
+      ] = await Promise.all([
         listAdminUsers(),
         listAnnouncements(),
         listUpstreamProviders(),
@@ -125,7 +137,9 @@ export default function AdminPage() {
           upstreamModelsPage: 1,
           upstreamModelsLimit: UPSTREAM_MAPPING_PAGE_LIMIT
         }),
-        listRechargeCodes()
+        listRechargeCodes(),
+        listAdminAuditLogs({ limit: 10 }),
+        listSecurityAuditLogs({ limit: 10 })
       ]);
       setUsers(userResult.items);
       setTotalUsers(userResult.total);
@@ -133,6 +147,8 @@ export default function AdminPage() {
       setUpstreams(upstreamResult.items);
       applyModelConfiguration(modelConfigResult, upstreamResult.items);
       setRechargeCodes(rechargeCodeResult.items);
+      setAdminAuditLogs(adminAuditResult.items);
+      setSecurityAuditLogs(securityAuditResult.items);
     } catch (nextError) {
       const nextMessage = nextError instanceof Error ? nextError.message : '后台数据加载失败';
       setError(nextMessage);
@@ -398,42 +414,14 @@ export default function AdminPage() {
   }
 
   return (
-    <main className="admin-page">
-      <header className="topbar">
-        <Link className="auth-brand compact" href="/">
-          <span className="shell-logo-mark">R</span>
-          <span>Relay Console</span>
-        </Link>
-        <nav className="admin-top-actions" aria-label="后台操作">
-          <Link className="ghost-button" href="/account/profile">
-            <DashboardOutlined />
-            账户
-          </Link>
-          <button className="ghost-button" onClick={handleLogout} type="button">
-            <LogoutOutlined />
-            退出
-          </button>
-        </nav>
-      </header>
-
-      <section className="admin-layout">
-        <aside className="admin-nav" aria-label="后台导航">
-          <Link className="admin-nav-item active" href="/admin">
-            <TeamOutlined />
-            用户与公告
-          </Link>
-        </aside>
-
-        <section className="admin-content">
-          <div className="admin-heading">
-            <div>
-              <p className="eyebrow">管理后台</p>
-              <h1>用户与公告</h1>
-            </div>
-            <button className="icon-button" onClick={() => void loadAdminData()} title="刷新后台数据" type="button">
-              <ReloadOutlined />
-            </button>
+    <MerchantShell activePath="/admin" isRefreshing={isLoading} onLogout={handleLogout} onRefresh={() => void loadAdminData()}>
+      <section className="admin-content">
+        <div className="admin-heading" id="merchant-dashboard">
+          <div>
+            <p className="eyebrow">管理后台</p>
+            <h1>用户与公告</h1>
           </div>
+        </div>
 
           {error ? <p className="form-error">{error}</p> : null}
           {message ? <p className="form-success">{message}</p> : null}
@@ -461,7 +449,7 @@ export default function AdminPage() {
             </section>
           </div>
 
-          <section className="admin-panel">
+          <section className="admin-panel" id="merchant-recharge-codes">
             <div className="panel-title">
               <GiftOutlined />
               <h2>兑换码</h2>
@@ -561,8 +549,8 @@ export default function AdminPage() {
             </div>
           </section>
 
-          <section className="admin-grid">
-            <section className="admin-panel">
+          <section className="admin-grid" id="merchant-models">
+            <section className="admin-panel" id="merchant-groups">
               <div className="panel-title">
                 <TeamOutlined />
                 <h2>分组配置</h2>
@@ -647,7 +635,7 @@ export default function AdminPage() {
               </div>
             </section>
 
-            <section className="admin-panel">
+            <section className="admin-panel" id="merchant-model-prices">
               <div className="panel-title">
                 <ApiOutlined />
                 <h2>模型价格</h2>
@@ -777,7 +765,7 @@ export default function AdminPage() {
             </section>
           </section>
 
-          <section className="admin-panel">
+          <section className="admin-panel" id="merchant-upstream-models">
             <div className="panel-title">
               <ExperimentOutlined />
               <h2>上游模型映射</h2>
@@ -911,7 +899,7 @@ export default function AdminPage() {
             </div>
           </section>
 
-          <section className="admin-grid">
+          <section className="admin-grid" id="merchant-upstreams">
             <section className="admin-panel">
               <div className="panel-title">
                 <CloudServerOutlined />
@@ -969,7 +957,7 @@ export default function AdminPage() {
               </form>
             </section>
 
-            <section className="admin-panel">
+            <section className="admin-panel" id="merchant-service-status">
               <div className="panel-title">
                 <ExperimentOutlined />
                 <h2>Health check</h2>
@@ -1028,7 +1016,7 @@ export default function AdminPage() {
             </section>
           </section>
 
-          <section className="admin-panel">
+          <section className="admin-panel" id="merchant-users">
             <div className="panel-title">
               <TeamOutlined />
               <h2>用户列表</h2>
@@ -1094,7 +1082,7 @@ export default function AdminPage() {
             </div>
           </section>
 
-          <section className="admin-grid">
+          <section className="admin-grid" id="merchant-announcements">
             <section className="admin-panel">
               <div className="panel-title">
                 <SendOutlined />
@@ -1170,9 +1158,86 @@ export default function AdminPage() {
               </div>
             </section>
           </section>
-        </section>
+
+          <section className="admin-grid" id="merchant-audit">
+            <section className="admin-panel">
+              <div className="panel-title">
+                <FileTextOutlined />
+                <h2>后台审计</h2>
+              </div>
+              <div className="admin-table-wrap">
+                <table className="admin-table audit-table">
+                  <thead>
+                    <tr>
+                      <th>动作</th>
+                      <th>目标</th>
+                      <th>管理员</th>
+                      <th>时间</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {adminAuditLogs.map((entry) => (
+                      <tr key={entry.id}>
+                        <td>{entry.action}</td>
+                        <td>
+                          {entry.targetType}
+                          <small className="table-note">{entry.targetId ?? '-'}</small>
+                        </td>
+                        <td>{entry.admin.username}</td>
+                        <td>{formatOptionalDate(entry.createdAt)}</td>
+                      </tr>
+                    ))}
+                    {!adminAuditLogs.length && !isLoading ? (
+                      <tr>
+                        <td colSpan={4}>暂无后台审计</td>
+                      </tr>
+                    ) : null}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section className="admin-panel">
+              <div className="panel-title">
+                <FileTextOutlined />
+                <h2>安全审计</h2>
+              </div>
+              <div className="admin-table-wrap">
+                <table className="admin-table audit-table">
+                  <thead>
+                    <tr>
+                      <th>动作</th>
+                      <th>目标</th>
+                      <th>账号</th>
+                      <th>IP</th>
+                      <th>时间</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {securityAuditLogs.map((entry) => (
+                      <tr key={entry.id}>
+                        <td>{entry.action}</td>
+                        <td>
+                          {entry.targetType}
+                          <small className="table-note">{entry.targetId ?? '-'}</small>
+                        </td>
+                        <td>{entry.actor?.username ?? '-'}</td>
+                        <td>{entry.ipAddress ?? '-'}</td>
+                        <td>{formatOptionalDate(entry.createdAt)}</td>
+                      </tr>
+                    ))}
+                    {!securityAuditLogs.length && !isLoading ? (
+                      <tr>
+                        <td colSpan={5}>暂无安全审计</td>
+                      </tr>
+                    ) : null}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          </section>
       </section>
-    </main>
+    </MerchantShell>
   );
 }
 
