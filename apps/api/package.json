@@ -23,6 +23,7 @@
     "qa:t19:security-hardening": "tsx scripts/t19-security-hardening-qa.ts",
     "qa:t20:observability": "tsx scripts/t20-observability-qa.ts",
     "qa:profile-alignment": "tsx scripts/profile-alignment-qa.ts",
+    "qa:t22:merchant-routing": "tsx scripts/t22-merchant-routing-qa.ts",
     "seed:merchant-test-accounts": "tsx scripts/seed-merchant-test-accounts.ts",
     "prisma:generate": "prisma generate",
     "db:migrate": "prisma migrate deploy",

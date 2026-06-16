@@ -40,7 +40,7 @@
 
 ### M01 登录后角色分流
 
-状态：待开始
+状态：已完成
 
 范围：
 - 修改登录成功后的跳转逻辑。
@@ -57,6 +57,12 @@ QA/Review 重点：
 - 登录成功但角色缺失时的 fallback。
 - 401/403 是否正确回登录页或错误页。
 - 用户端现有登录流程不回归。
+
+完成记录（2026-06-16）：
+- 已新增 `apps/web/app/lib/role-routing.ts`，统一定义登录后的默认路由：普通用户进入 `/account/profile`，后台/商家角色进入 `/merchant`。前端已预留 `merchant` 角色字符串，当前数据库仍以 `ADMIN` 承载商家端账号。
+- 已修改 `/login`，登录成功后使用 `/auth/login` 返回的真实 `user.role` 决定跳转，不再硬编码进入用户中心。
+- 已新增服务端动态入口 `/merchant`，通过真实 cookie 调用后端 `/auth/me`，未登录跳 `/login`，普通用户跳 `/account/profile`，后台/商家账号跳 `/admin`。
+- 已新增 `npm run qa:t22:merchant-routing`，用真实 Postgres 临时创建普通用户和商家账号，验证真实登录、真实 session、真实 `/merchant` 分流、后台 API 权限和数据库钱包/会话一致性，结束后清理临时数据为 0。
 
 ### M02 商家端 Shell 与固定导航
 

@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import type { FormEvent } from 'react';
 import { login } from '../lib/auth-api';
+import { getPostLoginPath } from '../lib/role-routing';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -20,8 +21,8 @@ export default function LoginPage() {
     setIsSubmitting(true);
 
     try {
-      await login({ username, password });
-      router.push('/account/profile');
+      const result = await login({ username, password });
+      router.push(getPostLoginPath(result.user));
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : '登录失败');
     } finally {

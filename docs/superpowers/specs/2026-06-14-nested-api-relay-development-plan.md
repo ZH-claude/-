@@ -320,6 +320,13 @@ Loki/Prometheus/Grafana
 
 建议下一次优先完成 T22 的商家端独立化：详细拆分见 `docs/product/merchant-console-plan.md`。当前真实云服务器部署仍保留在 T21，拿到服务器、域名和生产 `.env` 后再执行 strict smoke。
 
+T22 商家端独立化进展记录（2026-06-16）：
+
+- M01 登录后角色分流已完成：登录页使用真实 `/auth/login` 返回的 `user.role` 决定跳转，普通用户进入 `/account/profile`，后台/商家账号进入 `/merchant`。
+- 已新增服务端动态入口 `/merchant`，用真实 HttpOnly cookie 调用后端 `/auth/me` 做角色判断：未登录跳 `/login`，普通用户跳 `/account/profile`，后台/商家账号跳 `/admin`。
+- 已新增前端角色路由 helper，当前兼容 `admin`，并预留未来 `merchant` 角色字符串；数据库仍保持 MVP 的 `USER/ADMIN` 双角色，不做伪造角色。
+- 已新增 `npm run qa:t22:merchant-routing`，通过真实 Postgres 临时用户、真实登录、真实 session、真实 `/merchant` HTTP 重定向和真实 `/admin/users` 权限检查验证双端互通，结束后临时用户、钱包、会话和安全审计残留为 0。
+
 账户中心功能对齐补强记录（2026-06-16）：
 
 - 已将 `/account` 改为跳转 `/account/profile`，并新增接近参考站结构的账户中心：顶部导航、左侧账户菜单、身份卡、余额/消费/调用/邀请指标、推广信息、用户信息、可用模型、模型配置和账户选项。
