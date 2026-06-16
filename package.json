@@ -17,6 +17,7 @@
     "qa:t16:async-tasks": "npm --prefix apps/api run qa:t16:async-tasks",
     "qa:t17:service-status": "npm --prefix apps/api run qa:t17:service-status",
     "qa:t18:rate-limits": "npm --prefix apps/api run qa:t18:rate-limits",
+    "qa:t19:security-hardening": "npm --prefix apps/api run qa:t19:security-hardening",
     "start:api": "npm --prefix apps/api run start",
     "start:web": "npm --prefix apps/web run start"
   },

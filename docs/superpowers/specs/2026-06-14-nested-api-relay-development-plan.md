@@ -2,7 +2,7 @@
 
 创建日期：2026-06-14  
 目标：建设一个可部署到云服务器的前后端完整 API 中转站。你的平台作为第三方中转层，用户请求先进入你的系统，再由你的系统转发到另一个上游中转站。  
-当前状态：T17 服务状态页已完成。工作区已接入 GitHub 推送流程。
+当前状态：T19 安全加固已完成。工作区已接入 GitHub 推送流程。
 数据库密码通过 `POSTGRES_PASSWORD` 配置，真实值只写入未提交的 `.env` 或服务器密钥管理。  
 Redis MVP 阶段默认不启用密码；如生产环境需要启用，通过 `REDIS_PASSWORD` 或托管 Redis 密钥配置，真实值不写入开发文档。
 
@@ -234,6 +234,7 @@ Relay 必须支持：
 | `availability_metrics` | 分组和模型可用率 |
 | `async_tasks` | 异步任务 |
 | `admin_audit_logs` | 管理员操作审计 |
+| `security_audit_logs` | 登录、改密、令牌生命周期等安全审计 |
 
 ## 7. 云服务器部署方案
 
@@ -308,29 +309,42 @@ Loki/Prometheus/Grafana
 | [x] | T16 | 异步任务与绘图日志 | async_tasks、任务查询页 | 若上游支持异步任务，能查询进度和结果 |
 | [x] | T17 | 服务状态页 | Uptime Kuma 配置或内置探针 | 用户可看到平台和上游状态 |
 | [x] | T18 | 风控与限流 | 用户/令牌/IP/模型限流、IP 白名单、首次激活策略、异常熔断 | 超限请求被拒绝且不影响其他用户 |
-| [ ] | T19 | 安全加固 | Key 脱敏、审计日志、越权测试 | 日志无明文 Key，越权测试通过 |
+| [x] | T19 | 安全加固 | Key 脱敏、审计日志、越权测试 | 日志无明文 Key，越权测试通过 |
 | [ ] | T20 | 可观测性 | 结构化日志、trace_id、监控面板、告警 | 单次请求可追踪到上游和计费事件 |
 | [ ] | T21 | 云服务器部署 | HTTPS、域名、备份、回滚文档 | 生产环境可访问，重启后服务自动恢复 |
 | [ ] | T22 | 上线前验收 | 压测、安全检查、账单核对、运维手册 | 完成上线检查表并修复阻塞项 |
 
 ## 11. 下一次对话建议任务
 
-建议下一次从 T19 开始：安全加固。
+建议下一次从 T20 开始：可观测性。
 
-T19 的边界：
+T20 的边界：
 
-- 检查并加固所有 Key、token hash、密码 hash、连接串、Webhook secret、上游 Base URL 和内部错误信息的脱敏边界。
-- 新增或补齐审计日志，优先覆盖登录、管理员操作、上游 Key 变更、充值码生成/禁用、令牌创建/重置/删除和风控相关动作。
-- 做真实越权测试：普通用户不能读取或修改其他用户资源，管理员接口必须由管理员身份访问，跨用户 token/log/task/notification 查询不得泄露。
-- 不用前端隐藏代替后端鉴权，不用假数据证明安全；所有检查都必须走真实 API、真实数据库和真实会话。
-- T19 不应破坏现有 Relay、计费、限流、日志、通知、公告、异步任务和服务状态页。
+- 建立统一结构化日志字段，至少包含 `request_id`、用户/令牌引用、路径、状态、错误码、延迟和上游供应商引用。
+- 补齐 Relay、计费、钱包流水、usage event、request log 和安全审计之间的关联查询路径。
+- 设计 trace/correlation 机制，让一次用户请求可以追到上游调用、计费事件、钱包流水和错误分类。
+- 保持敏感字段脱敏，不把 prompt、明文 API Key、上游 Key、连接串、Webhook secret 或内部密钥写入普通日志。
+- T20 不应破坏现有 Relay、计费、限流、安全审计、日志页、通知、公告、异步任务和服务状态页。
 
-T19 完成指标：
+T20 完成指标：
 
-- 日志和 API 响应中不出现明文 API Key、上游 Key、token hash、密码 hash、连接串或内部密钥。
-- 高风险操作写入可查询的审计日志，并能证明普通用户不能伪造或读取管理员审计结果。
-- 越权测试覆盖用户资料、钱包、令牌、日志、通知、任务、公告管理和上游管理。
-- QA 覆盖真实登录态、普通用户、管理员、跨用户访问、失败状态和残留清理。
+- 任意一条 Relay 请求能从 `request_id` 查到 usage event、wallet transaction、request log 和上游调用状态。
+- API 日志和可查询日志响应均使用字段白名单或脱敏器，敏感字段扫描通过。
+- 可观测性 QA 使用真实 HTTP 调用、真实数据库记录和失败/成功路径，不用静态样例冒充链路。
+- 回归验证覆盖 T11、T18、T19，以及公告、异步任务、服务状态等受影响接口。
+
+T19 完成记录（2026-06-16）：
+
+- 已新增 `security_audit_logs` 表，记录登录、登出、改密、注册和用户令牌生命周期事件，并按 actor/action/created_at 建立查询索引。
+- 已新增 `SecurityAuditService`，在写入和查询时递归脱敏 `authorization`、`cookie`、`password`、`tokenHash`、`encryptedApiKey`、`apiKey`、`secret`、`connectionString`、`DATABASE_URL`、`REDIS_URL`、`baseUrl`、`codeHash` 等敏感 key。
+- 已将注册、登录成功、登出、修改密码、令牌创建、令牌重置、令牌禁用和令牌删除写入安全审计；明文 API Key 和密码不进入审计 metadata。
+- 已新增管理员只读 `GET /admin/audit-logs` 和 `GET /admin/security-audit-logs`，继续由 `AuthGuard + AdminGuard` 保护；普通用户访问返回 403。
+- 已对管理员审计查询增加快照脱敏，避免上游 Base URL、加密 Key、Key 预览、充值码 hash、token hash、password hash 等内部字段从查询口泄露。
+- 已新增 `apps/api/scripts/t19-security-hardening-qa.ts` 和 `npm run qa:t19:security-hardening`，通过真实注册、登录、改密、令牌、管理员公告/上游/充值码操作和跨用户访问验证。
+- 已验证跨用户 token 删除返回 404，跨用户 usage log token 查询为空，跨用户 async task 和 notification settings 不泄露。
+- 已验证管理员审计和安全审计可查询且脱敏；普通用户不能读取或伪造后台审计面。
+- 已验证 `npm run typecheck`、`npm --prefix apps/api run build`、`npx prisma migrate status`、`npm run qa:t19:security-hardening`、`npm run qa:t18:rate-limits`、`npm run qa:t15:announcements`、`npm run qa:t16:async-tasks`、`npm run qa:t17:service-status`、api/web audit 和 `git diff --check`。
+- T19 QA 使用真实数据库记录、真实 HTTP 登录态和真实会话 Cookie，完成后清理为 0 残留。
 
 T18 完成记录（2026-06-16）：
 

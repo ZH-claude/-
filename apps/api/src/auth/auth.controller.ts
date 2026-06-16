@@ -42,7 +42,7 @@ export class AuthController {
   @UseGuards(AuthGuard)
   @Post('logout')
   async logout(@Req() request: AuthenticatedRequest, @Res({ passthrough: true }) reply: FastifyReply) {
-    const result = await this.authService.logout(this.requireAuth(request));
+    const result = await this.authService.logout(this.requireAuth(request), this.getIpAddress(request));
     this.clearSessionCookie(reply);
     return result;
   }
@@ -50,7 +50,7 @@ export class AuthController {
   @UseGuards(AuthGuard)
   @Post('change-password')
   changePassword(@Body() body: unknown, @Req() request: AuthenticatedRequest) {
-    return this.authService.changePassword(this.requireAuth(request), this.toRecord(body));
+    return this.authService.changePassword(this.requireAuth(request), this.toRecord(body), this.getIpAddress(request));
   }
 
   private toRecord(value: unknown) {

@@ -11,6 +11,7 @@ import bcrypt from 'bcryptjs';
 import { createHash, randomBytes } from 'node:crypto';
 import { ModelCatalogService } from '../model-catalog.service';
 import { PrismaService } from '../prisma.service';
+import { SecurityAuditService } from '../security-audit/security-audit.service';
 import { AuthContext, AuthenticatedUser } from './auth.types';
 
 type RegisterInput = {
@@ -40,7 +41,8 @@ const USER_INCLUDE = {
 export class AuthService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
-    private readonly modelCatalogService: ModelCatalogService
+    private readonly modelCatalogService: ModelCatalogService,
+    private readonly securityAuditService: SecurityAuditService
   ) {}
 
   async register(input: RegisterInput, ipAddress?: string) {
@@ -97,6 +99,19 @@ export class AuthService {
           }
         });
 
+        await this.securityAuditService.record({
+          tx,
+          actorUserId: createdUser.id,
+          action: 'user_registered',
+          targetType: 'user',
+          targetId: createdUser.id,
+          ipAddress,
+          metadata: {
+            username: createdUser.username,
+            invited: Boolean(inviter?.id)
+          }
+        });
+
         return tx.user.findUniqueOrThrow({
           where: { id: createdUser.id },
           include: USER_INCLUDE
@@ -149,6 +164,17 @@ export class AuthService {
       });
 
       const sessionToken = await this.createSession(nextUser.id, tx);
+      await this.securityAuditService.record({
+        tx,
+        actorUserId: nextUser.id,
+        action: 'user_login_succeeded',
+        targetType: 'user',
+        targetId: nextUser.id,
+        ipAddress,
+        metadata: {
+          username: nextUser.username
+        }
+      });
       return [nextUser, sessionToken] as const;
     });
 
@@ -192,16 +218,30 @@ export class AuthService {
     };
   }
 
-  async logout(context: AuthContext) {
-    await this.prisma.session.update({
-      where: { id: context.session.id },
-      data: { revokedAt: new Date() }
+  async logout(context: AuthContext, ipAddress?: string) {
+    await this.prisma.$transaction(async (tx) => {
+      await tx.session.update({
+        where: { id: context.session.id },
+        data: { revokedAt: new Date() }
+      });
+
+      await this.securityAuditService.record({
+        tx,
+        actorUserId: context.user.id,
+        action: 'user_logged_out',
+        targetType: 'session',
+        targetId: context.session.id,
+        ipAddress,
+        metadata: {
+          username: context.user.username
+        }
+      });
     });
 
     return { ok: true };
   }
 
-  async changePassword(context: AuthContext, input: ChangePasswordInput) {
+  async changePassword(context: AuthContext, input: ChangePasswordInput, ipAddress?: string) {
     const currentPassword = this.validatePassword(input.currentPassword, 'currentPassword');
     const newPassword = this.validatePassword(input.newPassword, 'newPassword');
 
@@ -220,19 +260,35 @@ export class AuthService {
     }
 
     const passwordHash = await bcrypt.hash(newPassword, PASSWORD_HASH_ROUNDS);
-    const updatedUser = await this.prisma.user.update({
-      where: { id: user.id },
-      data: { passwordHash },
-      include: USER_INCLUDE
-    });
+    const updatedUser = await this.prisma.$transaction(async (tx) => {
+      const nextUser = await tx.user.update({
+        where: { id: user.id },
+        data: { passwordHash },
+        include: USER_INCLUDE
+      });
 
-    await this.prisma.session.updateMany({
-      where: {
-        userId: user.id,
-        id: { not: context.session.id },
-        revokedAt: null
-      },
-      data: { revokedAt: new Date() }
+      await tx.session.updateMany({
+        where: {
+          userId: user.id,
+          id: { not: context.session.id },
+          revokedAt: null
+        },
+        data: { revokedAt: new Date() }
+      });
+
+      await this.securityAuditService.record({
+        tx,
+        actorUserId: user.id,
+        action: 'user_password_changed',
+        targetType: 'user',
+        targetId: user.id,
+        ipAddress,
+        metadata: {
+          otherSessionsRevoked: true
+        }
+      });
+
+      return nextUser;
     });
 
     return {

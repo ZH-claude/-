@@ -20,6 +20,7 @@
     "qa:t16:async-tasks": "tsx scripts/t16-async-tasks-qa.ts",
     "qa:t17:service-status": "tsx scripts/t17-service-status-qa.ts",
     "qa:t18:rate-limits": "tsx scripts/t18-rate-limits-qa.ts",
+    "qa:t19:security-hardening": "tsx scripts/t19-security-hardening-qa.ts",
     "prisma:generate": "prisma generate",
     "db:migrate": "prisma migrate deploy",
     "db:push": "prisma db push"

@@ -153,6 +153,7 @@ model User {
   deletedAt          DateTime?           @map("deleted_at")
   announcements      Announcement[]      @relation("AnnouncementCreator")
   adminActions       AdminAuditLog[]     @relation("AdminAuditActor")
+  securityAuditLogs  SecurityAuditLog[]  @relation("SecurityAuditActor")
   upstreamProviders  UpstreamProvider[]  @relation("UpstreamProviderCreator")
   createdRechargeCodes RechargeCode[]    @relation("RechargeCodeCreator")
   usedRechargeCodes    RechargeCode[]    @relation("RechargeCodeUser")
@@ -367,6 +368,23 @@ model AdminAuditLog {
   @@index([adminUserId], map: "admin_audit_logs_admin_user_id_idx")
   @@index([createdAt], map: "admin_audit_logs_created_at_idx")
   @@map("admin_audit_logs")
+}
+
+model SecurityAuditLog {
+  id          String   @id @default(uuid()) @db.Uuid
+  actorUserId String?  @map("actor_user_id") @db.Uuid
+  actorUser   User?    @relation("SecurityAuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  action      String
+  targetType  String   @map("target_type")
+  targetId    String?  @map("target_id") @db.Uuid
+  ipAddress   String?  @map("ip_address")
+  metadata    Json?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([actorUserId, createdAt], map: "security_audit_logs_actor_created_at_idx")
+  @@index([action, createdAt], map: "security_audit_logs_action_created_at_idx")
+  @@index([createdAt], map: "security_audit_logs_created_at_idx")
+  @@map("security_audit_logs")
 }
 
 model AsyncTask {

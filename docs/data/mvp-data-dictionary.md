@@ -15,7 +15,7 @@
 | 时间字段 | `created_at`、`updated_at`，使用 UTC |
 | 金额字段 | 整数分 `amount_cents`，不使用浮点 |
 | 软删除 | 用户、令牌、上游配置使用 `deleted_at` |
-| 审计 | 管理员调整余额、禁用用户、修改上游配置必须写 `admin_audit_logs` |
+| 审计 | 管理员调整余额、禁用用户、修改上游配置必须写 `admin_audit_logs`；登录、改密和令牌生命周期必须写 `security_audit_logs` |
 
 ## 2. 核心表
 
@@ -298,6 +298,26 @@
 
 - 审计日志不可更新、不可删除。
 - 余额调整、禁用用户、修改上游 Key、修改价格必须写审计。
+- 查询出口必须递归脱敏 Key、hash、连接串、Base URL、secret 等敏感字段。
+
+### `security_audit_logs`
+
+| 字段 | 类型 | 约束 | 说明 |
+| --- | --- | --- | --- |
+| `id` | uuid | PK | 安全审计 ID |
+| `actor_user_id` | uuid | nullable FK `users.id` | 触发用户；用户删除时置空 |
+| `action` | text | not null | 安全动作，如 `user_login_succeeded`、`api_token_reset` |
+| `target_type` | text | not null | 目标类型，如 `user`、`session`、`api_token` |
+| `target_id` | uuid | nullable | 目标 ID |
+| `ip_address` | text | nullable | 归一化后的客户端 IP |
+| `metadata` | jsonb | nullable | 脱敏后的补充信息 |
+| `created_at` | timestamp | not null | 创建时间 |
+
+规则：
+
+- 登录、登出、修改密码、注册、令牌创建/重置/禁用/删除必须写安全审计。
+- `metadata` 不保存明文密码、明文 API Key、token hash、password hash、上游 Key、连接串或内部密钥。
+- 安全审计查询仅管理员可访问，普通用户不能读取或伪造。
 
 ## 3. 交易边界
 
@@ -308,6 +328,7 @@
 | 成功扣费 | `usage_events` + `wallet_transactions` + `wallets` 同一事务 |
 | 卡密充值 | `recharge_codes` 状态更新 + `wallet_transactions` + `wallets` 同一事务 |
 | 管理员调账 | `wallet_transactions` + `wallets` + `admin_audit_logs` 同一事务 |
+| 用户安全动作 | 业务状态变更 + `security_audit_logs` 尽量同一事务 |
 
 ## 4. Redis Key 约定
 
@@ -330,5 +351,6 @@ Redis MVP 默认不启用密码。生产环境如需密码，通过 `REDIS_PASSW
 | 使用事件 | 至少 2 年 |
 | 请求日志 | 默认 90 天，可配置 |
 | 管理员审计 | 至少 2 年 |
+| 安全审计 | 至少 2 年 |
 | 用户 API Key 明文 | 不保存 |
 | 上游 API Key | 加密保存 |

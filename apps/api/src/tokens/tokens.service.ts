@@ -13,6 +13,7 @@ import { AuthenticatedUser } from '../auth/auth.types';
 import { ApiTokenStatus, Prisma, UserStatus } from '../generated/prisma/client';
 import { ModelCatalogService } from '../model-catalog.service';
 import { PrismaService } from '../prisma.service';
+import { SecurityAuditService } from '../security-audit/security-audit.service';
 
 type TokenInput = {
   name?: unknown;
@@ -38,7 +39,8 @@ const MAX_IP_WHITELIST_ENTRIES = 64;
 export class TokensService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
-    private readonly modelCatalogService: ModelCatalogService
+    private readonly modelCatalogService: ModelCatalogService,
+    private readonly securityAuditService: SecurityAuditService
   ) {}
 
   async listTokens(user: AuthenticatedUser) {
@@ -116,6 +118,25 @@ export class TokensService {
           });
         }
 
+        await this.securityAuditService.record({
+          tx,
+          actorUserId: user.id,
+          action: 'api_token_created',
+          targetType: 'api_token',
+          targetId: createdToken.id,
+          metadata: {
+            name,
+            hasQuota: quotaCents !== null,
+            hasExpiresAt: expiresAt !== null,
+            modelCount: modelNames.length,
+            hasTokenRateLimit: rateLimitRequestsPerMinute !== null,
+            hasModelRateLimit: modelRateLimitRequestsPerMinute !== null,
+            hasIpRateLimit: ipRateLimitRequestsPerMinute !== null,
+            ipWhitelistCount: ipWhitelist.length,
+            hasActivationTtl: activationTtlSeconds !== null
+          }
+        });
+
         return tx.apiToken.findUniqueOrThrow({
           where: { id: createdToken.id },
           include: {
@@ -136,17 +157,33 @@ export class TokensService {
   async disableToken(user: AuthenticatedUser, tokenId: string) {
     const existingToken = await this.findOwnedActiveOrDisabledToken(user.id, tokenId);
 
-    const token = await this.prisma.apiToken.update({
-      where: { id: existingToken.id },
-      data: {
-        status: ApiTokenStatus.DISABLED,
-        revokedAt: existingToken.revokedAt ?? new Date()
-      },
-      include: {
-        modelAccesses: {
-          orderBy: { model: 'asc' }
+    const token = await this.prisma.$transaction(async (tx) => {
+      const updatedToken = await tx.apiToken.update({
+        where: { id: existingToken.id },
+        data: {
+          status: ApiTokenStatus.DISABLED,
+          revokedAt: existingToken.revokedAt ?? new Date()
+        },
+        include: {
+          modelAccesses: {
+            orderBy: { model: 'asc' }
+          }
         }
-      }
+      });
+
+      await this.securityAuditService.record({
+        tx,
+        actorUserId: user.id,
+        action: 'api_token_disabled',
+        targetType: 'api_token',
+        targetId: existingToken.id,
+        metadata: {
+          name: existingToken.name,
+          previousStatus: existingToken.status.toLowerCase()
+        }
+      });
+
+      return updatedToken;
     });
 
     return {
@@ -158,22 +195,38 @@ export class TokensService {
     const existingToken = await this.findOwnedActiveOrDisabledToken(user.id, tokenId);
 
     return this.createTokenWithKeyRetry(async (apiKey, tokenHash, keyPreview) => {
-      const token = await this.prisma.apiToken.update({
-        where: { id: existingToken.id },
-        data: {
-          tokenHash,
-          keyPreview,
-          status: ApiTokenStatus.ACTIVE,
-          revokedAt: null,
-          lastUsedAt: null,
-          activatedAt: null,
-          activationExpiresAt: null
-        },
-        include: {
-          modelAccesses: {
-            orderBy: { model: 'asc' }
+      const token = await this.prisma.$transaction(async (tx) => {
+        const updatedToken = await tx.apiToken.update({
+          where: { id: existingToken.id },
+          data: {
+            tokenHash,
+            keyPreview,
+            status: ApiTokenStatus.ACTIVE,
+            revokedAt: null,
+            lastUsedAt: null,
+            activatedAt: null,
+            activationExpiresAt: null
+          },
+          include: {
+            modelAccesses: {
+              orderBy: { model: 'asc' }
+            }
           }
-        }
+        });
+
+        await this.securityAuditService.record({
+          tx,
+          actorUserId: user.id,
+          action: 'api_token_reset',
+          targetType: 'api_token',
+          targetId: existingToken.id,
+          metadata: {
+            name: existingToken.name,
+            previousStatus: existingToken.status.toLowerCase()
+          }
+        });
+
+        return updatedToken;
       });
 
       return {
@@ -187,18 +240,34 @@ export class TokensService {
     const existingToken = await this.findOwnedActiveOrDisabledToken(user.id, tokenId);
     const now = new Date();
 
-    const token = await this.prisma.apiToken.update({
-      where: { id: existingToken.id },
-      data: {
-        status: ApiTokenStatus.DELETED,
-        revokedAt: existingToken.revokedAt ?? now,
-        deletedAt: now
-      },
-      include: {
-        modelAccesses: {
-          orderBy: { model: 'asc' }
+    const token = await this.prisma.$transaction(async (tx) => {
+      const deletedToken = await tx.apiToken.update({
+        where: { id: existingToken.id },
+        data: {
+          status: ApiTokenStatus.DELETED,
+          revokedAt: existingToken.revokedAt ?? now,
+          deletedAt: now
+        },
+        include: {
+          modelAccesses: {
+            orderBy: { model: 'asc' }
+          }
         }
-      }
+      });
+
+      await this.securityAuditService.record({
+        tx,
+        actorUserId: user.id,
+        action: 'api_token_deleted',
+        targetType: 'api_token',
+        targetId: existingToken.id,
+        metadata: {
+          name: existingToken.name,
+          previousStatus: existingToken.status.toLowerCase()
+        }
+      });
+
+      return deletedToken;
     });
 
     return {

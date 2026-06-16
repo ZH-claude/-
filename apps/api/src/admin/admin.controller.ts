@@ -47,6 +47,28 @@ export class AdminController {
     return this.adminService.listAnnouncements();
   }
 
+  @Get('audit-logs')
+  listAdminAuditLogs(
+    @Query('page') pageValue?: string,
+    @Query('limit') limitValue?: string
+  ) {
+    const page = this.parsePositiveInt(pageValue, 1, 1000000);
+    const limit = this.parsePositiveInt(limitValue, 20, 100);
+
+    return this.adminService.listAdminAuditLogs({ page, limit });
+  }
+
+  @Get('security-audit-logs')
+  listSecurityAuditLogs(
+    @Query('page') pageValue?: string,
+    @Query('limit') limitValue?: string
+  ) {
+    const page = this.parsePositiveInt(pageValue, 1, 1000000);
+    const limit = this.parsePositiveInt(limitValue, 20, 100);
+
+    return this.adminService.listSecurityAuditLogs({ page, limit });
+  }
+
   @Get('upstreams')
   listUpstreamProviders() {
     return this.adminService.listUpstreamProviders();

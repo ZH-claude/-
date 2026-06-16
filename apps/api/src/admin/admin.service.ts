@@ -15,6 +15,7 @@ import {
   UserStatus
 } from '../generated/prisma/client';
 import { PrismaService } from '../prisma.service';
+import { SecurityAuditService } from '../security-audit/security-audit.service';
 import { decryptUpstreamApiKey, encryptUpstreamApiKey, maskUpstreamApiKey } from './upstream-key-crypto';
 
 type ListUsersOptions = {
@@ -79,7 +80,10 @@ const BLOCKED_UPSTREAM_HOSTNAMES = new Set(['localhost', 'host.docker.internal',
 
 @Injectable()
 export class AdminService implements OnModuleInit {
-  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    private readonly securityAuditService: SecurityAuditService
+  ) {}
 
   async onModuleInit() {
     await this.bootstrapAdminFromEnv();
@@ -154,6 +158,50 @@ export class AdminService implements OnModuleInit {
         updatedAt: announcement.updatedAt.toISOString()
       }))
     };
+  }
+
+  async listAdminAuditLogs(options: ListUsersOptions) {
+    const { page, limit } = options;
+    const skip = (page - 1) * limit;
+    const [logs, total] = await Promise.all([
+      this.prisma.adminAuditLog.findMany({
+        skip,
+        take: limit,
+        include: {
+          adminUser: {
+            select: {
+              id: true,
+              username: true
+            }
+          }
+        },
+        orderBy: { createdAt: 'desc' }
+      }),
+      this.prisma.adminAuditLog.count()
+    ]);
+
+    return {
+      items: logs.map((log) => ({
+        id: log.id,
+        action: log.action,
+        targetType: log.targetType,
+        targetId: log.targetId,
+        admin: {
+          id: log.adminUser.id,
+          username: log.adminUser.username
+        },
+        beforeSnapshot: this.securityAuditService.redact(log.beforeSnapshot),
+        afterSnapshot: this.securityAuditService.redact(log.afterSnapshot),
+        createdAt: log.createdAt.toISOString()
+      })),
+      total,
+      page,
+      limit
+    };
+  }
+
+  async listSecurityAuditLogs(options: ListUsersOptions) {
+    return this.securityAuditService.listSecurityAuditLogs(options);
   }
 
   async createAnnouncement(adminUserId: string, body: AnnouncementInput) {
