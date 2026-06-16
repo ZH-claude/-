@@ -231,7 +231,7 @@ export default function TokenPage() {
           <span>Relay Console</span>
         </Link>
         <div className="admin-top-actions">
-          <Link className="ghost-button" href="/account">
+          <Link className="ghost-button" href="/account/profile">
             个人中心
           </Link>
           <button className="ghost-button" disabled={isLoading} onClick={() => void loadTokenPage()} type="button">

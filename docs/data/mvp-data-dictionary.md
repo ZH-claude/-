@@ -333,6 +333,26 @@
 - `metadata` 不保存明文密码、明文 API Key、token hash、password hash、上游 Key、连接串或内部密钥。
 - 安全审计查询仅管理员可访问，普通用户不能读取或伪造。
 
+### `referral_rewards`
+
+| 字段 | 类型 | 约束 | 说明 |
+| --- | --- | --- | --- |
+| `id` | uuid | PK | 返利记录 ID |
+| `inviter_user_id` | uuid | FK `users.id`, not null | 邀请人 |
+| `invitee_user_id` | uuid | FK `users.id`, not null | 被邀请人 |
+| `amount_cents` | int | not null, `>= 0` | 返利金额，单位分 |
+| `status` | enum | not null | `PENDING`、`SETTLED`、`CANCELED` |
+| `source` | text | nullable | 返利来源说明或外部关联标识 |
+| `settled_at` | timestamp | nullable | 结算时间 |
+| `created_at` | timestamp | not null | 创建时间 |
+| `updated_at` | timestamp | not null | 更新时间 |
+
+规则：
+
+- 账户中心只聚合当前登录用户作为邀请人的记录，不允许跨用户读取。
+- `PENDING` 计入待使用收益，`SETTLED` 计入总收益，`CANCELED` 不计入用户可见收益。
+- 返利金额使用整数分，禁止前端写死或用模拟收益替代数据库聚合。
+
 ## 3. 交易边界
 
 | 操作 | 事务要求 |

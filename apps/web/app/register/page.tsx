@@ -3,7 +3,7 @@
 import { LoginOutlined, UserAddOutlined } from '@ant-design/icons';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { register } from '../lib/auth-api';
 
@@ -14,6 +14,13 @@ export default function RegisterPage() {
   const [inviteCode, setInviteCode] = useState('');
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    const nextInviteCode = new URLSearchParams(window.location.search).get('inviteCode');
+    if (nextInviteCode) {
+      setInviteCode(nextInviteCode);
+    }
+  }, []);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -26,7 +33,7 @@ export default function RegisterPage() {
         password,
         inviteCode: inviteCode.trim() || undefined
       });
-      router.push('/account');
+      router.push('/account/profile');
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : '注册失败');
     } finally {

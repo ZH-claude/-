@@ -235,6 +235,7 @@ Relay 必须支持：
 | `async_tasks` | 异步任务 |
 | `admin_audit_logs` | 管理员操作审计 |
 | `security_audit_logs` | 登录、改密、令牌生命周期等安全审计 |
+| `referral_rewards` | 邀请返利收益明细，用于账户中心待使用收益、总收益和返利记录 |
 
 ## 7. 云服务器部署方案
 
@@ -317,6 +318,16 @@ Loki/Prometheus/Grafana
 ## 11. 下一次对话建议任务
 
 建议下一次继续完成 T21 的真实云服务器部署：拿到服务器、域名和生产 `.env` 后，上云执行并跑 strict smoke。
+
+账户中心功能对齐补强记录（2026-06-16）：
+
+- 已将 `/account` 改为跳转 `/account/profile`，并新增接近参考站结构的账户中心：顶部导航、左侧账户菜单、身份卡、余额/消费/调用/邀请指标、推广信息、用户信息、可用模型、模型配置和账户选项。
+- 已新增 `referral_rewards` 真实数据库表和 Prisma migration `20260616070000_profile_referral_rewards`，账户中心的待使用收益、总收益和返利记录来自数据库聚合。
+- 已扩展 `/auth/me` 真实响应：返回 `lastLoginIp`、调用次数、活跃令牌数、邀请用户数、返利收益聚合和当前分组可用模型，不返回 `passwordHash`、`tokenHash`、上游密钥或内部上游映射。
+- 已新增 `/auth/timezone`，用户可在账户中心修改时区，写入 `users.timezone` 并记录 `security_audit_logs`。
+- 已新增 `npm run qa:profile-alignment`，通过真实 API + 真实 Postgres 创建临时用户、分组、模型、令牌、用量、返利记录并验证响应，结束后清理到 0 残留。
+- 已完成本地浏览器真实流程验证：浏览器注册用户、跳转账户中心、写入真实钱包/邀请收益/模型/调用数据、刷新页面展示真实数据、修改时区落库，临时 QA 数据清理为 0。
+- 未勾选 T21/T22：本次是账户中心功能对齐补强，不代表云服务器部署、DNS、HTTPS、生产 strict smoke 或上线前验收完成。
 
 T21 的边界：
 

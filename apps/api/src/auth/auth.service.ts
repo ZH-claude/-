@@ -6,7 +6,7 @@ import {
   Injectable,
   UnauthorizedException
 } from '@nestjs/common';
-import { Prisma, UserStatus } from '../generated/prisma/client';
+import { ApiTokenStatus, Prisma, ReferralRewardStatus, UserStatus } from '../generated/prisma/client';
 import bcrypt from 'bcryptjs';
 import { createHash, randomBytes } from 'node:crypto';
 import { ModelCatalogService } from '../model-catalog.service';
@@ -30,6 +30,10 @@ type ChangePasswordInput = {
   newPassword?: unknown;
 };
 
+type TimezoneInput = {
+  timezone?: unknown;
+};
+
 const SESSION_TTL_DAYS = 7;
 const PASSWORD_HASH_ROUNDS = 12;
 const USER_INCLUDE = {
@@ -41,8 +45,8 @@ const USER_INCLUDE = {
 export class AuthService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
-    private readonly modelCatalogService: ModelCatalogService,
-    private readonly securityAuditService: SecurityAuditService
+    @Inject(ModelCatalogService) private readonly modelCatalogService: ModelCatalogService,
+    @Inject(SecurityAuditService) private readonly securityAuditService: SecurityAuditService
   ) {}
 
   async register(input: RegisterInput, ipAddress?: string) {
@@ -218,6 +222,35 @@ export class AuthService {
     };
   }
 
+  async updateTimezone(context: AuthContext, input: TimezoneInput, ipAddress?: string) {
+    const timezone = this.validateTimezone(input.timezone);
+    const updatedUser = await this.prisma.$transaction(async (tx) => {
+      const nextUser = await tx.user.update({
+        where: { id: context.user.id },
+        data: { timezone },
+        include: USER_INCLUDE
+      });
+
+      await this.securityAuditService.record({
+        tx,
+        actorUserId: context.user.id,
+        action: 'user_timezone_updated',
+        targetType: 'user',
+        targetId: context.user.id,
+        ipAddress,
+        metadata: {
+          timezone
+        }
+      });
+
+      return nextUser;
+    });
+
+    return {
+      user: await this.toPublicUserWithModels(updatedUser)
+    };
+  }
+
   async logout(context: AuthContext, ipAddress?: string) {
     await this.prisma.$transaction(async (tx) => {
       await tx.session.update({
@@ -364,6 +397,7 @@ export class AuthService {
       role: user.role.toLowerCase(),
       inviteCode: user.inviteCode,
       timezone: user.timezone,
+      lastLoginIp: user.lastLoginIp ?? null,
       lastLoginAt: user.lastLoginAt?.toISOString() ?? null,
       createdAt: user.createdAt.toISOString(),
       group: {
@@ -379,10 +413,81 @@ export class AuthService {
   }
 
   private async toPublicUserWithModels(user: AuthenticatedUser) {
+    const [availableModels, totalCallCount, activeTokenCount, invitedUserCount, pendingReward, settledReward] =
+      await Promise.all([
+        this.modelCatalogService.listAvailableModelsForGroup(user.group.id),
+        this.prisma.usageEvent.count({
+          where: {
+            userId: user.id
+          }
+        }),
+        this.prisma.apiToken.count({
+          where: {
+            userId: user.id,
+            deletedAt: null,
+            revokedAt: null,
+            status: ApiTokenStatus.ACTIVE,
+            OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }]
+          }
+        }),
+        this.prisma.user.count({
+          where: {
+            invitedByUserId: user.id,
+            deletedAt: null
+          }
+        }),
+        this.prisma.referralReward.aggregate({
+          where: {
+            inviterUserId: user.id,
+            status: ReferralRewardStatus.PENDING
+          },
+          _sum: { amountCents: true },
+          _count: { _all: true }
+        }),
+        this.prisma.referralReward.aggregate({
+          where: {
+            inviterUserId: user.id,
+            status: ReferralRewardStatus.SETTLED
+          },
+          _sum: { amountCents: true },
+          _count: { _all: true }
+        })
+      ]);
+
     return {
       ...this.toPublicUser(user),
-      availableModels: await this.modelCatalogService.listAvailableModelsForGroup(user.group.id)
+      metrics: {
+        totalCallCount,
+        activeTokenCount
+      },
+      referral: {
+        invitedUserCount,
+        pendingRewardCents: pendingReward._sum.amountCents ?? 0,
+        pendingRewardCount: pendingReward._count._all,
+        settledRewardCents: settledReward._sum.amountCents ?? 0,
+        settledRewardCount: settledReward._count._all
+      },
+      availableModels
     };
+  }
+
+  private validateTimezone(value: unknown) {
+    if (typeof value !== 'string') {
+      throw new BadRequestException('timezone 不能为空');
+    }
+
+    const timezone = value.trim();
+    if (timezone.length < 1 || timezone.length > 64) {
+      throw new BadRequestException('timezone 长度必须为 1-64 位');
+    }
+
+    try {
+      new Intl.DateTimeFormat('en-US', { timeZone: timezone }).format(new Date());
+    } catch {
+      throw new BadRequestException('timezone 不是有效时区');
+    }
+
+    return timezone;
   }
 
   private assertActiveUser(status: UserStatus) {

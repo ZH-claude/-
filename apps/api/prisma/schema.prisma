@@ -97,6 +97,12 @@ enum NotificationDeliveryStatus {
   FAILED
 }
 
+enum ReferralRewardStatus {
+  PENDING
+  SETTLED
+  CANCELED
+}
+
 enum AsyncTaskKind {
   GENERIC
   IMAGE
@@ -161,6 +167,8 @@ model User {
   notificationPreference NotificationPreference?
   notificationChannels   NotificationChannel[]
   notificationDeliveries NotificationDelivery[]
+  referralRewardsAsInviter ReferralReward[] @relation("ReferralRewardInviter")
+  referralRewardsAsInvitee ReferralReward[] @relation("ReferralRewardInvitee")
   asyncTasks              AsyncTask[]
 
   @@index([groupId], map: "users_group_id_idx")
@@ -321,6 +329,24 @@ model NotificationDelivery {
   @@index([userId, createdAt], map: "notification_deliveries_user_created_at_idx")
   @@index([channelId, createdAt], map: "notification_deliveries_channel_created_at_idx")
   @@map("notification_deliveries")
+}
+
+model ReferralReward {
+  id            String               @id @default(uuid()) @db.Uuid
+  inviterUserId String               @map("inviter_user_id") @db.Uuid
+  inviterUser   User                 @relation("ReferralRewardInviter", fields: [inviterUserId], references: [id], onDelete: Cascade)
+  inviteeUserId String               @map("invitee_user_id") @db.Uuid
+  inviteeUser   User                 @relation("ReferralRewardInvitee", fields: [inviteeUserId], references: [id], onDelete: Cascade)
+  amountCents   Int                  @map("amount_cents")
+  status        ReferralRewardStatus @default(PENDING)
+  source        String?
+  settledAt     DateTime?            @map("settled_at")
+  createdAt     DateTime             @default(now()) @map("created_at")
+  updatedAt     DateTime             @updatedAt @map("updated_at")
+
+  @@index([inviterUserId, status, createdAt], map: "referral_rewards_inviter_status_created_at_idx")
+  @@index([inviteeUserId, createdAt], map: "referral_rewards_invitee_created_at_idx")
+  @@map("referral_rewards")
 }
 
 model Session {

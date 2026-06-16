@@ -140,7 +140,7 @@ export default function NotificationSettingsPage() {
           <span>Relay Console</span>
         </Link>
         <nav className="admin-top-actions" aria-label="通知设置导航">
-          <Link className="ghost-button" href="/account">
+          <Link className="ghost-button" href="/account/profile">
             <WalletOutlined />
             账户
           </Link>

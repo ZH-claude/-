@@ -117,7 +117,7 @@ export default function UsageLogPage() {
           <span>Relay Console</span>
         </Link>
         <nav className="admin-top-actions" aria-label="账户导航">
-          <Link className="ghost-button" href="/account">
+          <Link className="ghost-button" href="/account/profile">
             <WalletOutlined />
             账户
           </Link>

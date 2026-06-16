@@ -81,7 +81,7 @@ export default function PricingPage() {
           <span>Relay Console</span>
         </Link>
         <nav className="admin-top-actions" aria-label="费用说明导航">
-          <Link className="ghost-button" href="/account">
+          <Link className="ghost-button" href="/account/profile">
             <WalletOutlined />
             账户
           </Link>

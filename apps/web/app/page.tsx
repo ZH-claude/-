@@ -26,7 +26,7 @@ const { Header, Sider, Content } = Layout;
 
 const menuItems = [
   { key: 'home', icon: <DashboardOutlined />, label: <Link href="/">首页</Link> },
-  { key: 'profile', icon: <UserOutlined />, label: <Link href="/account">个人中心</Link> },
+  { key: 'profile', icon: <UserOutlined />, label: <Link href="/account/profile">个人中心</Link> },
   { key: 'token', icon: <KeyOutlined />, label: <Link href="/token">令牌</Link> },
   { key: 'logs', icon: <FileTextOutlined />, label: <Link href="/log">日志</Link> },
   { key: 'task', icon: <ClockCircleOutlined />, label: <Link href="/task">异步任务</Link> },

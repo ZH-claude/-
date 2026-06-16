@@ -21,7 +21,7 @@ export default function LoginPage() {
 
     try {
       await login({ username, password });
-      router.push('/account');
+      router.push('/account/profile');
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : '登录失败');
     } finally {

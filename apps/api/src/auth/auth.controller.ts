@@ -53,6 +53,12 @@ export class AuthController {
     return this.authService.changePassword(this.requireAuth(request), this.toRecord(body), this.getIpAddress(request));
   }
 
+  @UseGuards(AuthGuard)
+  @Post('timezone')
+  updateTimezone(@Body() body: unknown, @Req() request: AuthenticatedRequest) {
+    return this.authService.updateTimezone(this.requireAuth(request), this.toRecord(body), this.getIpAddress(request));
+  }
+
   private toRecord(value: unknown) {
     return value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
   }

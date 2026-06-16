@@ -5,6 +5,7 @@ export type PublicUser = {
   role: string;
   inviteCode: string;
   timezone: string;
+  lastLoginIp: string | null;
   lastLoginAt: string | null;
   createdAt: string;
   group: {
@@ -15,6 +16,17 @@ export type PublicUser = {
   wallet: {
     balanceCents: number;
     totalSpendCents: number;
+  };
+  metrics: {
+    totalCallCount: number;
+    activeTokenCount: number;
+  };
+  referral: {
+    invitedUserCount: number;
+    pendingRewardCents: number;
+    pendingRewardCount: number;
+    settledRewardCents: number;
+    settledRewardCount: number;
   };
   availableModels: AvailableModel[];
 };
@@ -61,6 +73,13 @@ export async function changePassword(
   payload: { currentPassword: string; newPassword: string }
 ) {
   return request<ProfileResponse>('/auth/change-password', {
+    method: 'POST',
+    body: payload
+  });
+}
+
+export async function updateTimezone(payload: { timezone: string }) {
+  return request<ProfileResponse>('/auth/timezone', {
     method: 'POST',
     body: payload
   });

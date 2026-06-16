@@ -19,6 +19,7 @@
     "qa:t18:rate-limits": "npm --prefix apps/api run qa:t18:rate-limits",
     "qa:t19:security-hardening": "npm --prefix apps/api run qa:t19:security-hardening",
     "qa:t20:observability": "npm --prefix apps/api run qa:t20:observability",
+    "qa:profile-alignment": "npm --prefix apps/api run qa:profile-alignment",
     "preflight:t21:prod": "node ops/deploy/preflight.mjs --env-file .env",
     "deploy:t21:prod": "sh ops/deploy/deploy.sh",
     "verify:t21:restart": "sh ops/deploy/restart-verify.sh",

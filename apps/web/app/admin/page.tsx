@@ -405,7 +405,7 @@ export default function AdminPage() {
           <span>Relay Console</span>
         </Link>
         <nav className="admin-top-actions" aria-label="后台操作">
-          <Link className="ghost-button" href="/account">
+          <Link className="ghost-button" href="/account/profile">
             <DashboardOutlined />
             账户
           </Link>

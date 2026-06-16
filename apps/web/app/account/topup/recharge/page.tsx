@@ -85,7 +85,7 @@ export default function RechargePage() {
           <span>Relay Console</span>
         </Link>
         <nav className="admin-top-actions" aria-label="账户操作">
-          <Link className="ghost-button" href="/account">
+          <Link className="ghost-button" href="/account/profile">
             <WalletOutlined />
             账户
           </Link>
