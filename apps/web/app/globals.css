@@ -591,6 +591,19 @@ button {
   min-width: 720px;
 }
 
+.audit-table th,
+.audit-table td {
+  overflow-wrap: normal;
+  white-space: nowrap;
+}
+
+.audit-table .table-note {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .merchant-users-table {
   min-width: 980px;
 }

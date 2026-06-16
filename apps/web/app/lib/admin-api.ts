@@ -291,7 +291,7 @@ export async function createAnnouncement(payload: {
   title: string;
   content: string;
   category: AnnouncementCategory;
-  status: 'draft' | 'published';
+  status: 'draft' | 'published' | 'archived';
 }) {
   return request<Announcement>('/admin/announcements', {
     method: 'POST',
@@ -389,14 +389,22 @@ export async function listRechargeCodes() {
   return request<RechargeCodeListResponse>('/admin/recharge-codes');
 }
 
-export async function listAdminAuditLogs(options: { limit?: number } = {}) {
+export async function listAdminAuditLogs(options: { page?: number; limit?: number } = {}) {
+  const page = options.page ?? 1;
   const limit = options.limit ?? 10;
-  return request<AdminAuditLogListResponse>(`/admin/audit-logs?limit=${encodeURIComponent(String(limit))}`);
+  const params = new URLSearchParams();
+  params.set('page', String(page));
+  params.set('limit', String(limit));
+  return request<AdminAuditLogListResponse>(`/admin/audit-logs?${params.toString()}`);
 }
 
-export async function listSecurityAuditLogs(options: { limit?: number } = {}) {
+export async function listSecurityAuditLogs(options: { page?: number; limit?: number } = {}) {
+  const page = options.page ?? 1;
   const limit = options.limit ?? 10;
-  return request<SecurityAuditLogListResponse>(`/admin/security-audit-logs?limit=${encodeURIComponent(String(limit))}`);
+  const params = new URLSearchParams();
+  params.set('page', String(page));
+  params.set('limit', String(limit));
+  return request<SecurityAuditLogListResponse>(`/admin/security-audit-logs?${params.toString()}`);
 }
 
 export async function getDashboardSummary() {
