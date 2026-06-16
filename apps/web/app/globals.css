@@ -1942,13 +1942,7 @@ button {
   }
 
   .merchant-primary-nav {
-    grid-column: 1 / -1;
-    grid-row: 2;
-    order: 3;
-  }
-
-  .merchant-primary-nav a {
-    min-height: 42px;
+    display: none;
   }
 
   .merchant-topbar-actions {

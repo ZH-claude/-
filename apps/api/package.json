@@ -27,6 +27,7 @@
     "qa:t22:merchant-model-config": "tsx scripts/t22-merchant-model-config-qa.ts",
     "qa:t22:merchant-announcements-audit": "tsx scripts/t22-merchant-announcements-audit-qa.ts",
     "qa:t22:merchant-service-logs": "tsx scripts/t22-merchant-service-logs-qa.ts",
+    "qa:t22:merchant-role-isolation": "tsx scripts/t22-merchant-role-isolation-qa.ts",
     "qa:t22:merchant-dashboard": "tsx scripts/t22-merchant-dashboard-qa.ts",
     "qa:profile-alignment": "tsx scripts/profile-alignment-qa.ts",
     "qa:t22:merchant-routing": "tsx scripts/t22-merchant-routing-qa.ts",

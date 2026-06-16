@@ -774,8 +774,9 @@ export class AdminService implements OnModuleInit {
   }
 
   async checkUpstreamHealth(adminUserId: string, upstreamProviderId: string) {
+    const providerId = this.requiredUuid(upstreamProviderId, 'upstreamProviderId');
     const provider = await this.prisma.upstreamProvider.findUnique({
-      where: { id: upstreamProviderId }
+      where: { id: providerId }
     });
 
     if (!provider) {
@@ -949,11 +950,12 @@ export class AdminService implements OnModuleInit {
   }
 
   async assignUserGroup(adminUserId: string, userId: string, body: AssignUserGroupInput) {
+    const targetUserId = this.requiredUuid(userId, 'userId');
     const groupId = this.requiredUuid(body.groupId, 'groupId');
 
     const [user, group] = await Promise.all([
       this.prisma.user.findFirst({
-        where: { id: userId, deletedAt: null },
+        where: { id: targetUserId, deletedAt: null },
         include: { group: true }
       }),
       this.prisma.userGroup.findUnique({

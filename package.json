@@ -26,6 +26,7 @@
     "qa:t22:merchant-model-config": "npm --prefix apps/api run qa:t22:merchant-model-config",
     "qa:t22:merchant-announcements-audit": "npm --prefix apps/api run qa:t22:merchant-announcements-audit",
     "qa:t22:merchant-service-logs": "npm --prefix apps/api run qa:t22:merchant-service-logs",
+    "qa:t22:merchant-role-isolation": "npm --prefix apps/api run qa:t22:merchant-role-isolation",
     "qa:t22:merchant-routing": "npm --prefix apps/api run qa:t22:merchant-routing",
     "qa:t22:merchant-shell": "npm --prefix apps/api run qa:t22:merchant-shell",
     "seed:merchant-test-accounts": "npm --prefix apps/api run seed:merchant-test-accounts",
