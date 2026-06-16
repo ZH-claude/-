@@ -28,7 +28,7 @@ type NavigationItem = {
 
 const merchantNavigationItems: NavigationItem[] = [
   { href: '/merchant', label: '首页', icon: <HomeOutlined />, topbar: true },
-  { href: '/admin#merchant-users', label: '用户', icon: <TeamOutlined />, topbar: true },
+  { href: '/merchant/users', label: '用户', icon: <TeamOutlined />, topbar: true },
   { href: '/admin#merchant-recharge-codes', label: '充值码', icon: <GiftOutlined />, topbar: true },
   { href: '/admin#merchant-groups', label: '分组状态', icon: <AppstoreOutlined /> },
   { href: '/token', label: '令牌入口', icon: <KeyOutlined /> },
@@ -192,6 +192,10 @@ function isActive(activePath: string, activeHash: string, href: string) {
 
   if (itemPath === '/admin') {
     return activePath === '/admin' && (itemHash ? activeHash === itemHash : activeHash === 'merchant-dashboard');
+  }
+
+  if (itemPath === '/merchant') {
+    return activePath === '/merchant';
   }
 
   return activePath === itemPath || activePath.startsWith(`${itemPath}/`);

@@ -121,7 +121,7 @@ QA/Review 重点：
 
 ### M04 商家端用户管理页
 
-状态：待开始
+状态：已完成
 
 范围：
 - 从当前 `/admin` 大页面拆出用户管理页。
@@ -138,6 +138,15 @@ QA/Review 重点：
 - 越权访问。
 - 分组变更失败时的错误提示。
 - 大量用户时分页或限制清晰。
+
+完成记录（2026-06-16）：
+- 已新增 `/merchant/users` 独立用户管理页，复用商家端 `MerchantShell`，顶部和左侧导航中的“用户”现在进入独立页面，不再停留在 `/admin` 大页面锚点。
+- 已将商家端服务端鉴权抽到 `merchant-auth.ts`，所有商家页统一用真实 HttpOnly cookie 调用 `/auth/me` 判断角色：未登录跳 `/login`，普通用户跳 `/account/profile`，商家/后台账号才渲染页面。
+- 已新增 `GET /admin/groups`，由 `AuthGuard + AdminGuard` 保护，只返回公开分组字段、用户数和模型授权数；用户页通过真实 `/admin/users` 分页读取列表，并通过真实 `/admin/users/:id/group` 更新用户分组。
+- 用户管理页展示用户名、角色、状态、当前分组、余额、累计消费、上次登录和分组调整；无数据时展示真实空状态，不放模拟用户。
+- 已新增 `npm run qa:t22:merchant-users`，通过真实 Postgres 临时创建管理员、普通用户、两个分组和钱包，真实登录后验证 `/admin/users`、`/admin/groups`、分组更新、数据库持久化、普通用户 403、敏感字段不泄漏；清理后用户、钱包、会话、审计和分组残留均为 0。
+- 已复跑 M01/M02/M03 回归：`qa:t22:merchant-routing`、`qa:t22:merchant-shell`、`qa:t22:merchant-dashboard` 均通过，确认双端分流、固定导航和 Dashboard 未回归。
+- 已用浏览器真实登录 `merchant_test_1 / merchant200611`，验证 1920、1366、390 三个视口：`/merchant/users` 存在、用户表和分组概览存在、普通用户菜单未泄漏、无横向溢出、控制台无错误。
 
 ### M05 商家端充值码管理页
 

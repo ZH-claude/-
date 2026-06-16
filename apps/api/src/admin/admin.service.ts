@@ -655,6 +655,24 @@ export class AdminService implements OnModuleInit {
     };
   }
 
+  async listUserGroups() {
+    const groups = await this.prisma.userGroup.findMany({
+      include: {
+        _count: {
+          select: {
+            users: true,
+            modelAccesses: true
+          }
+        }
+      },
+      orderBy: { code: 'asc' }
+    });
+
+    return {
+      items: groups.map((group) => this.toPublicGroup(group))
+    };
+  }
+
   async createUserGroup(adminUserId: string, body: UserGroupInput) {
     const code = this.normalizeGroupCode(body.code);
     const name = this.requiredText(body.name, 'name', 2, 80);

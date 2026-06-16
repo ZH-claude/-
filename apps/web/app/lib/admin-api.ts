@@ -222,6 +222,10 @@ type UserListResponse = {
   limit: number;
 };
 
+type GroupListResponse = {
+  items: AdminGroup[];
+};
+
 type AnnouncementListResponse = {
   items: Announcement[];
 };
@@ -272,8 +276,11 @@ type SecurityAuditLogListResponse = {
 
 const API_BASE_URL = '/api';
 
-export async function listAdminUsers() {
-  return request<UserListResponse>('/admin/users?limit=100');
+export async function listAdminUsers(options: { page?: number; limit?: number } = {}) {
+  const params = new URLSearchParams();
+  params.set('page', String(options.page ?? 1));
+  params.set('limit', String(options.limit ?? 100));
+  return request<UserListResponse>(`/admin/users?${params.toString()}`);
 }
 
 export async function listAnnouncements() {
@@ -331,6 +338,10 @@ export async function createUserGroup(payload: {
     method: 'POST',
     body: payload
   });
+}
+
+export async function listUserGroups() {
+  return request<GroupListResponse>('/admin/groups');
 }
 
 export async function assignUserGroup(userId: string, payload: { groupId: string }) {

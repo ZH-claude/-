@@ -587,6 +587,85 @@ button {
   min-width: 720px;
 }
 
+.merchant-users-table {
+  min-width: 980px;
+}
+
+.table-identity {
+  align-items: flex-start;
+  display: flex;
+  gap: 10px;
+  min-width: 0;
+}
+
+.table-identity > span {
+  color: #64748b;
+  margin-top: 2px;
+}
+
+.table-identity div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.table-identity strong,
+.table-identity small {
+  overflow-wrap: anywhere;
+}
+
+.table-identity small {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.row-action-grid {
+  align-items: center;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(180px, 1fr) auto;
+  min-width: 0;
+}
+
+.row-action-grid select {
+  min-width: 0;
+}
+
+.group-summary-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.group-summary-item {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 14px;
+}
+
+.group-summary-item div {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.group-summary-item strong,
+.group-summary-item small,
+.group-summary-item p {
+  overflow-wrap: anywhere;
+}
+
+.group-summary-item small,
+.group-summary-item p {
+  color: #64748b;
+  margin: 0;
+}
+
 .form-row,
 .mapping-form {
   display: grid;
@@ -1786,6 +1865,7 @@ button {
   .admin-grid,
   .form-row,
   .mapping-form,
+    .group-summary-grid,
     .log-filter-form,
     .availability-filter-form,
     .notification-form-grid,

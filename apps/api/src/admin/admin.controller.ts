@@ -115,6 +115,11 @@ export class AdminController {
     return this.adminService.listModelConfiguration({ upstreamModelsPage, upstreamModelsLimit });
   }
 
+  @Get('groups')
+  listUserGroups() {
+    return this.adminService.listUserGroups();
+  }
+
   @Post('groups')
   createUserGroup(
     @Req() request: AuthenticatedRequest,
