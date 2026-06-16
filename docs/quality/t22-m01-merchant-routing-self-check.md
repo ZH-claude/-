@@ -53,7 +53,7 @@ Result:
 | `npm --prefix apps/web run build` | Passed; `/merchant` is dynamic server-rendered route |
 | `npm run qa:t22:merchant-routing` with `DATABASE_URL`, `API_BASE_URL`, `WEB_BASE_URL` | Passed |
 | `git diff --check` | Passed |
-| `rg -n "mock|fake|fixture|dummy|placeholder|merchant200611" ...` | No matches in changed functional files |
+| `rg -n "mock|fake|fixture|dummy|placeholder|MERCHANT_TEST_PASSWORD" ...` | No matches in changed functional files |
 
 ## Review Notes
 

@@ -25,7 +25,7 @@
 
 - `npm run typecheck` 通过。
 - `npm run build` 通过。
-- 本地 Chrome 真实登录 `merchant_test_1 / merchant200611` 通过。
+- 本地 Chrome 真实登录 `merchant_test_1 / MERCHANT_TEST_PASSWORD` 通过。
 - 已验证页面：`/merchant/service-status`、`/merchant/request-logs`、`/merchant/drawing-logs`。
 - 已验证宽度：1366 和 390。
 - 页面结果：固定顶部栏和左侧栏存在，无“异步任务”误导入口，无 500，无旧英文品牌，无横向溢出。

@@ -1,6 +1,6 @@
 # API 中转站 Monorepo
 
-这是一个面向“API 中转站套娃”场景的全栈项目。当前已完成 MVP 用户端、管理端、Relay、计费、日志、通知、限流、安全审计和请求可观测性；T21 增加云服务器部署资产。
+这是一个面向“API 中转站套娃”场景的全栈项目。当前已完成 MVP 用户端、商家端、Relay、计费、日志、通知、限流、安全审计、请求可观测性和云服务器部署资产。
 
 ## 目录结构
 
@@ -41,6 +41,25 @@ Copy-Item .env.example .env
 ```
 
 不要把真实数据库密码、JWT 密钥、上游 API Key 写进文档或提交到仓库。
+
+## 用户端和商家端
+
+MVP 只部署一套 Web，不拆成两个网站，也不需要第二套登录系统。登录后按账号身份分流：
+
+- 普通用户进入 `/account/profile`，用于账户、余额、令牌、日志、价格、通知和服务状态。
+- 商家/后台账号进入 `/merchant`，用于用户、充值码、上游/模型、公告、审计、服务状态、请求日志和绘图日志。
+- 当前数据库角色仍是 `USER` 和 `ADMIN`。MVP 阶段商家端账号由 `ADMIN` 承载；真正多商家入驻、每个商家独立上游密钥和客户归属隔离，属于后续商用升级，不在当前 MVP 中伪造。
+
+本地或测试环境可创建 3 个商家端测试账号：
+
+```powershell
+$env:MERCHANT_TEST_PASSWORD='<本地测试密码>'
+npm run seed:merchant-test-accounts
+```
+
+创建的账号名为 `merchant_test_1`、`merchant_test_2`、`merchant_test_3`。密码只通过 `MERCHANT_TEST_PASSWORD` 传入，不写入生产脚本、`.env.example` 或 GitHub。生产环境应使用 `ADMIN_BOOTSTRAP_USERNAME` 和 `ADMIN_BOOTSTRAP_PASSWORD` 首次创建管理员账号，创建后清空这两个变量并重启。
+
+商家端的“上游/模型”页面用于录入另一个中转站的真实上游地址和 API Key；客户使用本平台发放的 Key 调用本平台，本平台再转发到上游。未配置真实上游时，页面和接口只能显示未配置或空状态，不能用假数据冒充可用。
 
 ## Docker 启动
 

@@ -27,7 +27,7 @@
 - `npm run qa:t22:merchant-routing`：通过。
 - `npm run qa:t22:merchant-shell`：通过。
 - `npm run qa:t22:merchant-dashboard`：通过。
-- 浏览器真实登录 `merchant_test_1 / merchant200611`：通过。
+- 浏览器真实登录 `merchant_test_1 / MERCHANT_TEST_PASSWORD`：通过。
 
 浏览器验证地址：
 

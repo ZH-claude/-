@@ -29,7 +29,7 @@
 - `npm run typecheck` 通过。
 - `npm run build` 通过。
 - 本地 Chrome 真实注册普通用户并真实登录。
-- 本地 Chrome 真实登录商家账号：`merchant_test_1 / merchant200611`。
+- 本地 Chrome 真实登录商家账号：`merchant_test_1 / MERCHANT_TEST_PASSWORD`。
 - 已验证用户端页面：`/account/profile`、`/account/topup/recharge`、`/token`、`/log`、`/account/pricing`、`/groupAvailability`、`/account/notificationSettings`、`/midjourney`、`/uptimeStatus`。
 - 已验证商家端页面：`/merchant`、`/admin`、`/merchant/users`、`/merchant/recharge-codes`、`/merchant/model-config`、`/merchant/announcements`、`/merchant/audit`、`/merchant/service-status`、`/merchant/request-logs`、`/merchant/drawing-logs`。
 - 已验证宽度：1366 和 390。

@@ -46,7 +46,7 @@
 - API：`http://127.0.0.1:3101`
 - Web：`http://127.0.0.1:3003`
 
-真实登录账号：`merchant_test_1 / merchant200611`
+真实登录账号：`merchant_test_1 / MERCHANT_TEST_PASSWORD`
 
 视口：
 - 1920 x 1080

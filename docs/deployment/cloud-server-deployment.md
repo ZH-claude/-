@@ -26,6 +26,7 @@
 | `ops/deploy/restart-verify.sh` | 重启恢复验证 |
 | `ops/deploy/rollback.sh` | 指定 Git ref 的回滚脚本 |
 | `ops/smoke/t21-deploy-smoke.mjs` | 部署后真实 HTTP smoke test |
+| `apps/api/scripts/seed-merchant-test-accounts.ts` | 本地/测试环境商家端测试账号创建脚本，密码必须通过环境变量传入 |
 | `.env.example` | 生产环境变量模板，不含真实密钥 |
 
 ## 3. 服务器初始化
@@ -82,6 +83,27 @@ openssl rand -hex 32
 ```
 
 不要把真实 `.env` 提交、发给 AI、写进 issue、写进 README 或保存到截图。
+
+### 4.1 商家端部署边界
+
+当前 MVP 是同一套 Web 按账号身份分流，不需要额外部署第二个商家端前端：
+
+| 账号类型 | 登录后入口 | 说明 |
+| --- | --- | --- |
+| 普通用户 | `/account/profile` | 账户、余额、令牌、日志、价格、通知和服务状态 |
+| 商家/后台账号 | `/merchant` | 用户、充值码、上游/模型、公告、审计、服务状态、请求日志和绘图日志 |
+
+生产环境首次管理员账号使用 `ADMIN_BOOTSTRAP_USERNAME` 和 `ADMIN_BOOTSTRAP_PASSWORD` 创建，创建成功后应清空并重启，避免每次启动都携带引导密码。
+
+本地或测试环境如需 3 个商家测试账号，只能手动设置 `MERCHANT_TEST_PASSWORD` 后运行：
+
+```bash
+MERCHANT_TEST_PASSWORD='<local-test-password>' npm run seed:merchant-test-accounts
+```
+
+脚本会创建或更新 `merchant_test_1`、`merchant_test_2`、`merchant_test_3`。不要在生产脚本、生产 `.env`、部署文档或仓库中写死测试密码；生产环境不建议保留这些测试账号。
+
+当前商家端是单平台老板模式：管理员在商家端录入上游中转站地址和上游 API Key，客户使用本平台发放的 Key 调用。多商家各自配置独立上游 Key、客户按商家归属转发，属于后续商用升级，不在当前 MVP 中伪造成已完成。
 
 上线前先跑预检：
 
