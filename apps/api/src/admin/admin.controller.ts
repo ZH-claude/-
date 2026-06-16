@@ -20,6 +20,11 @@ import { AuthenticatedRequest } from '../auth/auth.types';
 export class AdminController {
   constructor(@Inject(AdminService) private readonly adminService: AdminService) {}
 
+  @Get('dashboard-summary')
+  getDashboardSummary() {
+    return this.adminService.getDashboardSummary();
+  }
+
   @Get('users')
   listUsers(
     @Query('page') pageValue?: string,

@@ -97,8 +97,10 @@ async function main() {
     checks.push('admin_login_auth_and_role_verified');
 
     const adminMerchantEntry = await requestMerchantEntry(adminLogin.cookies);
-    assertRedirect(adminMerchantEntry, '/admin', 'admin /merchant redirect');
-    checks.push('admin_merchant_entry_redirects_to_admin');
+    assert(adminMerchantEntry.status >= 200 && adminMerchantEntry.status < 300, `admin /merchant should render dashboard, got ${adminMerchantEntry.status}`);
+    const adminMerchantEntryText = await adminMerchantEntry.text();
+    assertMerchantDashboardHtml(adminMerchantEntryText);
+    checks.push('admin_merchant_entry_renders_dashboard');
 
     const adminPage = await requestAdminPage(adminLogin.cookies);
     assert(adminPage.status >= 200 && adminPage.status < 300, `admin page status should be 2xx, got ${adminPage.status}`);
@@ -289,6 +291,12 @@ function assertIsShellHtml(text: string) {
   ];
   const foundCount = markers.filter((marker) => text.includes(marker)).length;
   assert(foundCount >= 5, `admin page did not render expected merchant shell markers, found only ${foundCount} markers`);
+}
+
+function assertMerchantDashboardHtml(text: string) {
+  const markers = ['merchant-shell-page', '商家工作台', '运营概览', '账户余额', '最近告警'];
+  const foundCount = markers.filter((marker) => text.includes(marker)).length;
+  assert(foundCount >= 4, `merchant dashboard page did not render expected markers, found only ${foundCount}`);
 }
 
 async function request<T>(method: string, path: string, body?: unknown, cookie?: string): Promise<HttpResult<T>> {

@@ -66,8 +66,10 @@ async function main() {
     checks.push('merchant_entry_sends_ordinary_user_back_to_user_console');
 
     const merchantEntry = await getMerchantEntry(merchantLogin.cookie);
-    assertRedirect(merchantEntry, '/admin', 'merchant entry');
-    checks.push('merchant_entry_sends_admin_to_admin_console');
+    assert(merchantEntry.status >= 200 && merchantEntry.status < 300, `merchant entry should render dashboard, got ${merchantEntry.status}`);
+    const merchantEntryText = await merchantEntry.text();
+    assertMerchantDashboardHtml(merchantEntryText);
+    checks.push('merchant_entry_renders_real_dashboard_for_admin');
 
     const ordinaryAdminUsers = await getApi('/admin/users?limit=1', ordinaryLogin.cookie);
     assert(ordinaryAdminUsers.status === 403, `ordinary user admin API should be 403, got ${ordinaryAdminUsers.status}`);
@@ -206,6 +208,12 @@ function assertRedirect(response: Response, expectedPath: string, label: string)
     location === expectedPath || location.endsWith(expectedPath),
     `${label} should redirect to ${expectedPath}, got ${location || '<empty>'}`
   );
+}
+
+function assertMerchantDashboardHtml(text: string) {
+  const markers = ['merchant-shell-page', '商家工作台', '运营概览', '账户余额', '最近告警'];
+  const found = markers.filter((marker) => text.includes(marker)).length;
+  assert(found >= 4, `merchant dashboard HTML missing expected markers, found ${found}`);
 }
 
 async function cleanup(userIds: string[]) {

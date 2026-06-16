@@ -855,6 +855,94 @@ button {
   font-size: 24px;
 }
 
+.metric-panel strong.tone-green {
+  color: #15803d;
+}
+
+.metric-panel strong.tone-red {
+  color: #dc2626;
+}
+
+.merchant-dashboard-heading {
+  gap: 16px;
+}
+
+.merchant-dashboard-heading small {
+  color: #64748b;
+  display: block;
+  margin-top: 8px;
+}
+
+.dashboard-rows {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+}
+
+.dashboard-rows div {
+  align-items: center;
+  border-bottom: 1px solid #eef2f7;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  min-width: 0;
+  padding-bottom: 12px;
+}
+
+.dashboard-rows div:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.dashboard-rows dt {
+  color: #64748b;
+  min-width: 0;
+}
+
+.dashboard-rows dd {
+  color: #111827;
+  font-weight: 800;
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.merchant-alert-list {
+  display: grid;
+  gap: 12px;
+}
+
+.merchant-alert-item {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+}
+
+.merchant-alert-item div {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+
+.merchant-alert-item strong,
+.merchant-alert-item p,
+.merchant-alert-item small {
+  overflow-wrap: anywhere;
+}
+
+.merchant-alert-item p {
+  color: #334155;
+  margin: 0;
+}
+
+.merchant-alert-item small {
+  color: #64748b;
+}
+
 .panel-title {
   align-items: center;
   display: flex;

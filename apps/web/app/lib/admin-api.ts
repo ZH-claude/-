@@ -30,6 +30,77 @@ export type Announcement = {
   updatedAt?: string;
 };
 
+export type DashboardAlert = {
+  id: string;
+  type: string;
+  severity: string;
+  title: string;
+  detail: string;
+  createdAt: string;
+};
+
+export type DashboardUsersSummary = {
+  total: number;
+  active: number;
+  disabled: number;
+  riskLocked: number;
+  admins: number;
+  ordinary: number;
+  newToday: number;
+};
+
+export type DashboardWalletSummary = {
+  totalBalanceCents: number;
+  totalSpendCents: number;
+};
+
+export type DashboardUsageSummary = {
+  callCount: number;
+  spendCents: number;
+  totalTokens: number;
+  statusCounts: Record<string, number>;
+};
+
+export type DashboardUpstreamSummary = {
+  total: number;
+  active: number;
+  disabled: number;
+  health: Record<string, number>;
+};
+
+export type DashboardModelsSummary = {
+  total: number;
+  active: number;
+  disabled: number;
+  upstreamMappings: {
+    total: number;
+    active: number;
+    disabled: number;
+  };
+};
+
+export type DashboardRechargeSummary = {
+  total: number;
+  unused: number;
+  used: number;
+  disabled: number;
+};
+
+export type DashboardSummary = {
+  generatedAt: string;
+  window: {
+    todayStart: string;
+    last24HoursStart: string;
+  };
+  users: DashboardUsersSummary;
+  wallets: DashboardWalletSummary;
+  today: DashboardUsageSummary;
+  upstreams: DashboardUpstreamSummary;
+  models: DashboardModelsSummary;
+  rechargeCodes: DashboardRechargeSummary;
+  recentAlerts: DashboardAlert[];
+};
+
 export type AnnouncementCategory = 'announcement' | 'update_log' | 'usage_guide';
 
 export type UpstreamProvider = {
@@ -315,6 +386,10 @@ export async function listAdminAuditLogs(options: { limit?: number } = {}) {
 export async function listSecurityAuditLogs(options: { limit?: number } = {}) {
   const limit = options.limit ?? 10;
   return request<SecurityAuditLogListResponse>(`/admin/security-audit-logs?limit=${encodeURIComponent(String(limit))}`);
+}
+
+export async function getDashboardSummary() {
+  return request<DashboardSummary>('/admin/dashboard-summary');
 }
 
 export async function createRechargeCodes(payload: { amountCents: number; count: number }) {

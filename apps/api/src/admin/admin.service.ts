@@ -9,10 +9,12 @@ import {
   AnnouncementStatus,
   GroupStatus,
   ModelStatus,
+  RechargeCodeStatus,
   UpstreamHealthStatus,
   UpstreamProviderStatus,
   UserRole,
-  UserStatus
+  UserStatus,
+  UsageEventStatus
 } from '../generated/prisma/client';
 import { PrismaService } from '../prisma.service';
 import { SecurityAuditService } from '../security-audit/security-audit.service';
@@ -77,6 +79,7 @@ const UPSTREAM_HEALTH_ERROR_MAX_LENGTH = 240;
 const UPSTREAM_DNS_LOOKUP_TIMEOUT_MS = 3000;
 const PRIVATE_UPSTREAM_ADDRESS_ERROR = 'Private or local upstream address is not allowed';
 const BLOCKED_UPSTREAM_HOSTNAMES = new Set(['localhost', 'host.docker.internal', 'metadata.google.internal']);
+const DASHBOARD_RECENT_ALERT_LIMIT = 5;
 
 @Injectable()
 export class AdminService implements OnModuleInit {
@@ -87,6 +90,223 @@ export class AdminService implements OnModuleInit {
 
   async onModuleInit() {
     await this.bootstrapAdminFromEnv();
+  }
+
+  async getDashboardSummary() {
+    const generatedAt = new Date();
+    const todayStart = this.startOfUtcDay(generatedAt);
+    const last24HoursStart = new Date(generatedAt.getTime() - 24 * 60 * 60 * 1000);
+    const userWhere = { deletedAt: null };
+
+    const [
+      userGroups,
+      newUsersToday,
+      walletAggregate,
+      todayUsageAggregate,
+      todayUsageCount,
+      todayUsageStatusGroups,
+      upstreamTotal,
+      upstreamStatusGroups,
+      upstreamHealthGroups,
+      modelStatusGroups,
+      upstreamModelStatusGroups,
+      rechargeStatusGroups,
+      recentRequestErrors,
+      unhealthyUpstreams
+    ] = await Promise.all([
+      this.prisma.user.groupBy({
+        by: ['status', 'role'],
+        where: userWhere,
+        _count: { _all: true }
+      }),
+      this.prisma.user.count({
+        where: {
+          ...userWhere,
+          createdAt: { gte: todayStart }
+        }
+      }),
+      this.prisma.wallet.aggregate({
+        where: {
+          user: userWhere
+        },
+        _sum: {
+          balanceCents: true,
+          totalSpendCents: true
+        }
+      }),
+      this.prisma.usageEvent.aggregate({
+        where: { createdAt: { gte: todayStart } },
+        _sum: {
+          costCents: true,
+          totalTokens: true
+        }
+      }),
+      this.prisma.usageEvent.count({
+        where: { createdAt: { gte: todayStart } }
+      }),
+      this.prisma.usageEvent.groupBy({
+        by: ['status'],
+        where: { createdAt: { gte: todayStart } },
+        _count: { _all: true }
+      }),
+      this.prisma.upstreamProvider.count(),
+      this.prisma.upstreamProvider.groupBy({
+        by: ['status'],
+        _count: { _all: true }
+      }),
+      this.prisma.upstreamProvider.groupBy({
+        by: ['healthStatus'],
+        _count: { _all: true }
+      }),
+      this.prisma.modelPrice.groupBy({
+        by: ['status'],
+        _count: { _all: true }
+      }),
+      this.prisma.upstreamModel.groupBy({
+        by: ['status'],
+        _count: { _all: true }
+      }),
+      this.prisma.rechargeCode.groupBy({
+        by: ['status'],
+        _count: { _all: true }
+      }),
+      this.prisma.requestLog.findMany({
+        where: {
+          createdAt: { gte: last24HoursStart },
+          OR: [
+            { errorCode: { not: null } },
+            { statusCode: { gte: 500 } }
+          ]
+        },
+        orderBy: { createdAt: 'desc' },
+        take: DASHBOARD_RECENT_ALERT_LIMIT,
+        select: {
+          requestId: true,
+          path: true,
+          model: true,
+          statusCode: true,
+          errorCode: true,
+          upstreamStatus: true,
+          createdAt: true
+        }
+      }),
+      this.prisma.upstreamProvider.findMany({
+        where: { healthStatus: UpstreamHealthStatus.UNHEALTHY },
+        orderBy: [{ lastHealthCheckAt: 'desc' }, { createdAt: 'desc' }],
+        take: DASHBOARD_RECENT_ALERT_LIMIT,
+        select: {
+          id: true,
+          name: true,
+          lastHealthCheckAt: true,
+          updatedAt: true
+        }
+      })
+    ]);
+
+    const userStatusCounts = this.enumCountMap(userGroups, 'status', [
+      UserStatus.ACTIVE,
+      UserStatus.DISABLED,
+      UserStatus.RISK_LOCKED
+    ]);
+    const userRoleCounts = this.enumCountMap(userGroups, 'role', [UserRole.USER, UserRole.ADMIN]);
+    const upstreamStatusCounts = this.enumCountMap(upstreamStatusGroups, 'status', [
+      UpstreamProviderStatus.ACTIVE,
+      UpstreamProviderStatus.DISABLED
+    ]);
+    const upstreamHealthCounts = this.enumCountMap(upstreamHealthGroups, 'healthStatus', [
+      UpstreamHealthStatus.HEALTHY,
+      UpstreamHealthStatus.UNHEALTHY,
+      UpstreamHealthStatus.UNKNOWN
+    ]);
+    const modelStatusCounts = this.enumCountMap(modelStatusGroups, 'status', [ModelStatus.ACTIVE, ModelStatus.DISABLED]);
+    const upstreamModelStatusCounts = this.enumCountMap(upstreamModelStatusGroups, 'status', [
+      ModelStatus.ACTIVE,
+      ModelStatus.DISABLED
+    ]);
+    const rechargeStatusCounts = this.enumCountMap(rechargeStatusGroups, 'status', [
+      RechargeCodeStatus.UNUSED,
+      RechargeCodeStatus.USED,
+      RechargeCodeStatus.DISABLED
+    ]);
+    const usageStatusCounts = this.enumCountMap(todayUsageStatusGroups, 'status', [
+      UsageEventStatus.BILLABLE,
+      UsageEventStatus.FREE,
+      UsageEventStatus.FAILED,
+      UsageEventStatus.METERING_UNKNOWN
+    ]);
+    const modelTotal = Object.values(modelStatusCounts).reduce((sum, count) => sum + count, 0);
+    const upstreamModelTotal = Object.values(upstreamModelStatusCounts).reduce((sum, count) => sum + count, 0);
+    const rechargeTotal = Object.values(rechargeStatusCounts).reduce((sum, count) => sum + count, 0);
+    const recentAlerts = [
+      ...recentRequestErrors.map((entry) => ({
+        id: `request:${entry.requestId}`,
+        type: 'request_error',
+        severity: entry.statusCode && entry.statusCode >= 500 ? 'high' : 'medium',
+        title: entry.errorCode ?? `HTTP ${entry.statusCode ?? 'error'}`,
+        detail: [entry.path, entry.model, entry.upstreamStatus].filter(Boolean).join(' · ') || '请求异常',
+        createdAt: entry.createdAt.toISOString()
+      })),
+      ...unhealthyUpstreams.map((entry) => ({
+        id: `upstream:${entry.id}`,
+        type: 'upstream_unhealthy',
+        severity: 'high',
+        title: '上游健康检查失败',
+        detail: entry.name,
+        createdAt: (entry.lastHealthCheckAt ?? entry.updatedAt).toISOString()
+      }))
+    ]
+      .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt))
+      .slice(0, DASHBOARD_RECENT_ALERT_LIMIT);
+
+    return {
+      generatedAt: generatedAt.toISOString(),
+      window: {
+        todayStart: todayStart.toISOString(),
+        last24HoursStart: last24HoursStart.toISOString()
+      },
+      users: {
+        total: userGroups.reduce((sum, group) => sum + this.groupCount(group), 0),
+        active: userStatusCounts.active,
+        disabled: userStatusCounts.disabled,
+        riskLocked: userStatusCounts.risk_locked,
+        admins: userRoleCounts.admin,
+        ordinary: userRoleCounts.user,
+        newToday: newUsersToday
+      },
+      wallets: {
+        totalBalanceCents: walletAggregate._sum.balanceCents ?? 0,
+        totalSpendCents: walletAggregate._sum.totalSpendCents ?? 0
+      },
+      today: {
+        callCount: todayUsageCount,
+        spendCents: todayUsageAggregate._sum.costCents ?? 0,
+        totalTokens: todayUsageAggregate._sum.totalTokens ?? 0,
+        statusCounts: usageStatusCounts
+      },
+      upstreams: {
+        total: upstreamTotal,
+        active: upstreamStatusCounts.active,
+        disabled: upstreamStatusCounts.disabled,
+        health: upstreamHealthCounts
+      },
+      models: {
+        total: modelTotal,
+        active: modelStatusCounts.active,
+        disabled: modelStatusCounts.disabled,
+        upstreamMappings: {
+          total: upstreamModelTotal,
+          active: upstreamModelStatusCounts.active,
+          disabled: upstreamModelStatusCounts.disabled
+        }
+      },
+      rechargeCodes: {
+        total: rechargeTotal,
+        unused: rechargeStatusCounts.unused,
+        used: rechargeStatusCounts.used,
+        disabled: rechargeStatusCounts.disabled
+      },
+      recentAlerts
+    };
   }
 
   async listUsers(options: ListUsersOptions) {
@@ -1335,5 +1555,33 @@ export class AdminService implements OnModuleInit {
       createdAt: provider.createdAt.toISOString(),
       updatedAt: provider.updatedAt.toISOString()
     };
+  }
+
+  private startOfUtcDay(date: Date) {
+    return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  }
+
+  private enumCountMap<T extends string>(
+    groups: Array<Record<string, unknown> & { _count?: true | { _all?: number } }>,
+    key: string,
+    expectedValues: T[]
+  ) {
+    const counts = Object.fromEntries(expectedValues.map((value) => [value.toLowerCase(), 0])) as Record<
+      Lowercase<T>,
+      number
+    >;
+
+    for (const group of groups) {
+      const value = group[key];
+      if (typeof value === 'string') {
+        counts[value.toLowerCase() as Lowercase<T>] = this.groupCount(group);
+      }
+    }
+
+    return counts;
+  }
+
+  private groupCount(group: { _count?: true | { _all?: number } }) {
+    return typeof group._count === 'object' ? group._count._all ?? 0 : 0;
   }
 }

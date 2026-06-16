@@ -2,6 +2,7 @@ import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { isMerchantRole } from '../lib/role-routing';
 import type { PublicUser } from '../lib/auth-api';
+import { MerchantDashboardView } from './merchant-dashboard-view';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,7 +18,7 @@ export default async function MerchantEntryPage() {
   }
 
   if (isMerchantRole(profile.user.role)) {
-    redirect('/admin');
+    return <MerchantDashboardView role={profile.user.role} username={profile.user.username} />;
   }
 
   redirect('/account/profile');

@@ -94,7 +94,7 @@ QA/Review 重点：
 
 ### M03 商家端入口 Dashboard
 
-状态：待开始
+状态：已完成
 
 范围：
 - 新增 `/merchant` 首页。
@@ -110,6 +110,14 @@ QA/Review 重点：
 - 聚合查询是否过滤软删除用户。
 - 是否暴露上游 API Key、token hash、充值码 hash。
 - 空数据库和已有数据两种场景都能加载。
+
+完成记录（2026-06-16）：
+- 已将 `/merchant` 从角色分流入口升级为商家端 Dashboard；未登录仍跳 `/login`，普通用户仍跳 `/account/profile`，商家/后台账号渲染独立工作台。
+- 已新增 `GET /admin/dashboard-summary`，由 `AuthGuard + AdminGuard` 保护；聚合用户、钱包、今日调用/消费、上游健康、模型数量、充值码状态和最近告警，所有数字来自真实 Prisma 查询。
+- Dashboard 前端复用 `MerchantShell`，展示账户余额、今日消费、活跃用户、上游状态、用户与资金、今日调用、上游健康、模型容量、充值码和最近告警；无数据时展示真实空状态。
+- 已新增 `npm run qa:t22:merchant-dashboard`，通过真实 Postgres 临时创建用户、钱包、令牌、上游、模型、usage、request log 和充值码，真实登录后用后台接口读取汇总，并用数据库实时重算值逐项比对；普通用户访问汇总接口返回 403；清理后残留为 0。
+- 已更新 M01/M02 回归脚本，使其验证新的 `/merchant` Dashboard 行为，而不是旧的 `/admin` 重定向。
+- 已用浏览器真实登录 `merchant_test_1 / merchant200611`，验证 1920、1366、390 三个视口：Dashboard 存在、商家导航存在、普通用户菜单未泄漏、无横向溢出、控制台无错误。
 
 ### M04 商家端用户管理页
 

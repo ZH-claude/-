@@ -330,6 +330,11 @@ T22 商家端独立化进展记录（2026-06-16）：
 - 商家端固定栏已包含首页、用户、充值码、分组状态、令牌入口、请求日志、绘图日志、上游/模型、公告、审计、服务状态；后台审计和安全审计区域来自真实后端接口并只展示脱敏字段。
 - 已新增 `npm run qa:t22:merchant-shell`，通过真实 Postgres、真实登录、真实 session、真实 `/admin` 页面和真实后台 API 权限验证商家 Shell 与双端兼容，结束后临时用户、钱包、会话和安全审计残留为 0。
 - 已完成本地浏览器真实登录验证：`merchant_test_1 / merchant200611` 在 1920、1366、390 三个视口下商家 Shell 存在、普通用户菜单未泄漏、无横向溢出、控制台无错误。
+- M03 商家端入口 Dashboard 已完成：`/merchant` 现在渲染商家工作台，不再只是跳 `/admin`；未登录跳 `/login`，普通用户跳 `/account/profile`。
+- 已新增 `GET /admin/dashboard-summary`，由后台权限保护，用真实数据库聚合用户、钱包、今日调用/消费、上游健康、模型、充值码和最近告警，不返回密码哈希、token hash、上游密钥、充值码 hash 或连接串。
+- 已新增 `npm run qa:t22:merchant-dashboard`，通过真实 Postgres 临时创建用户、钱包、令牌、上游、模型、usage、request log 和充值码，真实登录后与数据库实时重算结果逐项比对；普通用户访问汇总接口为 403；结束后临时数据残留为 0。
+- 已更新 `npm run qa:t22:merchant-routing` 和 `npm run qa:t22:merchant-shell`，适配新的 `/merchant` Dashboard 行为并复测通过。
+- 已完成本地浏览器真实登录验证：`merchant_test_1 / merchant200611` 在 1920、1366、390 三个视口下 Dashboard 存在、普通用户菜单未泄漏、无横向溢出、控制台无错误。
 
 账户中心功能对齐补强记录（2026-06-16）：
 

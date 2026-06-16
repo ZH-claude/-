@@ -22,6 +22,7 @@
     "qa:t18:rate-limits": "tsx scripts/t18-rate-limits-qa.ts",
     "qa:t19:security-hardening": "tsx scripts/t19-security-hardening-qa.ts",
     "qa:t20:observability": "tsx scripts/t20-observability-qa.ts",
+    "qa:t22:merchant-dashboard": "tsx scripts/t22-merchant-dashboard-qa.ts",
     "qa:profile-alignment": "tsx scripts/profile-alignment-qa.ts",
     "qa:t22:merchant-routing": "tsx scripts/t22-merchant-routing-qa.ts",
     "qa:t22:merchant-shell": "tsx scripts/t22-merchant-shell-qa.ts",

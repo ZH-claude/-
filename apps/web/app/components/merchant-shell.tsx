@@ -27,7 +27,7 @@ type NavigationItem = {
 };
 
 const merchantNavigationItems: NavigationItem[] = [
-  { href: '/admin#merchant-dashboard', label: '首页', icon: <HomeOutlined />, topbar: true },
+  { href: '/merchant', label: '首页', icon: <HomeOutlined />, topbar: true },
   { href: '/admin#merchant-users', label: '用户', icon: <TeamOutlined />, topbar: true },
   { href: '/admin#merchant-recharge-codes', label: '充值码', icon: <GiftOutlined />, topbar: true },
   { href: '/admin#merchant-groups', label: '分组状态', icon: <AppstoreOutlined /> },
@@ -122,7 +122,7 @@ export function MerchantShell({
   return (
     <main className="merchant-shell-page" data-console="merchant">
       <header className="merchant-shell-topbar">
-        <Link className="merchant-shell-brand" href="/admin#merchant-dashboard" onClick={() => setActiveHash('merchant-dashboard')}>
+        <Link className="merchant-shell-brand" href="/merchant" onClick={() => setActiveHash('merchant-dashboard')}>
           <span className="shell-logo-mark">R</span>
           <span>Relay Console</span>
         </Link>
