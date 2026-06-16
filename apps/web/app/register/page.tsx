@@ -45,8 +45,8 @@ export default function RegisterPage() {
     <main className="auth-page">
       <section className="auth-panel">
         <div className="auth-brand">
-          <span className="shell-logo-mark">R</span>
-          <span>Relay Console</span>
+          <span className="shell-logo-mark">中</span>
+          <span>中转站控制台</span>
         </div>
         <h1>注册账户</h1>
         <form className="auth-form" onSubmit={handleSubmit}>

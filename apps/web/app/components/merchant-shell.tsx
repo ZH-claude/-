@@ -34,7 +34,7 @@ const merchantNavigationItems: NavigationItem[] = [
   { href: '/token', label: '令牌入口', icon: <KeyOutlined /> },
   { href: '/log', label: '请求日志', icon: <FileTextOutlined /> },
   { href: '/midjourney', label: '绘图日志', icon: <PictureOutlined /> },
-  { href: '/admin#merchant-models', label: '上游/模型', icon: <ApiOutlined />, topbar: true },
+  { href: '/merchant/model-config', label: '上游/模型', icon: <ApiOutlined />, topbar: true },
   { href: '/admin#merchant-announcements', label: '公告', icon: <BellOutlined />, topbar: true },
   { href: '/admin#merchant-audit', label: '审计', icon: <FileTextOutlined />, topbar: true },
   { href: '/admin#merchant-service-status', label: '服务状态', icon: <CloudServerOutlined />, topbar: true }
@@ -103,7 +103,7 @@ export function MerchantShell({
   }, [role, username]);
 
   const displayUsername = username !== undefined ? username : loadedProfile?.username ?? null;
-  const displayRole = role !== undefined ? role : loadedProfile?.role ?? null;
+  const displayRole = formatRole(role !== undefined ? role : loadedProfile?.role ?? null);
   const logoutHandler = useMemo(() => onLogout ?? handleDefaultLogout, [onLogout]);
   const topbarItems = merchantNavigationItems.filter((item) => item.topbar);
 
@@ -123,8 +123,8 @@ export function MerchantShell({
     <main className="merchant-shell-page" data-console="merchant">
       <header className="merchant-shell-topbar">
         <Link className="merchant-shell-brand" href="/merchant" onClick={() => setActiveHash('merchant-dashboard')}>
-          <span className="shell-logo-mark">R</span>
-          <span>Relay Console</span>
+          <span className="shell-logo-mark">中</span>
+          <span>中转站控制台</span>
         </Link>
         <nav className="merchant-primary-nav" aria-label="商家端主导航">
           {topbarItems.map((item) => (
@@ -151,7 +151,7 @@ export function MerchantShell({
           </button>
           <div className="merchant-account-chip" title={displayUsername ?? undefined}>
             <strong>{displayUsername ?? '-'}</strong>
-            <span>{displayRole ?? 'admin'}</span>
+            <span>{displayRole}</span>
           </div>
         </div>
       </header>
@@ -180,6 +180,18 @@ export function MerchantShell({
 function getHrefHash(href: string) {
   const [, hash] = href.split('#');
   return hash ?? '';
+}
+
+function formatRole(role?: string | null) {
+  if (role === 'admin') {
+    return '管理员';
+  }
+
+  if (role === 'user') {
+    return '普通用户';
+  }
+
+  return role ?? '管理员';
 }
 
 function getHrefPath(href: string) {

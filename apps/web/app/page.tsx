@@ -89,9 +89,9 @@ export default function HomePage() {
       <section className="profile-card account-summary">
         <div>
           <p className="eyebrow">首页</p>
-          <h1>Relay Console</h1>
+          <h1>中转站控制台</h1>
           <p className="page-subtitle">
-            <ApiOutlined /> API 中转站后台
+            <ApiOutlined /> 智能服务中转后台
           </p>
         </div>
       </section>

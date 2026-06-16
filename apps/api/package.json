@@ -24,6 +24,7 @@
     "qa:t20:observability": "tsx scripts/t20-observability-qa.ts",
     "qa:t22:merchant-users": "tsx scripts/t22-merchant-users-qa.ts",
     "qa:t22:merchant-recharge-codes": "tsx scripts/t22-merchant-recharge-codes-qa.ts",
+    "qa:t22:merchant-model-config": "tsx scripts/t22-merchant-model-config-qa.ts",
     "qa:t22:merchant-dashboard": "tsx scripts/t22-merchant-dashboard-qa.ts",
     "qa:profile-alignment": "tsx scripts/profile-alignment-qa.ts",
     "qa:t22:merchant-routing": "tsx scripts/t22-merchant-routing-qa.ts",

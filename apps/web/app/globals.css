@@ -438,6 +438,10 @@ button {
   margin-top: 18px;
 }
 
+.group-status-table {
+  min-width: 520px;
+}
+
 .admin-table {
   border-collapse: collapse;
   min-width: 760px;

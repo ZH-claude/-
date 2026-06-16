@@ -23,6 +23,7 @@
     "qa:t22:merchant-dashboard": "npm --prefix apps/api run qa:t22:merchant-dashboard",
     "qa:t22:merchant-users": "npm --prefix apps/api run qa:t22:merchant-users",
     "qa:t22:merchant-recharge-codes": "npm --prefix apps/api run qa:t22:merchant-recharge-codes",
+    "qa:t22:merchant-model-config": "npm --prefix apps/api run qa:t22:merchant-model-config",
     "qa:t22:merchant-routing": "npm --prefix apps/api run qa:t22:merchant-routing",
     "qa:t22:merchant-shell": "npm --prefix apps/api run qa:t22:merchant-shell",
     "seed:merchant-test-accounts": "npm --prefix apps/api run seed:merchant-test-accounts",
