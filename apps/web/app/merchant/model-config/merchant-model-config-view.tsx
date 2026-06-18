@@ -30,9 +30,25 @@ const UPSTREAM_MAPPING_PAGE_LIMIT = 100;
 const DEFAULT_MODEL_MULTIPLIER = '1.0000';
 const DEFAULT_EXCHANGE_RATE = '7.200000';
 const DEFAULT_MARGIN_PERCENT = '10';
+const BASE_TOKEN_CNY_PER_MILLION = 8;
 
 type ModelStatus = 'active' | 'disabled';
 type ModelConfigMode = 'publish' | 'routes';
+type MappingPricingPreview = {
+  title: string;
+  lines: string[];
+};
+type MappingPricingPreviewInput = {
+  kind?: UpstreamProvider['kind'];
+  modelMultiplier: string;
+  upstreamInputPricePerMillion: string;
+  upstreamOutputPricePerMillion: string;
+  upstreamCurrency: 'CNY' | 'USD';
+  upstreamExchangeRate: string;
+  marginPercent: string;
+  inputTokensPer1k: string;
+  outputTokensPer1k: string;
+};
 
 export function MerchantModelConfigView({
   username,
@@ -106,6 +122,31 @@ export function MerchantModelConfigView({
       activeMappings: mappings.filter((mapping) => mapping.status === 'active' && mapping.providerStatus === 'active').length
     }),
     [mappings, models, upstreams]
+  );
+  const mappingPricingPreview = useMemo(
+    () =>
+      buildMappingPricingPreview({
+        kind: selectedMappingProvider?.kind,
+        modelMultiplier: mappingModelMultiplier,
+        upstreamInputPricePerMillion: mappingUpstreamInputPricePerMillion,
+        upstreamOutputPricePerMillion: mappingUpstreamOutputPricePerMillion,
+        upstreamCurrency: mappingUpstreamCurrency,
+        upstreamExchangeRate: mappingUpstreamExchangeRate,
+        marginPercent: mappingMarginPercent,
+        inputTokensPer1k: mappingInputTokensPer1k,
+        outputTokensPer1k: mappingOutputTokensPer1k
+      }),
+    [
+      mappingInputTokensPer1k,
+      mappingMarginPercent,
+      mappingModelMultiplier,
+      mappingOutputTokensPer1k,
+      mappingUpstreamCurrency,
+      mappingUpstreamExchangeRate,
+      mappingUpstreamInputPricePerMillion,
+      mappingUpstreamOutputPricePerMillion,
+      selectedMappingProvider?.kind
+    ]
   );
 
   async function loadData() {
@@ -353,10 +394,10 @@ export function MerchantModelConfigView({
         <div className="admin-heading merchant-dashboard-heading">
           <div>
             <p className="eyebrow">商家工作台</p>
-            <h1>{isRoutesPage ? '模型线路绑定' : '模型发布'}</h1>
+            <h1>{isRoutesPage ? '模型映射（上游线路）' : '模型发布'}</h1>
             <small>
               {isRoutesPage
-                ? '把已经发布的客户模型绑定到 DeepSeek 或中转站上游。'
+                ? '第三步：把已经发布的客户模型绑定到 DeepSeek 或中转站上游，并在这条线路上设置扣费。'
                 : '先准备用户看到的模型名；上游、真实模型和扣费规则都在后面单独配置。'}
             </small>
           </div>
@@ -487,10 +528,10 @@ export function MerchantModelConfigView({
           <span className="anchor-compat" id="merchant-upstream-models" aria-hidden="true" />
           <div className="panel-title">
             <LinkOutlined />
-            <h2>第二步：给客户模型绑定上游线路</h2>
+            <h2>第三步：模型映射（上游线路）</h2>
           </div>
           <p className="form-note">
-            这里给已发布模型选择上游线路。一个客户模型可以绑定 DeepSeek，也可以绑定其它中转站，上游失败时按线路顺序切换。
+            这里给已发布客户模型选择上游线路。一个客户模型可以绑定 DeepSeek，也可以绑定其它中转站；扣费规则也在这条线路里设置，上游失败时按线路顺序切换。
           </p>
           <form className="auth-form mapping-form" onSubmit={handleSaveMapping}>
             <label>
@@ -610,6 +651,14 @@ export function MerchantModelConfigView({
                   <input min={0} onChange={(event) => setMappingOutputTokensPer1k(event.target.value)} required type="number" value={mappingOutputTokensPer1k} />
                 </label>
               </>
+            ) : null}
+            {mappingPricingPreview ? (
+              <div className="form-note full-width-field pricing-preview">
+                <strong>{mappingPricingPreview.title}</strong>
+                {mappingPricingPreview.lines.map((line) => (
+                  <span key={line}>{line}</span>
+                ))}
+              </div>
             ) : null}
             <label>
               状态
@@ -782,6 +831,78 @@ function formatOptionalNumber(value: number | null | undefined) {
   return typeof value === 'number' ? formatNumber(value) : '-';
 }
 
+function buildMappingPricingPreview(input: MappingPricingPreviewInput): MappingPricingPreview | null {
+  if (!input.kind) {
+    return null;
+  }
+
+  if (input.kind === 'deepseek') {
+    const multiplier = parsePreviewNumber(input.modelMultiplier);
+    if (multiplier === null) {
+      return {
+        title: 'DeepSeek 线路扣费预览',
+        lines: ['填写倍率后会显示扣费预览。普通 DeepSeek 填 1，gpt5.5 如果按 5 倍卖就填 5。']
+      };
+    }
+
+    return {
+      title: 'DeepSeek 线路扣费预览',
+      lines: [
+        `线路倍率：${formatPreviewNumber(multiplier)} 倍。`,
+        `客户每产生 1,000 个真实 token，约扣 ${formatNumber(Math.ceil(multiplier * 1000))} token。`,
+        '普通 DeepSeek 填 1；其它模型按你要卖给客户的倍率填写。'
+      ]
+    };
+  }
+
+  if (input.kind === 'relay') {
+    const inputPrice = parsePreviewNumber(input.upstreamInputPricePerMillion);
+    const outputPrice = parsePreviewNumber(input.upstreamOutputPricePerMillion);
+    const exchangeRate = input.upstreamCurrency === 'USD' ? parsePreviewNumber(input.upstreamExchangeRate) : 1;
+    const marginPercent = parsePreviewNumber(input.marginPercent) ?? Number(DEFAULT_MARGIN_PERCENT);
+
+    if (inputPrice === null || outputPrice === null || exchangeRate === null) {
+      return {
+        title: '中转站线路扣费预览',
+        lines: [
+          '填完上游输入价、输出价和汇率后，会自动换算成 token 扣费。',
+          `换算口径：上游价格加价 ${formatPreviewNumber(marginPercent)}%，再按 ${BASE_TOKEN_CNY_PER_MILLION} 元 / 100 万 token 折算。`
+        ]
+      };
+    }
+
+    const marginRate = 1 + marginPercent / 100;
+    const inputMultiplier = (inputPrice * exchangeRate * marginRate) / BASE_TOKEN_CNY_PER_MILLION;
+    const outputMultiplier = (outputPrice * exchangeRate * marginRate) / BASE_TOKEN_CNY_PER_MILLION;
+
+    return {
+      title: '中转站线路扣费预览',
+      lines: [
+        `输入扣费：${formatPreviewNumber(inputMultiplier)} 倍，1K 输入约扣 ${formatNumber(Math.ceil(inputMultiplier * 1000))} token。`,
+        `输出扣费：${formatPreviewNumber(outputMultiplier)} 倍，1K 输出约扣 ${formatNumber(Math.ceil(outputMultiplier * 1000))} token。`,
+        `换算口径：上游价格 × 汇率 × 加价 ${formatPreviewNumber(marginPercent)}%，再除以 ${BASE_TOKEN_CNY_PER_MILLION} 元 / 100 万 token。`
+      ]
+    };
+  }
+
+  const inputTokens = parsePreviewNumber(input.inputTokensPer1k);
+  const outputTokens = parsePreviewNumber(input.outputTokensPer1k);
+  if (inputTokens === null || outputTokens === null) {
+    return {
+      title: '手动线路扣费预览',
+      lines: ['填完输入 token 和输出 token 后会显示扣费预览。']
+    };
+  }
+
+  return {
+    title: '手动线路扣费预览',
+    lines: [
+      `1K 输入扣 ${formatNumber(Math.ceil(inputTokens))} token。`,
+      `1K 输出扣 ${formatNumber(Math.ceil(outputTokens))} token。`
+    ]
+  };
+}
+
 function formatRoutePricing(mapping: UpstreamModelMapping) {
   const pricing = mapping.routePricing;
 
@@ -829,6 +950,22 @@ function trimNumber(value: string) {
   }
 
   return numberValue.toString();
+}
+
+function parsePreviewNumber(value: string) {
+  const trimmedValue = value.trim();
+  if (!trimmedValue) {
+    return null;
+  }
+
+  const numberValue = Number(trimmedValue);
+  return Number.isFinite(numberValue) && numberValue >= 0 ? numberValue : null;
+}
+
+function formatPreviewNumber(value: number) {
+  return new Intl.NumberFormat('zh-CN', {
+    maximumFractionDigits: 4
+  }).format(value);
 }
 
 function shortText(value: string, maxLength: number) {

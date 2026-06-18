@@ -103,25 +103,25 @@ export function MerchantDashboardView({ username, role }: { username: string; ro
             <h2>商家操作入口</h2>
           </div>
           <div className="merchant-action-list">
-            <Link className="merchant-action-link" href="/merchant/upstreams/deepseek">
-              <CloudServerOutlined />
-              <span>
-                <strong>接入上游供应商</strong>
-                <small>先保存 DeepSeek 或中转站上游，只维护地址、密钥和健康检查。</small>
-              </span>
-            </Link>
             <Link className="merchant-action-link" href="/merchant/model-config">
               <ApiOutlined />
               <span>
-                <strong>发布客户模型</strong>
-                <small>准备用户看到的模型名，例如 gpt5.5，并设置 token 倍率。</small>
+                <strong>第一步：发布客户模型</strong>
+                <small>只准备用户看到的模型名，例如 gpt5.5，不在这里设置上游和扣费。</small>
+              </span>
+            </Link>
+            <Link className="merchant-action-link" href="/merchant/upstreams/deepseek">
+              <CloudServerOutlined />
+              <span>
+                <strong>第二步：接入上游</strong>
+                <small>保存 DeepSeek 或中转站上游，只维护地址、密钥和健康检查。</small>
               </span>
             </Link>
             <Link className="merchant-action-link" href="/merchant/model-routes">
               <DatabaseOutlined />
               <span>
-                <strong>选择上游线路</strong>
-                <small>把已发布模型绑定到 DeepSeek 或中转站上游，支持多条备用线路。</small>
+                <strong>第三步：模型映射</strong>
+                <small>把已发布模型绑定到 DeepSeek 或中转站上游，并在这里设置 token 扣费。</small>
               </span>
             </Link>
             <Link className="merchant-action-link" href="/merchant/users">

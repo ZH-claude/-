@@ -866,7 +866,7 @@ function assertMerchantModelConfigHtml(text: string) {
   const found = markerGroups.filter((group) => group.some((marker) => text.includes(marker))).length;
   assert(found >= 4, `merchant model-config page missing expected merchant markers, found ${found}`);
   assert(!text.includes('id="merchant-model-routes"'), 'merchant model-config should not render route binding form');
-  assert(!text.includes('第二步：给客户模型绑定上游线路'), 'merchant model-config should not include route binding copy');
+  assert(!text.includes('第三步：模型映射（上游线路）'), 'merchant model-config should not include route binding copy');
   const forbiddenUserMarkers = ['个人中心', '余额充值', '通知设置', '令牌入口'];
   const leakedMarkers = forbiddenUserMarkers.filter((marker) => text.includes(marker));
   assert(leakedMarkers.length === 0, `merchant model-config leaked user-site markers: ${leakedMarkers.join(', ')}`);
@@ -886,8 +886,8 @@ function assertMerchantModelRoutesHtml(text: string) {
 
   const markerGroups: string[][] = [
     ['merchant-shell-page'],
-    ['模型线路绑定'],
-    ['第二步绑定上游线路', '第二步：给客户模型绑定上游线路'],
+    ['模型映射（上游线路）'],
+    ['第三步：模型映射（上游线路）'],
     ['真实上游模型名']
   ];
   const found = markerGroups.filter((group) => group.some((marker) => text.includes(marker))).length;
