@@ -195,7 +195,7 @@ async function main() {
 
     const recharge = await post<{ items: Array<{ code: string }> }>(
       '/admin/recharge-codes',
-      { amountCents: 100, count: 1 },
+      { amountCnyCents: 100, count: 1 },
       admin.cookie
     );
     assert(recharge.status === 201 || recharge.status === 200, `admin recharge code failed with ${recharge.status}`);

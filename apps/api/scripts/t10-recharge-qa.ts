@@ -18,6 +18,8 @@ type CreateCodesResponse = {
     id: string;
     code: string;
     amountCents: number;
+    amountBaseTokens: number;
+    faceValueCnyCents: number;
     status: string;
   }>;
 };
@@ -27,14 +29,15 @@ type ListCodesResponse = {
 };
 
 type RedeemResponse = {
-  recharge: { id: string; amountCents: number };
-  wallet: { balanceCents: number };
-  transaction: { id: string; amountCents: number; balanceAfterCents: number };
+  recharge: { id: string; amountCents: number; amountBaseTokens: number; faceValueCnyCents: number };
+  wallet: { balanceCents: number; balanceBaseTokens: number };
+  transaction: { id: string; amountCents: number; amountBaseTokens: number; balanceAfterCents: number; balanceAfterBaseTokens: number };
 };
 
 const API_BASE_URL = process.env.API_BASE_URL ?? 'http://127.0.0.1:3001';
 const DATABASE_URL = process.env.DATABASE_URL;
-const AMOUNT_CENTS = 1234;
+const FACE_VALUE_CNY_CENTS = 800;
+const EXPECTED_BASE_TOKENS = 1_000_000;
 
 if (!DATABASE_URL) {
   throw new Error('DATABASE_URL is required to run the T10 recharge QA script');
@@ -66,19 +69,24 @@ async function main() {
     });
     const user = await prisma.user.findUniqueOrThrow({ where: { username: userUsername } });
 
-    const blocked = await post('/admin/recharge-codes', { amountCents: AMOUNT_CENTS, count: 1 }, userCookie);
+    const blocked = await post('/admin/recharge-codes', { amountCnyCents: FACE_VALUE_CNY_CENTS, count: 1 }, userCookie);
     assert(blocked.status === 403, `non-admin create should be 403, got ${blocked.status}`);
     checks.push('admin_guard_blocks_user');
 
     const created = await post<CreateCodesResponse>(
       '/admin/recharge-codes',
-      { amountCents: AMOUNT_CENTS, count: 5 },
+      { amountCnyCents: FACE_VALUE_CNY_CENTS, count: 5 },
       adminCookie
     );
     assert(created.status >= 200 && created.status < 300, `admin create failed with ${created.status}`);
     assert(created.json.items.length === 5, `expected 5 recharge codes, got ${created.json.items.length}`);
+    for (const item of created.json.items) {
+      assert(item.faceValueCnyCents === FACE_VALUE_CNY_CENTS, `created code face value mismatch for ${item.id}`);
+      assert(item.amountBaseTokens === EXPECTED_BASE_TOKENS, `created code base token amount mismatch for ${item.id}`);
+      assert(item.amountCents === EXPECTED_BASE_TOKENS, `created code persisted amount mismatch for ${item.id}`);
+    }
     created.json.items.forEach((item) => knownCodeIds.push(item.id));
-    checks.push('admin_generates_codes_once');
+    checks.push('admin_generates_base_token_codes_once');
 
     const dbCodes = await prisma.rechargeCode.findMany({
       where: { id: { in: knownCodeIds } },
@@ -90,8 +98,10 @@ async function main() {
       assert(dbCode, `missing DB recharge code ${item.id}`);
       assert(dbCode!.codeHash === hashRechargeCode(item.code), `stored hash mismatch for ${item.id}`);
       assert(dbCode!.codeHash !== item.code, `plain code stored as hash for ${item.id}`);
+      assert(dbCode!.faceValueCnyCents === FACE_VALUE_CNY_CENTS, `DB face value mismatch for ${item.id}`);
+      assert(dbCode!.amountCents === EXPECTED_BASE_TOKENS, `DB base token amount mismatch for ${item.id}`);
     }
-    checks.push('database_stores_hash_not_plain_code');
+    checks.push('database_stores_hash_and_base_token_amount');
 
     const auditLogs = await prisma.adminAuditLog.findMany({
       where: { targetId: { in: knownCodeIds } }
@@ -114,7 +124,10 @@ async function main() {
     const firstCode = created.json.items[0]!;
     const redeem = await post<RedeemResponse>('/recharge/redeem', { code: firstCode.code }, userCookie);
     assert(redeem.status >= 200 && redeem.status < 300, `redeem failed with ${redeem.status}`);
-    assert(redeem.json.wallet.balanceCents === AMOUNT_CENTS, 'wallet balance did not increase after redeem');
+    assert(redeem.json.recharge.faceValueCnyCents === FACE_VALUE_CNY_CENTS, 'redeem face value mismatch');
+    assert(redeem.json.recharge.amountBaseTokens === EXPECTED_BASE_TOKENS, 'redeem base token amount mismatch');
+    assert(redeem.json.wallet.balanceCents === EXPECTED_BASE_TOKENS, 'wallet balance did not increase after redeem');
+    assert(redeem.json.wallet.balanceBaseTokens === EXPECTED_BASE_TOKENS, 'wallet base token balance mismatch after redeem');
 
     const rechargeTransaction = await prisma.walletTransaction.findFirstOrThrow({
       where: {
@@ -123,13 +136,13 @@ async function main() {
         type: WalletTransactionType.RECHARGE
       }
     });
-    assert(rechargeTransaction.amountCents === AMOUNT_CENTS, 'recharge transaction amount mismatch');
+    assert(rechargeTransaction.amountCents === EXPECTED_BASE_TOKENS, 'recharge transaction amount mismatch');
     assert(rechargeTransaction.idempotencyKey === `recharge:${firstCode.id}`, 'recharge idempotency key mismatch');
     checks.push('user_redeems_code_wallet_and_ledger');
 
     const duplicate = await post('/recharge/redeem', { code: firstCode.code }, userCookie);
     assert(duplicate.status === 409, `duplicate redeem should be 409, got ${duplicate.status}`);
-    await assertWalletBalance(user.id, AMOUNT_CENTS, 'duplicate redeem changed balance');
+    await assertWalletBalance(user.id, EXPECTED_BASE_TOKENS, 'duplicate redeem changed balance');
     checks.push('duplicate_redeem_no_balance_change');
 
     const disableUsed = await post(`/admin/recharge-codes/${firstCode.id}/disable`, {}, adminCookie);
@@ -141,12 +154,12 @@ async function main() {
     assert(disableUnused.status >= 200 && disableUnused.status < 300, `disable unused failed with ${disableUnused.status}`);
     const redeemDisabled = await post('/recharge/redeem', { code: disabledCode.code }, userCookie);
     assert(redeemDisabled.status === 400, `redeem disabled should be 400, got ${redeemDisabled.status}`);
-    await assertWalletBalance(user.id, AMOUNT_CENTS, 'disabled code changed balance');
+    await assertWalletBalance(user.id, EXPECTED_BASE_TOKENS, 'disabled code changed balance');
     checks.push('disabled_code_no_balance_change');
 
     const invalid = await post('/recharge/redeem', { code: 'RC-00000000000000000000000000000000' }, userCookie);
     assert(invalid.status === 400, `invalid code should be 400, got ${invalid.status}`);
-    await assertWalletBalance(user.id, AMOUNT_CENTS, 'invalid code changed balance');
+    await assertWalletBalance(user.id, EXPECTED_BASE_TOKENS, 'invalid code changed balance');
     checks.push('invalid_code_no_balance_change');
 
     const concurrentRedeemCode = created.json.items[2]!;
@@ -158,7 +171,7 @@ async function main() {
     const redeemConflicts = concurrentRedeemResults.filter((entry) => entry.status === 409);
     assert(redeemSuccesses.length === 1, `expected one concurrent redeem success, got ${redeemSuccesses.length}`);
     assert(redeemConflicts.length === 1, `expected one concurrent redeem conflict, got ${redeemConflicts.length}`);
-    await assertWalletBalance(user.id, AMOUNT_CENTS * 2, 'concurrent redeem changed balance incorrectly');
+    await assertWalletBalance(user.id, EXPECTED_BASE_TOKENS * 2, 'concurrent redeem changed balance incorrectly');
     checks.push('concurrent_same_code_single_success');
 
     const raceCode = created.json.items[3]!;
@@ -177,13 +190,21 @@ async function main() {
     );
     checks.push('concurrent_disable_or_redeem_no_server_error');
 
-    const records = await get<{ items: Array<{ rechargeCodeId: string | null; amountCents: number }> }>(
+    const records = await get<{
+      items: Array<{ rechargeCodeId: string | null; amountCents: number; amountBaseTokens: number; faceValueCnyCents: number | null }>;
+    }>(
       '/recharge/records',
       userCookie
     );
     assert(records.status === 200, `records failed with ${records.status}`);
     assert(
-      records.json.items.every((entry) => entry.rechargeCodeId && entry.amountCents > 0),
+      records.json.items.every(
+        (entry) =>
+          entry.rechargeCodeId &&
+          entry.amountCents > 0 &&
+          entry.amountBaseTokens > 0 &&
+          entry.faceValueCnyCents === FACE_VALUE_CNY_CENTS
+      ),
       'recharge records include non-real recharge transaction'
     );
     checks.push('user_recharge_records_are_real_recharge_transactions');

@@ -259,6 +259,7 @@ model RechargeCode {
   id                String              @id @default(uuid()) @db.Uuid
   codeHash          String              @unique @map("code_hash")
   amountCents       Int                 @map("amount_cents")
+  faceValueCnyCents Int                 @default(0) @map("face_value_cny_cents")
   status            RechargeCodeStatus  @default(UNUSED)
   createdByAdminId  String              @map("created_by_admin_id") @db.Uuid
   createdByAdmin    User                @relation("RechargeCodeCreator", fields: [createdByAdminId], references: [id], onDelete: Restrict)

@@ -2,7 +2,10 @@ export type RechargeRecord = {
   id: string;
   rechargeCodeId: string | null;
   amountCents: number;
+  amountBaseTokens: number;
+  faceValueCnyCents: number | null;
   balanceAfterCents: number;
+  balanceAfterBaseTokens: number;
   status: string;
   createdAt: string;
 };
@@ -11,16 +14,21 @@ export type RedeemRechargeResponse = {
   recharge: {
     id: string;
     amountCents: number;
+    amountBaseTokens: number;
+    faceValueCnyCents: number;
     usedAt: string;
   };
   wallet: {
     balanceCents: number;
+    balanceBaseTokens: number;
     totalSpendCents: number;
   };
   transaction: {
     id: string;
     amountCents: number;
+    amountBaseTokens: number;
     balanceAfterCents: number;
+    balanceAfterBaseTokens: number;
     createdAt: string;
   };
 };

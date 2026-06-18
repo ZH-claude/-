@@ -179,6 +179,8 @@ export type UpstreamModelMapping = {
 export type AdminRechargeCode = {
   id: string;
   amountCents: number;
+  amountBaseTokens: number;
+  faceValueCnyCents: number;
   status: string;
   createdBy?: string;
   usedBy?: string | null;
@@ -280,6 +282,8 @@ export type CreatedRechargeCode = {
   id: string;
   code: string;
   amountCents: number;
+  amountBaseTokens: number;
+  faceValueCnyCents: number;
   status: string;
   createdAt: string;
 };
@@ -598,7 +602,7 @@ export async function getDashboardSummary() {
   return request<DashboardSummary>('/admin/dashboard-summary');
 }
 
-export async function createRechargeCodes(payload: { amountCents: number; count: number }) {
+export async function createRechargeCodes(payload: { amountCnyCents: number; count: number }) {
   return request<CreateRechargeCodesResponse>('/admin/recharge-codes', {
     method: 'POST',
     body: payload

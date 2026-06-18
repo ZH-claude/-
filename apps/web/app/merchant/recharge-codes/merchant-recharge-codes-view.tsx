@@ -18,6 +18,9 @@ import {
 } from '../../lib/admin-api';
 import { logout } from '../../lib/auth-api';
 
+const RECHARGE_RATE_CNY_CENTS = 800;
+const RECHARGE_RATE_BASE_TOKENS = 1_000_000;
+
 export function MerchantRechargeCodesView({ username, role }: { username: string; role: string }) {
   const router = useRouter();
   const [codes, setCodes] = useState<AdminRechargeCode[]>([]);
@@ -45,6 +48,11 @@ export function MerchantRechargeCodesView({ username, role }: { username: string
       { total: 0, unused: 0, used: 0, disabled: 0 }
     );
   }, [codes]);
+
+  const estimatedBaseTokens = useMemo(() => {
+    const cents = parseCurrencyToCentsOrNull(amountCny);
+    return cents ? cnyCentsToBaseTokens(cents) : null;
+  }, [amountCny]);
 
   async function loadCodes() {
     setIsLoading(true);
@@ -74,12 +82,12 @@ export function MerchantRechargeCodesView({ username, role }: { username: string
     try {
       const rechargeAmountCents = parseCurrencyToCents(amountCny, '金额', { allowZero: false });
       const result = await createRechargeCodes({
-        amountCents: rechargeAmountCents,
+        amountCnyCents: rechargeAmountCents,
         count: Number(count)
       });
       setCreatedCodes(result.items);
       setCount('1');
-      setMessage(`已生成 ${result.items.length} 张充值码，明文只在本次页面状态中显示`);
+      setMessage(`已生成 ${result.items.length} 张充值码，每张到账 ${formatBaseTokens(result.items[0]?.amountBaseTokens ?? 0)} 基础 token`);
       await loadCodes();
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : '充值码生成失败');
@@ -129,7 +137,7 @@ export function MerchantRechargeCodesView({ username, role }: { username: string
           <div>
             <p className="eyebrow">商家工作台</p>
             <h1>充值码管理</h1>
-            <small>生成、查看状态和禁用未使用充值码；列表不返回明文码和 hash。</small>
+            <small>按人民币生成充值码，用户兑换后得到基础 token；默认 8 元约等于 100 万基础 token。</small>
           </div>
           <button className="icon-button" disabled={isLoading} onClick={() => void loadCodes()} title="刷新充值码" type="button">
             <ReloadOutlined />
@@ -141,7 +149,7 @@ export function MerchantRechargeCodesView({ username, role }: { username: string
 
         <section className="admin-metrics">
           <MetricPanel label="充值码总数" value={formatNumber(stats.total)} detail="最近 100 条真实记录" />
-          <MetricPanel label="未使用" value={formatNumber(stats.unused)} detail="可兑换余额" tone="green" />
+          <MetricPanel label="未使用" value={formatNumber(stats.unused)} detail="可兑换基础 token" tone="green" />
           <MetricPanel label="已使用" value={formatNumber(stats.used)} detail="已完成入账" />
           <MetricPanel label="已禁用" value={formatNumber(stats.disabled)} detail="不可再兑换" tone="red" />
         </section>
@@ -176,6 +184,9 @@ export function MerchantRechargeCodesView({ username, role }: { username: string
                 value={count}
               />
             </label>
+            <div className="form-help">
+              预计每张到账：<strong>{estimatedBaseTokens ? formatBaseTokens(estimatedBaseTokens) : '-'}</strong> 基础 token
+            </div>
             <button className="primary-button" disabled={isCreating} type="submit">
               <GiftOutlined />
               {isCreating ? '生成中' : '生成充值码'}
@@ -208,6 +219,7 @@ export function MerchantRechargeCodesView({ username, role }: { username: string
               <thead>
                 <tr>
                   <th>金额</th>
+                  <th>到账基础 token</th>
                   <th>状态</th>
                   <th>创建人</th>
                   <th>使用人</th>
@@ -219,7 +231,8 @@ export function MerchantRechargeCodesView({ username, role }: { username: string
               <tbody>
                 {codes.map((entry) => (
                   <tr key={entry.id}>
-                    <td>{formatMoney(entry.amountCents)}</td>
+                    <td>{formatMoney(entry.faceValueCnyCents)}</td>
+                    <td>{formatBaseTokens(entry.amountBaseTokens ?? entry.amountCents)}</td>
                     <td>
                       <span className={`status-pill ${getRechargeStatusClass(entry.status)}`}>
                         {entry.status}
@@ -250,7 +263,7 @@ export function MerchantRechargeCodesView({ username, role }: { username: string
                 ))}
                 {!codes.length && !isLoading ? (
                   <tr>
-                    <td colSpan={7}>暂无真实充值码记录</td>
+                    <td colSpan={8}>暂无真实充值码记录</td>
                   </tr>
                 ) : null}
               </tbody>
@@ -305,6 +318,29 @@ function parseCurrencyToCents(value: string, label: string, options: { allowZero
   }
 
   return cents;
+}
+
+function parseCurrencyToCentsOrNull(value: string) {
+  const numericValue = Number(value);
+  const cents = Math.round(numericValue * 100);
+
+  if (!Number.isFinite(numericValue) || !Number.isInteger(cents) || cents <= 0) {
+    return null;
+  }
+
+  return cents;
+}
+
+function cnyCentsToBaseTokens(cents: number) {
+  return Math.round((cents * RECHARGE_RATE_BASE_TOKENS) / RECHARGE_RATE_CNY_CENTS);
+}
+
+function formatBaseTokens(value: number | null | undefined) {
+  if (value === null || value === undefined) {
+    return '-';
+  }
+
+  return new Intl.NumberFormat('zh-CN').format(value);
 }
 
 function formatNumber(value: number | null | undefined) {

@@ -22,7 +22,7 @@ export default function NotificationSettingsPage() {
   const router = useRouter();
   const [settings, setSettings] = useState<NotificationSettingsResponse | null>(null);
   const [balanceLowEnabled, setBalanceLowEnabled] = useState(false);
-  const [thresholdUsd, setThresholdUsd] = useState('');
+  const [thresholdBaseTokens, setThresholdBaseTokens] = useState('');
   const [securityAlertsEnabled, setSecurityAlertsEnabled] = useState(true);
   const [systemAnnouncementsEnabled, setSystemAnnouncementsEnabled] = useState(true);
   const [promotionsEnabled, setPromotionsEnabled] = useState(false);
@@ -65,9 +65,12 @@ export default function NotificationSettingsPage() {
     setMessage('');
 
     try {
-      const thresholdCents = thresholdUsd.trim() ? Math.round(Number(thresholdUsd) * 100) : null;
-      if (thresholdUsd.trim() && (!Number.isFinite(Number(thresholdUsd)) || Number(thresholdUsd) < 0)) {
-        throw new Error('余额阈值必须是非负金额');
+      const thresholdCents = thresholdBaseTokens.trim() ? Number(thresholdBaseTokens) : null;
+      if (
+        thresholdBaseTokens.trim() &&
+        (!Number.isInteger(Number(thresholdBaseTokens)) || Number(thresholdBaseTokens) < 0)
+      ) {
+        throw new Error('余额阈值必须是非负基础 token 整数');
       }
 
       const result = await updateNotificationSettings({
@@ -115,10 +118,10 @@ export default function NotificationSettingsPage() {
   function applySettings(nextSettings: NotificationSettingsResponse) {
     setSettings(nextSettings);
     setBalanceLowEnabled(nextSettings.preference.balanceLowEnabled);
-    setThresholdUsd(
+    setThresholdBaseTokens(
       nextSettings.preference.balanceLowThresholdCents === null
         ? ''
-        : (nextSettings.preference.balanceLowThresholdCents / 100).toFixed(2)
+        : String(nextSettings.preference.balanceLowThresholdCents)
     );
     setSecurityAlertsEnabled(nextSettings.preference.securityAlertsEnabled);
     setSystemAnnouncementsEnabled(nextSettings.preference.systemAnnouncementsEnabled);
@@ -137,7 +140,7 @@ export default function NotificationSettingsPage() {
         <section className="account-panel account-summary">
           <div>
             <p className="eyebrow">通知设置</p>
-            <h1>{isLoading ? '加载中' : formatCents(settings?.wallet.balanceCents ?? 0)}</h1>
+            <h1>{isLoading ? '加载中' : formatBaseTokens(settings?.wallet.balanceCents ?? 0)}</h1>
           </div>
           <button className="icon-button" disabled={isLoading} onClick={() => void loadSettings()} title="刷新通知设置" type="button">
             <ReloadOutlined />
@@ -147,7 +150,7 @@ export default function NotificationSettingsPage() {
         <div className="metric-panel">
           <span>余额预警</span>
           <strong>{balanceLowEnabled ? '已启用' : '未启用'}</strong>
-          <small>阈值 {thresholdUsd ? `$${Number(thresholdUsd).toFixed(2)}` : '-'}</small>
+          <small>阈值 {thresholdBaseTokens ? formatBaseTokens(Number(thresholdBaseTokens)) : '-'}</small>
         </div>
         <div className="metric-panel">
           <span>Webhook</span>
@@ -175,15 +178,15 @@ export default function NotificationSettingsPage() {
               余额预警
             </label>
             <label>
-              余额阈值（美元）
+              余额阈值（基础 token）
               <input
                 inputMode="decimal"
                 min="0"
-                onChange={(event) => setThresholdUsd(event.target.value)}
-                placeholder="10.00"
-                step="0.01"
+                onChange={(event) => setThresholdBaseTokens(event.target.value)}
+                placeholder="1000000"
+                step="1"
                 type="number"
-                value={thresholdUsd}
+                value={thresholdBaseTokens}
               />
             </label>
             <label className="toggle-label">
@@ -366,8 +369,8 @@ function formatDeliveryStatus(status: string | null) {
   return '-';
 }
 
-function formatCents(value: number) {
-  return `$${(value / 100).toFixed(2)}`;
+function formatBaseTokens(value: number) {
+  return `${new Intl.NumberFormat('zh-CN').format(value)} 基础 token`;
 }
 
 function formatDateTime(value: string | null) {

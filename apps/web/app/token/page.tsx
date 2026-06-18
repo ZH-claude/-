@@ -41,7 +41,7 @@ type TokenFilters = {
 
 type TokenFormState = {
   name: string;
-  quotaUsd: string;
+  quotaBaseTokens: string;
   expiresAt: string;
   modelNames: string[];
   note: string;
@@ -55,7 +55,7 @@ const defaultFilters: TokenFilters = {
 
 const emptyTokenForm: TokenFormState = {
   name: '',
-  quotaUsd: '',
+  quotaBaseTokens: '',
   expiresAt: '',
   modelNames: [],
   note: ''
@@ -166,7 +166,7 @@ export default function TokenPage() {
     setEditingTokenId(token.id);
     setForm({
       name: token.name,
-      quotaUsd: token.quotaCents === null || token.quotaCents === undefined ? '' : (token.quotaCents / 100).toFixed(2),
+      quotaBaseTokens: token.quotaCents === null || token.quotaCents === undefined ? '' : String(token.quotaCents),
       expiresAt: token.expiresAt && new Date(token.expiresAt) > new Date() ? toDateTimeLocal(token.expiresAt) : '',
       modelNames: token.modelNames,
       note: token.note ?? ''
@@ -184,7 +184,7 @@ export default function TokenPage() {
     setError('');
     setMessage('');
 
-    const quotaValue = normalizeQuotaCents(form.quotaUsd);
+    const quotaValue = normalizeQuotaBaseTokens(form.quotaBaseTokens);
     if (quotaValue instanceof Error) {
       setError(quotaValue.message);
       return;
@@ -331,7 +331,7 @@ export default function TokenPage() {
       '按量优先',
       getTokenEffectiveState(token).label,
       formatModelScope(token),
-      formatCents(token.usedCents),
+      formatBaseTokens(token.usedCents),
       formatRemainingQuota(token),
       formatDate(token.createdAt) ?? '-',
       formatDate(token.lastUsedAt) ?? '-',
@@ -458,8 +458,8 @@ export default function TokenPage() {
                   <th>计费方式</th>
                   <th>状态</th>
                   <th>可用模型</th>
-                  <th>消耗额度</th>
-                  <th>剩余额度</th>
+                  <th>消耗基础 token</th>
+                  <th>剩余基础 token</th>
                   <th>创建时间</th>
                   <th>最后使用时间</th>
                   <th>过期时间</th>
@@ -488,7 +488,7 @@ export default function TokenPage() {
                     </td>
                     <td>{renderTokenState(token)}</td>
                     <td>{renderModelScope(token)}</td>
-                    <td>{formatCents(token.usedCents)}</td>
+                    <td>{formatBaseTokens(token.usedCents)}</td>
                     <td>{formatRemainingQuota(token)}</td>
                     <td>{formatDate(token.createdAt)}</td>
                     <td>{formatDate(token.lastUsedAt) ?? '-'}</td>
@@ -582,14 +582,14 @@ export default function TokenPage() {
               </label>
               <div className="form-row">
                 <label>
-                  额度（美元，可空）
+                  额度（基础 token，可空）
                   <input
                     min={0}
-                    onChange={(event) => setForm((current) => ({ ...current, quotaUsd: event.target.value }))}
+                    onChange={(event) => setForm((current) => ({ ...current, quotaBaseTokens: event.target.value }))}
                     placeholder="留空表示不限制"
-                    step={0.01}
+                    step={1}
                     type="number"
-                    value={form.quotaUsd}
+                    value={form.quotaBaseTokens}
                   />
                 </label>
                 <label>
@@ -658,22 +658,17 @@ export default function TokenPage() {
   }
 }
 
-function normalizeQuotaCents(value: string) {
+function normalizeQuotaBaseTokens(value: string) {
   if (!value.trim()) {
     return null;
   }
 
   const numericValue = Number(value);
-  const cents = Math.round(numericValue * 100);
-  if (!Number.isFinite(numericValue) || cents < 0) {
-    return new Error('额度必须是大于等于 0 的美元金额');
+  if (!Number.isInteger(numericValue) || numericValue < 0) {
+    return new Error('额度必须是大于等于 0 的基础 token 整数');
   }
 
-  if (Math.abs(cents / 100 - numericValue) > 0.000001) {
-    return new Error('额度最多保留两位小数');
-  }
-
-  return cents;
+  return numericValue;
 }
 
 function renderTokenState(token: ApiToken) {
@@ -735,7 +730,7 @@ function formatRemainingQuota(token: ApiToken) {
     return '无限制';
   }
 
-  return formatCents(Math.max(0, token.quotaCents - token.usedCents));
+  return formatBaseTokens(Math.max(0, token.quotaCents - token.usedCents));
 }
 
 function formatDate(value?: string | null) {
@@ -756,8 +751,8 @@ function toDateTimeLocal(value: string) {
   return localDate.toISOString().slice(0, 16);
 }
 
-function formatCents(value: number) {
-  return `$${(value / 100).toFixed(2)}`;
+function formatBaseTokens(value: number) {
+  return new Intl.NumberFormat('zh-CN').format(value);
 }
 
 function quoteCsvCell(value: string) {

@@ -35,21 +35,26 @@ type CreateResponse = {
     id: string;
     code: string;
     amountCents: number;
+    amountBaseTokens: number;
+    faceValueCnyCents: number;
     status: string;
   }>;
 };
 
 type AdminListResponse = {
-  items: Array<Record<string, unknown> & { id: string; status: string; amountCents: number }>;
+  items: Array<Record<string, unknown> & { id: string; status: string; amountCents: number; amountBaseTokens: number; faceValueCnyCents: number }>;
 };
 
 type RedeemResponse = {
   recharge: {
     id: string;
     amountCents: number;
+    amountBaseTokens: number;
+    faceValueCnyCents: number;
   };
   wallet: {
     balanceCents: number;
+    balanceBaseTokens: number;
     totalSpendCents: number;
   };
 };
@@ -67,7 +72,8 @@ type ResidualCounts = {
 const API_BASE_URL = process.env.API_BASE_URL ?? 'http://127.0.0.1:3001';
 const WEB_BASE_URL = process.env.WEB_BASE_URL ?? 'http://127.0.0.1:3000';
 const DATABASE_URL = process.env.DATABASE_URL;
-const AMOUNT_CENTS = 1234;
+const FACE_VALUE_CNY_CENTS = 800;
+const EXPECTED_BASE_TOKENS = 1_000_000;
 const CODE_COUNT = 2;
 
 if (!DATABASE_URL) {
@@ -128,20 +134,22 @@ async function main() {
     assertMerchantRechargeCodesHtml(merchantPage.text);
     checks.push('merchant_recharge_codes_page_renders_and_blocks_unauthorized_users');
 
-    const userCreateBlocked = await post<CreateResponse>('/admin/recharge-codes', { amountCents: AMOUNT_CENTS, count: 1 }, userCookie);
+    const userCreateBlocked = await post<CreateResponse>('/admin/recharge-codes', { amountCnyCents: FACE_VALUE_CNY_CENTS, count: 1 }, userCookie);
     assert(userCreateBlocked.status === 403, `ordinary user creating admin recharge code should be 403, got ${userCreateBlocked.status}`);
 
     const userListBlocked = await get<AdminListResponse>('/admin/recharge-codes', userCookie);
     assert(userListBlocked.status === 403, `ordinary user reading admin recharge-code list should be 403, got ${userListBlocked.status}`);
     checks.push('ordinary_user_is_forbidden_from_admin_recharge_code_endpoints');
 
-    const created = await post<CreateResponse>('/admin/recharge-codes', { amountCents: AMOUNT_CENTS, count: CODE_COUNT }, merchantCookie);
+    const created = await post<CreateResponse>('/admin/recharge-codes', { amountCnyCents: FACE_VALUE_CNY_CENTS, count: CODE_COUNT }, merchantCookie);
     assert(created.status === 200 || created.status === 201, `admin create recharge codes failed with ${created.status}`);
     assert(created.json.items.length === CODE_COUNT, `expected ${CODE_COUNT} recharge items, got ${created.json.items.length}`);
 
     for (const item of created.json.items) {
       assert(typeof item.code === 'string' && item.code.length > 0, `created item ${item.id} is missing plain code`);
       assert(/^(RC-[A-F0-9]{32})$/.test(item.code), `created code ${item.id} is malformed`);
+      assert(item.faceValueCnyCents === FACE_VALUE_CNY_CENTS, `created code face value mismatch for ${item.id}`);
+      assert(item.amountBaseTokens === EXPECTED_BASE_TOKENS, `created code base token amount mismatch for ${item.id}`);
       knownCodeIds.push(item.id);
       knownPlainCodes.push(item.code);
       const expectedHash = hashRechargeCode(item.code);
@@ -149,6 +157,8 @@ async function main() {
       assert(dbCode.codeHash === expectedHash, `hash mismatch for created code ${item.id}`);
       assert(dbCode.createdByAdminId === seeded.userIds.admin, `created code ${item.id} owner mismatch`);
       assert(dbCode.codeHash !== item.code, `stored plain code for ${item.id}`);
+      assert(dbCode.faceValueCnyCents === FACE_VALUE_CNY_CENTS, `DB face value mismatch for ${item.id}`);
+      assert(dbCode.amountCents === EXPECTED_BASE_TOKENS, `DB base token amount mismatch for ${item.id}`);
       assert(dbCode.status === RechargeCodeStatus.UNUSED, `new code ${item.id} should be unused`);
     }
     checks.push('admin_can_create_recharge_codes_and_only_payload_exposes_plaintext');
@@ -163,6 +173,8 @@ async function main() {
     for (const id of knownCodeIds) {
       const listed = adminList.json.items.find((entry) => entry.id === id);
       assert(!!listed, `admin list should include created code ${id}`);
+      assert(listed.faceValueCnyCents === FACE_VALUE_CNY_CENTS, `admin list face value mismatch for ${id}`);
+      assert(listed.amountBaseTokens === EXPECTED_BASE_TOKENS, `admin list base token amount mismatch for ${id}`);
       assert(!Object.prototype.hasOwnProperty.call(listed, 'code'), `admin list leaked plaintext code for ${id}`);
       assert(!Object.prototype.hasOwnProperty.call(listed, 'codeHash'), `admin list leaked codeHash for ${id}`);
       assert(!listText.includes(`"codeHash":`), `admin list response should not include codeHash keys`);
@@ -192,10 +204,16 @@ async function main() {
 
     const redeem = await post<RedeemResponse>('/recharge/redeem', { code: firstCode.code }, userCookie);
     assert(redeem.status === 200 || redeem.status === 201, `redeem should be successful, got ${redeem.status}`);
-    assert(redeem.json.wallet.balanceCents === beforeWallet.balanceCents + AMOUNT_CENTS, 'wallet balance should increase by recharge amount');
+    assert(redeem.json.recharge.faceValueCnyCents === FACE_VALUE_CNY_CENTS, 'redeem face value mismatch');
+    assert(redeem.json.recharge.amountBaseTokens === EXPECTED_BASE_TOKENS, 'redeem base token amount mismatch');
+    assert(redeem.json.wallet.balanceCents === beforeWallet.balanceCents + EXPECTED_BASE_TOKENS, 'wallet balance should increase by base token amount');
+    assert(
+      redeem.json.wallet.balanceBaseTokens === beforeWallet.balanceCents + EXPECTED_BASE_TOKENS,
+      'wallet base token balance should increase by base token amount'
+    );
     assert(redeem.json.recharge.id === firstCode.id, 'redeem response should reference redeemed code id');
     const afterWallet = await prisma.wallet.findUniqueOrThrow({ where: { userId: seeded.userIds.user } });
-    assert(afterWallet.balanceCents === beforeWallet.balanceCents + AMOUNT_CENTS, 'wallet balance from DB should increase after redeem');
+    assert(afterWallet.balanceCents === beforeWallet.balanceCents + EXPECTED_BASE_TOKENS, 'wallet balance from DB should increase after redeem');
 
     const redeemedCode = await prisma.rechargeCode.findUniqueOrThrow({ where: { id: firstCode.id } });
     assert(redeemedCode.status === RechargeCodeStatus.USED, 'redeemed code should be marked used');
@@ -225,7 +243,9 @@ async function main() {
     );
     checks.push('disabled_code_cannot_be_redeemed_and_wallet_is_unchanged');
 
-    const records = await get<{ items: Array<{ rechargeCodeId: string | null; amountCents: number; status: string }> }>(
+    const records = await get<{
+      items: Array<{ rechargeCodeId: string | null; amountCents: number; amountBaseTokens: number; faceValueCnyCents: number | null; status: string }>;
+    }>(
       '/recharge/records',
       userCookie
     );
@@ -235,6 +255,15 @@ async function main() {
     for (const plainCode of knownPlainCodes) {
       assert(!recordsText.includes(plainCode), `recharge records leaked plaintext code ${plainCode}`);
     }
+    assert(
+      records.json.items.some(
+        (entry) =>
+          entry.rechargeCodeId === firstCode.id &&
+          entry.amountBaseTokens === EXPECTED_BASE_TOKENS &&
+          entry.faceValueCnyCents === FACE_VALUE_CNY_CENTS
+      ),
+      'recharge records should expose base token amount and RMB face value'
+    );
 
     for (const plainCode of knownPlainCodes) {
       assert(!adminList.text.includes(plainCode), 'admin list still should not expose plaintext code after operations');

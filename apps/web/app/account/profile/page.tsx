@@ -182,8 +182,8 @@ export default function AccountProfilePage() {
           </section>
 
           <section className="profile-card profile-metrics">
-            <MetricBlock label="客户剩余额度" value={formatCents(user?.wallet.balanceCents ?? 0)} tone="green" detail="长期有效" />
-            <MetricBlock label="累计客户扣费" value={formatCents(user?.wallet.totalSpendCents ?? 0)} tone="red" />
+            <MetricBlock label="基础 token 余额" value={formatBaseTokens(user?.wallet.balanceCents ?? 0)} tone="green" detail="长期有效" />
+            <MetricBlock label="累计消耗基础 token" value={formatBaseTokens(user?.wallet.totalSpendCents ?? 0)} tone="red" />
             <MetricBlock label="调用次数" value={`${user?.metrics.totalCallCount ?? 0} 次`} icon={<CheckCircleOutlined />} />
             <MetricBlock label="邀请用户" value={`${user?.referral.invitedUserCount ?? 0} 人`} icon={<TeamOutlined />} />
           </section>
@@ -213,8 +213,8 @@ export default function AccountProfilePage() {
               </button>
             </div>
             <div className="profile-referral-stats">
-              <span>待使用收益：{formatCents(user?.referral.pendingRewardCents ?? 0)}</span>
-              <span>总收益：{formatCents(user?.referral.settledRewardCents ?? 0)}</span>
+              <span>待使用收益：{formatBaseTokens(user?.referral.pendingRewardCents ?? 0)}</span>
+              <span>总收益：{formatBaseTokens(user?.referral.settledRewardCents ?? 0)}</span>
               <span>返利记录：{(user?.referral.pendingRewardCount ?? 0) + (user?.referral.settledRewardCount ?? 0)} 条</span>
             </div>
           </section>
@@ -389,8 +389,8 @@ function formatRole(role?: string) {
   return '-';
 }
 
-function formatCents(value: number) {
-  return `$${(value / 100).toFixed(2)}`;
+function formatBaseTokens(value: number) {
+  return `${new Intl.NumberFormat('zh-CN').format(value)} 基础 token`;
 }
 
 function formatDateTime(value?: string | null) {

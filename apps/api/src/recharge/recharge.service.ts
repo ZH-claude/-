@@ -12,9 +12,15 @@ import {
   WalletTransactionType
 } from '../generated/prisma/client';
 import { AuthenticatedUser } from '../auth/auth.types';
+import {
+  baseTokenRechargeRateSnapshot,
+  cnyCentsToBaseTokens,
+  MAX_RECHARGE_FACE_VALUE_CNY_CENTS
+} from '../billing/token-units';
 import { PrismaService } from '../prisma.service';
 
 type CreateRechargeCodeInput = {
+  amountCnyCents?: unknown;
   amountCents?: unknown;
   count?: unknown;
 };
@@ -26,7 +32,6 @@ type RedeemRechargeCodeInput = {
 const CODE_PREFIX = 'RC';
 const CODE_BYTES = 16;
 const CODE_COLLISION_RETRIES = 5;
-const MAX_RECHARGE_AMOUNT_CENTS = 100_000_000;
 const MAX_RECHARGE_CODE_COUNT = 100;
 
 @Injectable()
@@ -34,14 +39,20 @@ export class RechargeService {
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
   async createRechargeCodes(adminUserId: string, body: CreateRechargeCodeInput) {
-    const amountCents = this.positiveInt(body.amountCents, 'amountCents', 1, MAX_RECHARGE_AMOUNT_CENTS);
+    const faceValueCnyCents = this.positiveInt(
+      body.amountCnyCents ?? body.amountCents,
+      'amountCnyCents',
+      1,
+      MAX_RECHARGE_FACE_VALUE_CNY_CENTS
+    );
+    const baseTokenAmount = cnyCentsToBaseTokens(faceValueCnyCents);
     const count = this.positiveInt(body.count ?? 1, 'count', 1, MAX_RECHARGE_CODE_COUNT);
 
     const codes = await this.prisma.$transaction(async (tx) => {
       const createdCodes = [];
 
       for (let index = 0; index < count; index += 1) {
-        const createdCode = await this.createSingleCodeWithRetry(tx, adminUserId, amountCents);
+        const createdCode = await this.createSingleCodeWithRetry(tx, adminUserId, baseTokenAmount, faceValueCnyCents);
         createdCodes.push(createdCode);
 
         await tx.adminAuditLog.create({
@@ -53,7 +64,10 @@ export class RechargeService {
             beforeSnapshot: Prisma.JsonNull,
             afterSnapshot: {
               id: createdCode.id,
-              amountCents,
+              amountCents: baseTokenAmount,
+              amountBaseTokens: baseTokenAmount,
+              faceValueCnyCents,
+              rechargeRate: baseTokenRechargeRateSnapshot(),
               status: RechargeCodeStatus.UNUSED.toLowerCase()
             }
           }
@@ -68,6 +82,8 @@ export class RechargeService {
         id: entry.id,
         code: entry.plainCode,
         amountCents: entry.amountCents,
+        amountBaseTokens: entry.amountCents,
+        faceValueCnyCents: entry.faceValueCnyCents,
         status: entry.status.toLowerCase(),
         createdAt: entry.createdAt.toISOString()
       }))
@@ -89,6 +105,8 @@ export class RechargeService {
       items: codes.map((code) => ({
         id: code.id,
         amountCents: code.amountCents,
+        amountBaseTokens: code.amountCents,
+        faceValueCnyCents: code.faceValueCnyCents,
         status: code.status.toLowerCase(),
         createdBy: code.createdByAdmin.username,
         usedBy: code.usedByUser?.username ?? null,
@@ -225,16 +243,21 @@ export class RechargeService {
         recharge: {
           id: code.id,
           amountCents: code.amountCents,
+          amountBaseTokens: code.amountCents,
+          faceValueCnyCents: code.faceValueCnyCents,
           usedAt: usedAt.toISOString()
         },
         wallet: {
           balanceCents: wallet.balanceCents,
+          balanceBaseTokens: wallet.balanceCents,
           totalSpendCents: wallet.totalSpendCents
         },
         transaction: {
           id: transaction.id,
           amountCents: transaction.amountCents,
+          amountBaseTokens: transaction.amountCents,
           balanceAfterCents: transaction.balanceAfterCents,
+          balanceAfterBaseTokens: transaction.balanceAfterCents,
           createdAt: transaction.createdAt.toISOString()
         }
       };
@@ -259,7 +282,10 @@ export class RechargeService {
         id: record.id,
         rechargeCodeId: record.rechargeCodeId,
         amountCents: record.amountCents,
+        amountBaseTokens: record.amountCents,
+        faceValueCnyCents: record.rechargeCode?.faceValueCnyCents ?? null,
         balanceAfterCents: record.balanceAfterCents,
+        balanceAfterBaseTokens: record.balanceAfterCents,
         status: record.rechargeCode?.status.toLowerCase() ?? 'unknown',
         createdAt: record.createdAt.toISOString()
       }))
@@ -269,7 +295,8 @@ export class RechargeService {
   private async createSingleCodeWithRetry(
     tx: Prisma.TransactionClient,
     adminUserId: string,
-    amountCents: number
+    baseTokenAmount: number,
+    faceValueCnyCents: number
   ) {
     let lastError: unknown;
 
@@ -281,7 +308,8 @@ export class RechargeService {
         const code = await tx.rechargeCode.create({
           data: {
             codeHash,
-            amountCents,
+            amountCents: baseTokenAmount,
+            faceValueCnyCents,
             createdByAdminId: adminUserId
           }
         });
@@ -302,6 +330,7 @@ export class RechargeService {
   private toAdminRechargeCode(code: {
     id: string;
     amountCents: number;
+    faceValueCnyCents: number;
     status: RechargeCodeStatus;
     usedByUserId: string | null;
     usedAt: Date | null;
@@ -310,6 +339,8 @@ export class RechargeService {
     return {
       id: code.id,
       amountCents: code.amountCents,
+      amountBaseTokens: code.amountCents,
+      faceValueCnyCents: code.faceValueCnyCents,
       status: code.status.toLowerCase(),
       usedByUserId: code.usedByUserId,
       usedAt: code.usedAt?.toISOString() ?? null,

@@ -110,8 +110,8 @@ export default function PricingPage() {
             <h2>计费公式</h2>
           </div>
           <div className="formula-box">
-            <code>{pricing?.billingFormula.totalCostCents ?? '加载中'}</code>
-            <small>单位：美元 / 1K tokens，内部按美分向上取整。</small>
+            <code>{pricing?.billingFormula.totalCostBaseTokens ?? '加载中'}</code>
+            <small>单位：基础 token / 1K tokens，内部按基础 token 向上取整。</small>
           </div>
         </section>
 
@@ -181,11 +181,11 @@ function PricingRow({ model, onCopy }: { model: PricingModel; onCopy: (model: st
         <strong>{model.model}</strong>
         {model.displayName ? <span className="table-note">{model.displayName}</span> : null}
       </td>
-      <td>{formatCentsPer1k(model.inputPriceCentsPer1k)}</td>
-      <td>{formatCentsPer1k(model.outputPriceCentsPer1k)}</td>
+      <td>{formatBaseTokensPer1k(model.inputPriceCentsPer1k)}</td>
+      <td>{formatBaseTokensPer1k(model.outputPriceCentsPer1k)}</td>
       <td>x{formatMultiplier(model.modelMultiplier)}</td>
-      <td>{formatCentsPer1k(effectiveInputPrice)}</td>
-      <td>{formatCentsPer1k(effectiveOutputPrice)}</td>
+      <td>{formatBaseTokensPer1k(effectiveInputPrice)}</td>
+      <td>{formatBaseTokensPer1k(effectiveOutputPrice)}</td>
       <td>
         {model.supportsStream ? (
           <span className="status-pill status-pill-success">stream</span>
@@ -215,6 +215,6 @@ function formatMultiplier(value: string) {
   });
 }
 
-function formatCentsPer1k(value: number) {
-  return `$${(value / 100).toFixed(4)} / 1K`;
+function formatBaseTokensPer1k(value: number) {
+  return `${new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 4 }).format(value)} 基础 token / 1K`;
 }

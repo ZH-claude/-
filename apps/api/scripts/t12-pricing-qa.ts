@@ -42,7 +42,7 @@ type PricingResponse = {
   currency: string;
   unit: string;
   billingFormula: {
-    totalCostCents: string;
+    totalCostBaseTokens: string;
     rounding: string;
   };
   models: PricingModel[];
@@ -112,9 +112,9 @@ async function main() {
     assert(pricingA.json.group.code === groupACode, 'user A pricing group code mismatch');
     assert(pricingA.json.group.name === 'QA T12 Group A', 'user A pricing group name mismatch');
     assertDecimalEquals(pricingA.json.group.multiplier, '1.2500', 'user A group multiplier mismatch');
-    assert(pricingA.json.currency === 'USD', 'pricing currency mismatch');
-    assert(pricingA.json.unit === 'cents_per_1k_tokens', 'pricing unit mismatch');
-    assert(pricingA.json.billingFormula.totalCostCents === BILLING_FORMULA, 'pricing formula drifted from BillingService constant');
+    assert(pricingA.json.currency === 'BASE_TOKEN', 'pricing currency mismatch');
+    assert(pricingA.json.unit === 'base_tokens_per_1k_tokens', 'pricing unit mismatch');
+    assert(pricingA.json.billingFormula.totalCostBaseTokens === BILLING_FORMULA, 'pricing formula drifted from BillingService constant');
     assert(pricingA.json.billingFormula.rounding === BILLING_ROUNDING, 'pricing rounding policy mismatch');
     checks.push('pricing_formula_reuses_billing_source_of_truth');
 

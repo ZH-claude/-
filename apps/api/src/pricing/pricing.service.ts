@@ -16,10 +16,10 @@ export class PricingService {
         name: user.group.name,
         multiplier: user.group.multiplier.toString()
       },
-      currency: 'USD',
-      unit: 'cents_per_1k_tokens',
+      currency: 'BASE_TOKEN',
+      unit: 'base_tokens_per_1k_tokens',
       billingFormula: {
-        totalCostCents: BILLING_FORMULA,
+        totalCostBaseTokens: BILLING_FORMULA,
         rounding: BILLING_ROUNDING
       },
       models

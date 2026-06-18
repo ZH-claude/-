@@ -62,7 +62,7 @@ export default function RechargePage() {
     try {
       const result = await redeemRechargeCode({ code });
       setCode('');
-      setMessage(`已充值 ${formatCents(result.transaction.amountCents)}`);
+      setMessage(`已到账 ${formatBaseTokens(result.transaction.amountBaseTokens ?? result.transaction.amountCents)} 基础 token`);
       await loadRechargeData();
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : '兑换码核销失败');
@@ -88,7 +88,7 @@ export default function RechargePage() {
         <div className="account-panel account-summary">
           <div>
             <p className="eyebrow">余额充值</p>
-            <h1>{isLoading ? '加载中' : formatCents(user?.wallet.balanceCents ?? 0)}</h1>
+            <h1>{isLoading ? '加载中' : `${formatBaseTokens(user?.wallet.balanceCents ?? 0)} 基础 token`}</h1>
           </div>
           <button className="icon-button" onClick={() => void loadRechargeData()} title="刷新充值数据" type="button">
             <ReloadOutlined />
@@ -131,8 +131,9 @@ export default function RechargePage() {
               <thead>
                 <tr>
                   <th>时间</th>
-                  <th>金额</th>
-                  <th>充值后余额</th>
+                  <th>人民币面值</th>
+                  <th>到账基础 token</th>
+                  <th>充值后基础 token</th>
                   <th>状态</th>
                   <th>流水</th>
                 </tr>
@@ -141,15 +142,16 @@ export default function RechargePage() {
                 {records.map((record) => (
                   <tr key={record.id}>
                     <td>{new Date(record.createdAt).toLocaleString()}</td>
-                    <td>{formatCents(record.amountCents)}</td>
-                    <td>{formatCents(record.balanceAfterCents)}</td>
+                    <td>{formatMoney(record.faceValueCnyCents)}</td>
+                    <td>{formatBaseTokens(record.amountBaseTokens ?? record.amountCents)}</td>
+                    <td>{formatBaseTokens(record.balanceAfterBaseTokens ?? record.balanceAfterCents)}</td>
                     <td>{record.status}</td>
                     <td>{record.id}</td>
                   </tr>
                 ))}
                 {!records.length && !isLoading ? (
                   <tr>
-                    <td colSpan={5}>暂无充值记录</td>
+                    <td colSpan={6}>暂无充值记录</td>
                   </tr>
                 ) : null}
               </tbody>
@@ -161,6 +163,14 @@ export default function RechargePage() {
   );
 }
 
-function formatCents(value: number) {
-  return `$${(value / 100).toFixed(2)}`;
+function formatBaseTokens(value: number) {
+  return new Intl.NumberFormat('zh-CN').format(value);
+}
+
+function formatMoney(cents: number | null | undefined) {
+  if (cents === null || cents === undefined) {
+    return '-';
+  }
+
+  return `¥${(cents / 100).toFixed(2)}`;
 }
