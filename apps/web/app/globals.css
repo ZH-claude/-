@@ -1952,6 +1952,8 @@ button {
   display: grid;
   gap: 12px;
   grid-template-columns: repeat(4, minmax(0, 1fr));
+  padding-bottom: 22px;
+  padding-top: 22px;
 }
 
 .profile-metric-block {
@@ -1973,11 +1975,25 @@ button {
   align-items: center;
   color: #111827;
   display: inline-flex;
-  font-size: 22px;
+  font-size: 20px;
   font-weight: 700;
-  gap: 8px;
+  gap: 6px;
   line-height: 1.2;
   overflow-wrap: anywhere;
+}
+
+.profile-metric-block strong .profile-metric-value {
+  color: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+}
+
+.profile-metric-unit {
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  margin-left: 2px;
 }
 
 .profile-metric-block strong.tone-green {
@@ -1989,12 +2005,12 @@ button {
 }
 
 .profile-usage-band {
-  background: #effcf9;
+  background: linear-gradient(180deg, #e9fbf9 0%, #f8fafc 100%);
   border: 1px solid #d8f3ee;
   border-radius: 8px;
   display: grid;
   gap: 14px;
-  padding: 18px;
+  padding: 16px 18px;
 }
 
 .profile-usage-cards {
@@ -2010,21 +2026,21 @@ button {
   border-radius: 8px;
   box-shadow: 0 8px 20px rgba(15, 23, 42, 0.05);
   display: grid;
-  gap: 12px;
+  gap: 10px;
   grid-template-columns: auto minmax(0, 1fr);
-  min-height: 92px;
+  min-height: 82px;
   min-width: 0;
-  padding: 16px 18px;
+  padding: 14px 16px;
 }
 
 .profile-usage-icon {
   align-items: center;
   border-radius: 10px;
   display: inline-flex;
-  font-size: 20px;
-  height: 42px;
+  font-size: 18px;
+  height: 38px;
   justify-content: center;
-  width: 42px;
+  width: 38px;
 }
 
 .profile-usage-tile span,
@@ -2036,7 +2052,7 @@ button {
 .profile-usage-tile strong {
   color: #111827;
   display: block;
-  font-size: 22px;
+  font-size: 19px;
   line-height: 1.2;
   margin: 2px 0;
 }

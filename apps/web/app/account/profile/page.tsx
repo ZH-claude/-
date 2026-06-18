@@ -218,8 +218,8 @@ export default function AccountProfilePage() {
           </section>
 
           <section className="profile-card profile-metrics">
-            <MetricBlock label="token 余额" value={formatTokens(user?.wallet.balanceCents ?? 0)} tone="green" detail="长期有效" />
-            <MetricBlock label="累计消耗 token" value={formatTokens(user?.wallet.totalSpendCents ?? 0)} tone="red" />
+            <MetricBlock label="Token 余额" value={formatNumber(user?.wallet.balanceCents ?? 0)} unit="token" tone="green" detail="长期有效" />
+            <MetricBlock label="累计消耗" value={formatNumber(user?.wallet.totalSpendCents ?? 0)} unit="token" tone="red" />
             <MetricBlock label="调用次数" value={`${user?.metrics.totalCallCount ?? 0} 次`} icon={<CheckCircleOutlined />} />
             <MetricBlock label="邀请用户" value={`${user?.referral.invitedUserCount ?? 0} 人`} icon={<TeamOutlined />} />
           </section>
@@ -230,14 +230,14 @@ export default function AccountProfilePage() {
                 accent="orange"
                 detail={`输入 ${formatNumber(todayUsage.promptTokens)} / 输出 ${formatNumber(todayUsage.completionTokens)}`}
                 icon={<ApiOutlined />}
-                label="今日 token"
+                label="今日 Token"
                 value={formatNumber(todayUsage.totalTokens)}
               />
               <UsageTile
                 accent="blue"
                 detail={`近 ${rangeDays} 天最近 100 条真实日志`}
                 icon={<BarChartOutlined />}
-                label="累计 token"
+                label="累计 Token"
                 value={formatNumber(usageData?.summary.totalTokens ?? 0)}
               />
               <UsageTile
@@ -496,12 +496,14 @@ function UsageTile({
 function MetricBlock({
   label,
   value,
+  unit,
   detail,
   tone,
   icon
 }: {
   label: string;
   value: string;
+  unit?: string;
   detail?: string;
   tone?: 'green' | 'red';
   icon?: ReactNode;
@@ -511,7 +513,8 @@ function MetricBlock({
       <span>{label}</span>
       <strong className={tone ? `tone-${tone}` : ''}>
         {icon}
-        {value}
+        <span className="profile-metric-value">{value}</span>
+        {unit ? <span className="profile-metric-unit">{unit}</span> : null}
       </strong>
       {detail ? <small>{detail}</small> : null}
     </div>
