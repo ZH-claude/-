@@ -209,7 +209,7 @@ export function MerchantUpstreamWorkbench({
             </div>
             <form className="auth-form" onSubmit={handleSaveProvider}>
               <label>
-                名称
+                上游名称
                 <input maxLength={120} onChange={(event) => setProviderName(event.target.value)} placeholder={copy.providerPlaceholder} required value={providerName} />
               </label>
               <label>
@@ -401,7 +401,7 @@ function getWorkbenchCopy(kind: UpstreamKind) {
       title: 'DeepSeek 上游接入',
       description: '这里只维护 DeepSeek 的上游地址、密钥和健康检查；客户模型先在“模型发布”准备，再到“模型映射”绑定。',
       providerName: 'DeepSeek 上游',
-      providerPlaceholder: '例如：deepseek-v4-pro',
+      providerPlaceholder: '例如：DeepSeek 官方线路 1',
       baseUrlPlaceholder: '例如：https://api.deepseek.com'
     };
   }
@@ -411,7 +411,7 @@ function getWorkbenchCopy(kind: UpstreamKind) {
     title: '中转站上游接入',
     description: '这里只维护其它中转站的上游地址、密钥和健康检查；客户模型先在“模型发布”准备，再到“模型映射”绑定。',
     providerName: '中转站上游',
-    providerPlaceholder: '例如：aicode-us',
+    providerPlaceholder: '例如：中转站 1',
     baseUrlPlaceholder: '例如：https://new.aicode.us.com'
   };
 }

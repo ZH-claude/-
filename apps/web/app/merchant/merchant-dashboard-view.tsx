@@ -113,8 +113,15 @@ export function MerchantDashboardView({ username, role }: { username: string; ro
             <Link className="merchant-action-link" href="/merchant/upstreams/deepseek">
               <CloudServerOutlined />
               <span>
-                <strong>第二步：接入上游</strong>
-                <small>保存 DeepSeek 或中转站上游，只维护地址、密钥和健康检查。</small>
+                <strong>第二步 A：接入 DeepSeek 上游</strong>
+                <small>只保存 DeepSeek 地址、密钥和健康检查，不发布客户模型。</small>
+              </span>
+            </Link>
+            <Link className="merchant-action-link" href="/merchant/upstreams/relay">
+              <CloudServerOutlined />
+              <span>
+                <strong>第二步 B：接入中转站上游</strong>
+                <small>只保存其它中转站地址、密钥和健康检查，不发布客户模型。</small>
               </span>
             </Link>
             <Link className="merchant-action-link" href="/merchant/model-routes">

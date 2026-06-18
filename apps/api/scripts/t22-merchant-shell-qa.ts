@@ -304,15 +304,26 @@ function assertIsShellHtml(text: string) {
   ];
   const foundCount = markers.filter((marker) => text.includes(marker)).length;
   assert(foundCount >= 5, `admin page did not render expected merchant shell markers, found only ${foundCount} markers`);
+  assertOrderedMarkers(text, ['充值码', '模型发布', 'DeepSeek 上游', '中转站上游', '模型映射'], 'merchant shell navigation order');
   const forbiddenUserMarkers = ['个人中心', '余额充值', '费用说明', '通知设置', '令牌入口'];
   const leakedMarkers = forbiddenUserMarkers.filter((marker) => text.includes(marker));
   assert(leakedMarkers.length === 0, `merchant shell leaked user-site markers: ${leakedMarkers.join(', ')}`);
 }
 
 function assertMerchantDashboardHtml(text: string) {
-  const markers = ['merchant-shell-page', '商家工作台', '运营概览', '客户剩余 token', '最近告警'];
+  const markers = ['merchant-shell-page', '商家工作台', '运营概览', '客户剩余 token', '第二步 A：接入 DeepSeek 上游', '第二步 B：接入中转站上游'];
   const foundCount = markers.filter((marker) => text.includes(marker)).length;
   assert(foundCount >= 4, `merchant dashboard page did not render expected markers, found only ${foundCount}`);
+}
+
+function assertOrderedMarkers(text: string, orderedMarkers: string[], label: string) {
+  let lastIndex = -1;
+  for (const marker of orderedMarkers) {
+    const nextIndex = text.indexOf(marker);
+    assert(nextIndex >= 0, `${label} missing marker: ${marker}`);
+    assert(nextIndex > lastIndex, `${label} marker is out of order: ${marker}`);
+    lastIndex = nextIndex;
+  }
 }
 
 async function request<T>(method: string, path: string, body?: unknown, cookie?: string): Promise<HttpResult<T>> {
