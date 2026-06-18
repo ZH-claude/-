@@ -23,7 +23,8 @@
 | 上游 500 | 写入 `FAILED` usage event，不生成钱包扣费流水 |
 | 上游 malformed JSON | 写入 `FAILED` usage event，不生成钱包扣费流水 |
 | 上游首次 502、重试成功 | 最终成功，只生成 1 条扣费流水 |
-| 流式成功但无 usage | 写入 `METERING_UNKNOWN` usage event，默认不扣费 |
+| 流式成功且上游返回 usage | 写入 `BILLABLE` usage event，生成 `DEBIT` wallet transaction，扣减钱包并增加 token usedCents |
+| 流式成功但上游无 usage | 写入 `METERING_UNKNOWN` usage event，默认不扣费 |
 | 并发请求超过余额 | 只允许余额可覆盖的请求扣费，钱包不出现负数 |
 
 ## 验证记录
@@ -49,6 +50,7 @@
     "upstream_500_failed_no_debit",
     "malformed_failed_no_debit",
     "upstream_retry_charged_once",
+    "stream_usage_billable_debit",
     "stream_metering_unknown_no_debit",
     "concurrency_no_negative_balance"
   ],
@@ -69,5 +71,5 @@
 
 - T09 不实现充值码、在线支付或用户充值页面；这些属于 T10。
 - T09 不实现调用日志页面和导出；这些属于 T11。
-- 流式响应本期在无 usage 时默认不扣费并标记 `METERING_UNKNOWN`；解析流式 usage 后扣费属于后续增强。
+- 流式响应现在会优先解析上游 usage 并实时扣费；只有上游没有提供 usage 时，才标记 `METERING_UNKNOWN` 且默认不扣费。
 - 并发余额不足时，已保证不负余额；极端竞态下已发往上游但最终扣费失败的请求会返回 `402`，后续商用可增加预授权/余额冻结来降低平台成本风险。

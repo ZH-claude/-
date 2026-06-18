@@ -2,7 +2,7 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import bcrypt from 'bcryptjs';
 import http from 'node:http';
 import { randomBytes } from 'node:crypto';
-import { PrismaClient, UserRole, UserStatus } from '../src/generated/prisma/client';
+import { PrismaClient, UsageEventStatus, UserRole, UserStatus } from '../src/generated/prisma/client';
 
 type HttpResult<T = unknown> = {
   status: number;
@@ -171,6 +171,17 @@ async function main() {
     assert(Number.isInteger(count.json.input_tokens) && count.json.input_tokens > 0, 'count_tokens should return positive computed input_tokens');
     checks.push('anthropic_count_tokens_returns_computed_value');
 
+    const countWithoutMaxTokens = await request<{ input_tokens: number }>(
+      'POST',
+      '/v1/messages/count_tokens',
+      createAnthropicCountBodyWithoutMaxTokens(),
+      undefined,
+      tokenCreate.json.apiKey
+    );
+    assert(countWithoutMaxTokens.status === 200, `count_tokens without max_tokens failed with ${countWithoutMaxTokens.status}: ${countWithoutMaxTokens.text}`);
+    assert(Number.isInteger(countWithoutMaxTokens.json.input_tokens) && countWithoutMaxTokens.json.input_tokens > 0, 'count_tokens without max_tokens should return positive input_tokens');
+    checks.push('anthropic_count_tokens_does_not_require_max_tokens');
+
     const message = await request<AnthropicMessageResponse>('POST', '/v1/messages', createAnthropicBody(false), undefined, tokenCreate.json.apiKey);
     assert(message.status === 200, `Anthropic message failed with ${message.status}: ${message.text}`);
     assert(message.json.type === 'message', 'Anthropic response type should be message');
@@ -181,13 +192,27 @@ async function main() {
     assert(message.json.usage.input_tokens === 9 && message.json.usage.output_tokens === 4, 'usage should be mapped to input/output tokens');
     checks.push('anthropic_non_stream_message_translates_openai_response');
 
+    const streamUsageBefore = await countBillableStreamUsage(seeded.userId);
     const stream = await requestRawStream('/v1/messages', createAnthropicBody(true), tokenCreate.json.apiKey);
     assert(stream.status === 200, `Anthropic stream failed with ${stream.status}: ${stream.text}`);
     assert(stream.text.includes('event: message_start'), 'stream should include message_start');
     assert(stream.text.includes('event: content_block_delta'), 'stream should include content deltas');
-    assert(stream.text.includes('"text":"流式正常"') || stream.text.includes('流式'), 'stream should include upstream text');
+    assert(stream.text.includes('"text":"娴佸紡姝ｅ父"') || stream.text.includes('娴佸紡'), 'stream should include upstream text');
     assert(stream.text.includes('event: message_stop'), 'stream should include message_stop');
     checks.push('anthropic_stream_translates_openai_sse');
+
+    const streamUsageAfter = await countBillableStreamUsage(seeded.userId);
+    assert(streamUsageAfter === streamUsageBefore + 1, 'Anthropic stream should write one real billable usage event');
+    checks.push('anthropic_stream_records_billable_usage');
+
+    const openAiStreamUsageBefore = await countBillableStreamUsage(seeded.userId);
+    const openAiStream = await requestRawOpenAiChatStream(createOpenAiChatStreamBody(), tokenCreate.json.apiKey);
+    assert(openAiStream.status === 200, `OpenAI chat stream failed with ${openAiStream.status}: ${openAiStream.text}`);
+    assert(openAiStream.text.includes('data:'), 'OpenAI chat stream should return SSE data');
+    assert(openAiStream.text.includes('[DONE]'), 'OpenAI chat stream should include DONE marker');
+    const openAiStreamUsageAfter = await countBillableStreamUsage(seeded.userId);
+    assert(openAiStreamUsageAfter === openAiStreamUsageBefore + 1, 'OpenAI chat stream should write one real billable usage event');
+    checks.push('openai_chat_stream_records_billable_usage');
 
     const bearerMessage = await requestBearer<AnthropicMessageResponse>('POST', '/v1/messages', createAnthropicBody(false), tokenCreate.json.apiKey);
     assert(bearerMessage.status === 200, `Anthropic bearer message failed with ${bearerMessage.status}: ${bearerMessage.text}`);
@@ -219,6 +244,16 @@ async function main() {
     assert(responseStream.text.includes('event: response.function_call_arguments.done'), 'Responses stream should include function call argument done');
     assert(responseStream.text.includes('event: response.completed'), 'Responses stream should include response.completed');
     checks.push('openai_responses_stream_shape_is_supported');
+
+    const meteringUnknownUsage = await prisma.usageEvent.count({
+      where: {
+        userId: seeded.userId,
+        model: publicModel,
+        status: UsageEventStatus.METERING_UNKNOWN
+      }
+    });
+    assert(meteringUnknownUsage === 0, `stream calls should not create METERING_UNKNOWN rows when upstream reports usage, got ${meteringUnknownUsage}`);
+    checks.push('upstream_usage_streams_do_not_create_metering_unknown_rows');
 
     assert(seenRequests.length >= 3, `expected fake upstream to receive at least 3 chat requests, got ${seenRequests.length}`);
     assert(seenRequests.every((entry) => entry.path === '/v1/chat/completions'), 'upstream path should remain OpenAI-compatible');
@@ -308,6 +343,18 @@ function createAnthropicBody(stream: boolean) {
   };
 }
 
+function createAnthropicCountBodyWithoutMaxTokens() {
+  return {
+    model: publicModel,
+    messages: [
+      {
+        role: 'user',
+        content: 'hello'
+      }
+    ]
+  };
+}
+
 function createAnthropicToolResultBody() {
   return {
     model: publicModel,
@@ -367,6 +414,19 @@ function createAnthropicBodyWithMixedRoles() {
       {
         role: 'user',
         content: 'check role handling'
+      }
+    ]
+  };
+}
+
+function createOpenAiChatStreamBody() {
+  return {
+    model: publicModel,
+    stream: true,
+    messages: [
+      {
+        role: 'user',
+        content: 'hello'
       }
     ]
   };
@@ -433,10 +493,10 @@ async function startTemporaryOpenAiUpstream() {
         'cache-control': 'no-cache'
       });
       response.write(`data: ${JSON.stringify({ id: 'chatcmpl-stream', choices: [{ index: 0, delta: { role: 'assistant' } }] })}\n\n`);
-      response.write(`data: ${JSON.stringify({ id: 'chatcmpl-stream', choices: [{ index: 0, delta: { content: '流式' } }] })}\n\n`);
+      response.write(`data: ${JSON.stringify({ id: 'chatcmpl-stream', choices: [{ index: 0, delta: { content: '娴佸紡' } }] })}\n\n`);
       response.write(`data: ${JSON.stringify({
         id: 'chatcmpl-stream',
-        choices: [{ index: 0, delta: { content: '正常' }, finish_reason: 'stop' }],
+        choices: [{ index: 0, delta: { content: '姝ｅ父' }, finish_reason: 'stop' }],
         usage: { prompt_tokens: 7, completion_tokens: 3, total_tokens: 10 }
       })}\n\n`);
       response.write('data: [DONE]\n\n');
@@ -611,6 +671,22 @@ async function requestRawStream(path: string, body: unknown, apiKey: string) {
   };
 }
 
+async function requestRawOpenAiChatStream(body: unknown, apiKey: string) {
+  const response = await fetch(`${API_BASE_URL}/v1/chat/completions`, {
+    method: 'POST',
+    headers: {
+      accept: 'text/event-stream',
+      'content-type': 'application/json',
+      authorization: `Bearer ${apiKey}`
+    },
+    body: JSON.stringify(body)
+  });
+  return {
+    status: response.status,
+    text: await response.text()
+  };
+}
+
 async function requestRawResponsesStream(path: string, body: unknown, apiKey: string) {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: 'POST',
@@ -625,6 +701,20 @@ async function requestRawResponsesStream(path: string, body: unknown, apiKey: st
     status: response.status,
     text: await response.text()
   };
+}
+
+async function countBillableStreamUsage(userId: string) {
+  return prisma.usageEvent.count({
+    where: {
+      userId,
+      model: publicModel,
+      status: UsageEventStatus.BILLABLE,
+      promptTokens: 7,
+      completionTokens: 3,
+      totalTokens: 10,
+      costCents: 1
+    }
+  });
 }
 
 async function cleanup() {

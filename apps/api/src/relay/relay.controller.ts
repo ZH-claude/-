@@ -64,7 +64,7 @@ export class RelayController {
         reply.raw.writeHead(result.status, result.headers);
 
         try {
-          await this.relayService.pipeUpstreamStream(result.upstreamResponse, reply.raw);
+          await this.relayService.pipeUpstreamStream(result.upstreamResponse, reply.raw, result.billing);
         } catch {
           reply.raw.end();
         }
@@ -106,7 +106,8 @@ export class RelayController {
         try {
           await this.relayService.pipeOpenAiStreamAsAnthropic(result.upstreamResponse, reply.raw, {
             requestId,
-            model: this.getBodyModel(body)
+            model: this.getBodyModel(body),
+            billing: result.billing
           });
         } catch {
           reply.raw.end();
