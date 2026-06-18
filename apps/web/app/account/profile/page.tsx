@@ -2,10 +2,13 @@
 
 import {
   ApiOutlined,
+  BarChartOutlined,
   CheckCircleOutlined,
   CopyOutlined,
   GiftOutlined,
   KeyOutlined,
+  LineChartOutlined,
+  ReloadOutlined,
   SearchOutlined,
   SettingOutlined,
   TeamOutlined,
@@ -17,6 +20,7 @@ import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from 're
 import { ConsoleShell } from '../../components/console-shell';
 import { changePassword, getProfile, logout, updateTimezone } from '../../lib/auth-api';
 import type { AvailableModel, PublicUser } from '../../lib/auth-api';
+import { listUsageLogs, type UsageLogEntry, type UsageLogsResponse } from '../../lib/usage-log-api';
 
 const commonTimezones = [
   'UTC',
@@ -38,13 +42,20 @@ export default function AccountProfilePage() {
   const [newPassword, setNewPassword] = useState('');
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const [usageData, setUsageData] = useState<UsageLogsResponse | null>(null);
+  const [rangeDays, setRangeDays] = useState(7);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingUsage, setIsLoadingUsage] = useState(true);
   const [isSavingTimezone, setIsSavingTimezone] = useState(false);
   const [isChangingPassword, setIsChangingPassword] = useState(false);
 
   useEffect(() => {
     void loadProfile();
   }, []);
+
+  useEffect(() => {
+    void loadUsageOverview(rangeDays);
+  }, [rangeDays]);
 
   const filteredModels = useMemo(() => {
     const keyword = modelQuery.trim().toLowerCase();
@@ -57,6 +68,11 @@ export default function AccountProfilePage() {
       [model.model, model.displayName ?? ''].some((value) => value.toLowerCase().includes(keyword))
     );
   }, [modelQuery, user?.availableModels]);
+
+  const usageRows = usageData?.items ?? [];
+  const todayUsage = useMemo(() => summarizeTodayUsage(usageRows), [usageRows]);
+  const modelBreakdown = useMemo(() => getModelBreakdown(usageRows), [usageRows]);
+  const tokenTrend = useMemo(() => getTokenTrend(usageRows, rangeDays), [rangeDays, usageRows]);
 
   async function loadProfile() {
     setIsLoading(true);
@@ -71,6 +87,26 @@ export default function AccountProfilePage() {
       router.replace('/login');
     } finally {
       setIsLoading(false);
+    }
+  }
+
+  async function loadUsageOverview(days = rangeDays) {
+    setIsLoadingUsage(true);
+
+    try {
+      const from = new Date();
+      from.setDate(from.getDate() - days + 1);
+      from.setHours(0, 0, 0, 0);
+
+      const result = await listUsageLogs({
+        from: from.toISOString(),
+        limit: 100
+      });
+      setUsageData(result);
+    } catch {
+      setUsageData(null);
+    } finally {
+      setIsLoadingUsage(false);
     }
   }
 
@@ -182,10 +218,101 @@ export default function AccountProfilePage() {
           </section>
 
           <section className="profile-card profile-metrics">
-            <MetricBlock label="基础 token 余额" value={formatBaseTokens(user?.wallet.balanceCents ?? 0)} tone="green" detail="长期有效" />
-            <MetricBlock label="累计消耗基础 token" value={formatBaseTokens(user?.wallet.totalSpendCents ?? 0)} tone="red" />
+            <MetricBlock label="token 余额" value={formatTokens(user?.wallet.balanceCents ?? 0)} tone="green" detail="长期有效" />
+            <MetricBlock label="累计消耗 token" value={formatTokens(user?.wallet.totalSpendCents ?? 0)} tone="red" />
             <MetricBlock label="调用次数" value={`${user?.metrics.totalCallCount ?? 0} 次`} icon={<CheckCircleOutlined />} />
             <MetricBlock label="邀请用户" value={`${user?.referral.invitedUserCount ?? 0} 人`} icon={<TeamOutlined />} />
+          </section>
+
+          <section className="profile-usage-band">
+            <div className="profile-usage-cards">
+              <UsageTile
+                accent="orange"
+                detail={`输入 ${formatNumber(todayUsage.promptTokens)} / 输出 ${formatNumber(todayUsage.completionTokens)}`}
+                icon={<ApiOutlined />}
+                label="今日 token"
+                value={formatNumber(todayUsage.totalTokens)}
+              />
+              <UsageTile
+                accent="blue"
+                detail={`近 ${rangeDays} 天最近 100 条真实日志`}
+                icon={<BarChartOutlined />}
+                label="累计 token"
+                value={formatNumber(usageData?.summary.totalTokens ?? 0)}
+              />
+              <UsageTile
+                accent="violet"
+                detail={`${formatNumber(todayUsage.requests)} 次请求`}
+                icon={<LineChartOutlined />}
+                label="今日请求"
+                value={formatNumber(todayUsage.requests)}
+              />
+              <UsageTile
+                accent="rose"
+                detail="接口暂未记录耗时"
+                icon={<ReloadOutlined />}
+                label="平均响应"
+                value="-"
+              />
+            </div>
+
+            <div className="profile-usage-toolbar">
+              <label>
+                时间范围：
+                <select onChange={(event) => setRangeDays(Number(event.target.value))} value={rangeDays}>
+                  <option value={7}>近 7 天</option>
+                  <option value={14}>近 14 天</option>
+                  <option value={30}>近 30 天</option>
+                </select>
+              </label>
+              <button className="ghost-button compact-button" disabled={isLoadingUsage} onClick={() => void loadUsageOverview()} type="button">
+                <ReloadOutlined />
+                刷新
+              </button>
+            </div>
+
+            <div className="profile-usage-panels">
+              <section className="profile-usage-panel">
+                <div className="profile-usage-panel-title">
+                  <h2>模型分布</h2>
+                  <span>{modelBreakdown.length} 个模型</span>
+                </div>
+                {modelBreakdown.length ? (
+                  <div className="profile-model-bars">
+                    {modelBreakdown.map((entry) => (
+                      <div className="profile-model-bar" key={entry.model}>
+                        <div>
+                          <strong>{entry.model}</strong>
+                          <span>{formatNumber(entry.tokens)} token</span>
+                        </div>
+                        <i style={{ width: `${entry.percent}%` }} />
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="profile-chart-empty">暂无数据</p>
+                )}
+              </section>
+
+              <section className="profile-usage-panel">
+                <div className="profile-usage-panel-title">
+                  <h2>token 使用趋势</h2>
+                  <span>按天</span>
+                </div>
+                {tokenTrend.some((entry) => entry.tokens > 0) ? (
+                  <div className="profile-token-trend">
+                    {tokenTrend.map((entry) => (
+                      <div className="profile-token-trend-item" key={entry.label}>
+                        <i style={{ height: `${entry.percent}%` }} />
+                        <span>{entry.label}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="profile-chart-empty">暂无数据</p>
+                )}
+              </section>
+            </div>
           </section>
 
           <section className="profile-card profile-referral">
@@ -213,8 +340,8 @@ export default function AccountProfilePage() {
               </button>
             </div>
             <div className="profile-referral-stats">
-              <span>待使用收益：{formatBaseTokens(user?.referral.pendingRewardCents ?? 0)}</span>
-              <span>总收益：{formatBaseTokens(user?.referral.settledRewardCents ?? 0)}</span>
+              <span>待使用收益：{formatTokens(user?.referral.pendingRewardCents ?? 0)}</span>
+              <span>总收益：{formatTokens(user?.referral.settledRewardCents ?? 0)}</span>
               <span>返利记录：{(user?.referral.pendingRewardCount ?? 0) + (user?.referral.settledRewardCount ?? 0)} 条</span>
             </div>
           </section>
@@ -339,6 +466,33 @@ export default function AccountProfilePage() {
   );
 }
 
+function UsageTile({
+  accent,
+  detail,
+  icon,
+  label,
+  value
+}: {
+  accent: 'orange' | 'blue' | 'violet' | 'rose';
+  detail: string;
+  icon: ReactNode;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className={`profile-usage-tile accent-${accent}`}>
+      <div className="profile-usage-icon" aria-hidden="true">
+        {icon}
+      </div>
+      <div>
+        <span>{label}</span>
+        <strong>{value}</strong>
+        <small>{detail}</small>
+      </div>
+    </div>
+  );
+}
+
 function MetricBlock({
   label,
   value,
@@ -389,8 +543,78 @@ function formatRole(role?: string) {
   return '-';
 }
 
-function formatBaseTokens(value: number) {
-  return `${new Intl.NumberFormat('zh-CN').format(value)} 基础 token`;
+function summarizeTodayUsage(rows: UsageLogEntry[]) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  return rows.reduce(
+    (summary, row) => {
+      if (new Date(row.createdAt) < today) {
+        return summary;
+      }
+
+      summary.requests += 1;
+      summary.promptTokens += row.promptTokens;
+      summary.completionTokens += row.completionTokens;
+      summary.totalTokens += row.totalTokens;
+      return summary;
+    },
+    { completionTokens: 0, promptTokens: 0, requests: 0, totalTokens: 0 }
+  );
+}
+
+function getModelBreakdown(rows: UsageLogEntry[]) {
+  const totals = rows.reduce<Record<string, number>>((nextTotals, row) => {
+    nextTotals[row.model] = (nextTotals[row.model] ?? 0) + row.totalTokens;
+    return nextTotals;
+  }, {});
+  const maxTokens = Math.max(1, ...Object.values(totals));
+
+  return Object.entries(totals)
+    .map(([model, tokens]) => ({
+      model,
+      percent: Math.max(4, Math.round((tokens / maxTokens) * 100)),
+      tokens
+    }))
+    .sort((left, right) => right.tokens - left.tokens)
+    .slice(0, 5);
+}
+
+function getTokenTrend(rows: UsageLogEntry[], rangeDays: number) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const dayTotals = new Map<string, number>();
+
+  for (const row of rows) {
+    const rowDate = new Date(row.createdAt);
+    rowDate.setHours(0, 0, 0, 0);
+    const key = rowDate.toISOString().slice(0, 10);
+    dayTotals.set(key, (dayTotals.get(key) ?? 0) + row.totalTokens);
+  }
+
+  const entries = Array.from({ length: rangeDays }, (_, index) => {
+    const date = new Date(today);
+    date.setDate(today.getDate() - (rangeDays - index - 1));
+    const key = date.toISOString().slice(0, 10);
+    return {
+      label: `${date.getMonth() + 1}/${date.getDate()}`,
+      tokens: dayTotals.get(key) ?? 0
+    };
+  });
+  const maxTokens = Math.max(1, ...entries.map((entry) => entry.tokens));
+
+  return entries.map((entry) => ({
+    ...entry,
+    percent: entry.tokens === 0 ? 4 : Math.max(10, Math.round((entry.tokens / maxTokens) * 100))
+  }));
+}
+
+function formatTokens(value: number) {
+  return `${formatNumber(value)} token`;
+}
+
+function formatNumber(value: number) {
+  return new Intl.NumberFormat('zh-CN').format(value);
 }
 
 function formatDateTime(value?: string | null) {

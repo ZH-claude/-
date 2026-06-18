@@ -1950,13 +1950,13 @@ button {
 
 .profile-metrics {
   display: grid;
-  gap: 18px;
+  gap: 12px;
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .profile-metric-block {
   display: grid;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
 }
 
@@ -1973,7 +1973,7 @@ button {
   align-items: center;
   color: #111827;
   display: inline-flex;
-  font-size: 27px;
+  font-size: 22px;
   font-weight: 700;
   gap: 8px;
   line-height: 1.2;
@@ -1986,6 +1986,219 @@ button {
 
 .profile-metric-block strong.tone-red {
   color: #cf1322;
+}
+
+.profile-usage-band {
+  background: #effcf9;
+  border: 1px solid #d8f3ee;
+  border-radius: 8px;
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+}
+
+.profile-usage-cards {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.profile-usage-tile {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #e5eaf0;
+  border-radius: 8px;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.05);
+  display: grid;
+  gap: 12px;
+  grid-template-columns: auto minmax(0, 1fr);
+  min-height: 92px;
+  min-width: 0;
+  padding: 16px 18px;
+}
+
+.profile-usage-icon {
+  align-items: center;
+  border-radius: 10px;
+  display: inline-flex;
+  font-size: 20px;
+  height: 42px;
+  justify-content: center;
+  width: 42px;
+}
+
+.profile-usage-tile span,
+.profile-usage-tile small,
+.profile-usage-panel-title span {
+  color: #8a9099;
+}
+
+.profile-usage-tile strong {
+  color: #111827;
+  display: block;
+  font-size: 22px;
+  line-height: 1.2;
+  margin: 2px 0;
+}
+
+.profile-usage-tile small {
+  display: block;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.profile-usage-tile.accent-orange .profile-usage-icon {
+  background: #fff1c7;
+  color: #f59e0b;
+}
+
+.profile-usage-tile.accent-blue .profile-usage-icon {
+  background: #e0e7ff;
+  color: #4f46e5;
+}
+
+.profile-usage-tile.accent-violet .profile-usage-icon {
+  background: #efe6ff;
+  color: #8b5cf6;
+}
+
+.profile-usage-tile.accent-rose .profile-usage-icon {
+  background: #ffe4e6;
+  color: #f43f5e;
+}
+
+.profile-usage-toolbar {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #e5eaf0;
+  border-radius: 8px;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 14px 18px;
+}
+
+.profile-usage-toolbar label {
+  align-items: center;
+  color: #64748b;
+  display: inline-flex;
+  gap: 10px;
+  min-width: 0;
+}
+
+.profile-usage-toolbar select {
+  background: #ffffff;
+  border: 1px solid #d8dde6;
+  border-radius: 6px;
+  color: #111827;
+  min-height: 36px;
+  padding: 0 34px 0 12px;
+}
+
+.profile-usage-panels {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.profile-usage-panel {
+  background: #ffffff;
+  border: 1px solid #e5eaf0;
+  border-radius: 8px;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.04);
+  min-height: 220px;
+  min-width: 0;
+  padding: 18px;
+}
+
+.profile-usage-panel-title {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+
+.profile-usage-panel-title h2 {
+  color: #111827;
+  font-size: 16px;
+  margin: 0;
+}
+
+.profile-model-bars {
+  display: grid;
+  gap: 14px;
+}
+
+.profile-model-bar {
+  display: grid;
+  gap: 8px;
+}
+
+.profile-model-bar div {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.profile-model-bar strong {
+  color: #111827;
+  overflow-wrap: anywhere;
+}
+
+.profile-model-bar span {
+  color: #8a9099;
+  flex: 0 0 auto;
+  font-size: 12px;
+}
+
+.profile-model-bar i {
+  background: linear-gradient(90deg, #14b8a6, #8b5cf6);
+  border-radius: 999px;
+  display: block;
+  height: 8px;
+  min-width: 16px;
+}
+
+.profile-token-trend {
+  align-items: end;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(20px, 1fr));
+  height: 150px;
+}
+
+.profile-token-trend-item {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: 100%;
+  justify-content: end;
+  min-width: 0;
+}
+
+.profile-token-trend-item i {
+  background: linear-gradient(180deg, #22c55e, #14b8a6);
+  border-radius: 999px 999px 3px 3px;
+  display: block;
+  min-height: 6px;
+  width: 100%;
+}
+
+.profile-token-trend-item span {
+  color: #8a9099;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.profile-chart-empty {
+  align-items: center;
+  color: #a3aab5;
+  display: flex;
+  height: 142px;
+  justify-content: center;
+  margin: 0;
 }
 
 .profile-section-title {
@@ -2408,8 +2621,25 @@ button {
   .profile-referral-stats,
   .profile-info-grid,
   .profile-metrics,
+  .profile-usage-cards,
+  .profile-usage-panels,
   .drawing-metrics {
     grid-template-columns: 1fr;
+  }
+
+  .profile-usage-band {
+    padding: 14px;
+  }
+
+  .profile-usage-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .profile-usage-toolbar label,
+  .profile-usage-toolbar select,
+  .profile-usage-toolbar button {
+    width: 100%;
   }
 
   .profile-helper-panel {
@@ -2417,6 +2647,6 @@ button {
   }
 
   .profile-metric-block strong {
-    font-size: 22px;
+    font-size: 20px;
   }
 }
