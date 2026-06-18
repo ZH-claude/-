@@ -61,6 +61,8 @@ npm run seed:merchant-test-accounts
 
 商家端的“上游/模型”页面用于录入另一个中转站的真实上游地址和 API Key；客户使用本平台发放的 Key 调用本平台，本平台再转发到上游。未配置真实上游时，页面和接口只能显示未配置或空状态，不能用假数据冒充可用。
 
+后续商用计费目标已经改为“统一基础 token 额度”：商家按人民币生成充值码，用户兑换后得到基础 token；DeepSeek 作为 1 倍基准模型，其他模型按倍率消耗基础 token。详细规则和拆分任务见 `docs/product/token-metering-upgrade-plan.md`。
+
 ## Docker 启动
 
 在项目根目录执行：
