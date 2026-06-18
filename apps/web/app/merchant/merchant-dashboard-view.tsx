@@ -91,8 +91,8 @@ export function MerchantDashboardView({ username, role }: { username: string; ro
         {error ? <p className="form-error">{error}</p> : null}
 
         <section className="admin-metrics">
-          <MetricPanel label="客户剩余额度" value={formatMoney(summary?.wallets.totalBalanceCents)} detail="全部客户未用完的额度" tone="green" />
-          <MetricPanel label="今日客户扣费" value={formatMoney(summary?.today.spendCents)} detail={`${summary?.today.callCount ?? 0} 次客户调用`} tone="red" />
+          <MetricPanel label="客户剩余 token" value={formatTokens(summary?.wallets.totalBalanceCents)} detail="全部客户未用完的 token" tone="green" />
+          <MetricPanel label="今日扣除 token" value={formatTokens(summary?.today.spendCents)} detail={`${summary?.today.callCount ?? 0} 次客户调用`} tone="red" />
           <MetricPanel label="活跃用户" value={formatNumber(summary?.users.active)} detail={`总用户 ${summary?.users.total ?? 0}`} />
           <MetricPanel label="上游状态" value={healthLabel} detail={`${summary?.upstreams.active ?? 0} 个启用上游`} />
         </section>
@@ -110,14 +110,14 @@ export function MerchantDashboardView({ username, role }: { username: string; ro
                 <small>先保存 DeepSeek 或中转站上游，只维护地址、密钥和健康检查。</small>
               </span>
             </Link>
-            <Link className="merchant-action-link" href="/merchant/model-config#merchant-model-publish">
+            <Link className="merchant-action-link" href="/merchant/model-config">
               <ApiOutlined />
               <span>
                 <strong>发布客户模型</strong>
                 <small>准备用户看到的模型名，例如 gpt5.5，并设置 token 倍率。</small>
               </span>
             </Link>
-            <Link className="merchant-action-link" href="/merchant/model-config#merchant-model-routes">
+            <Link className="merchant-action-link" href="/merchant/model-routes">
               <DatabaseOutlined />
               <span>
                 <strong>选择上游线路</strong>
@@ -146,7 +146,7 @@ export function MerchantDashboardView({ username, role }: { username: string; ro
                 ['后台账号', formatNumber(summary?.users.admins)],
                 ['今日新增', formatNumber(summary?.users.newToday)],
                 ['禁用/风控', `${summary?.users.disabled ?? 0} / ${summary?.users.riskLocked ?? 0}`],
-                ['累计客户扣费', formatMoney(summary?.wallets.totalSpendCents)]
+                ['累计扣除 token', formatTokens(summary?.wallets.totalSpendCents)]
               ]}
             />
           </section>
@@ -267,12 +267,12 @@ function DashboardRows({ rows }: { rows: Array<[string, string]> }) {
   );
 }
 
-function formatMoney(cents: number | null | undefined) {
-  if (cents === null || cents === undefined) {
+function formatTokens(value: number | null | undefined) {
+  if (value === null || value === undefined) {
     return '-';
   }
 
-  return `¥${(cents / 100).toFixed(2)}`;
+  return `${new Intl.NumberFormat('zh-CN').format(value)} token`;
 }
 
 function formatNumber(value: number | null | undefined) {

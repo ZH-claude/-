@@ -256,6 +256,18 @@ async function main() {
       checks.push('admin_can_open_merchant_model_config_page');
     }
 
+    const adminModelRoutesPage = await requestWebPage('/merchant/model-routes', adminCookie);
+    if (adminModelRoutesPage.status === 404) {
+      checks.push('merchant_model_routes_web_route_not_present_in_frontend');
+    } else {
+      assert(
+        adminModelRoutesPage.status >= 200 && adminModelRoutesPage.status < 300,
+        `merchant /merchant/model-routes should be accessible for admin, got ${adminModelRoutesPage.status}`
+      );
+      assertMerchantModelRoutesHtml(adminModelRoutesPage.text);
+      checks.push('admin_can_open_merchant_model_routes_page');
+    }
+
     const adminProfile = await get<AuthMeResponse>('/auth/me', adminCookie);
     assert(adminProfile.status >= 200 && adminProfile.status < 300, '/auth/me for admin should pass');
 
@@ -816,8 +828,7 @@ function assertMerchantModelConfigHtml(text: string) {
   const structuralMarkers = [
     'merchant-model-config-page',
     'data-page="merchant-model-config"',
-    'id="merchant-model-publish"',
-    'id="merchant-model-routes"'
+    'id="merchant-model-publish"'
   ];
   const missingStructuralMarkers = structuralMarkers.filter((marker) => !text.includes(marker));
   assert(
@@ -827,16 +838,44 @@ function assertMerchantModelConfigHtml(text: string) {
 
   const markerGroups: string[][] = [
     ['merchant-shell-page'],
-    ['模型发布与线路绑定'],
+    ['模型发布'],
     ['第一步发布客户模型', '第一步：发布客户模型'],
-    ['第二步绑定上游线路', '第二步：给客户模型绑定上游线路'],
     ['已发布客户模型']
   ];
   const found = markerGroups.filter((group) => group.some((marker) => text.includes(marker))).length;
   assert(found >= 4, `merchant model-config page missing expected merchant markers, found ${found}`);
+  assert(!text.includes('id="merchant-model-routes"'), 'merchant model-config should not render route binding form');
+  assert(!text.includes('第二步：给客户模型绑定上游线路'), 'merchant model-config should not include route binding copy');
   const forbiddenUserMarkers = ['个人中心', '余额充值', '通知设置', '令牌入口'];
   const leakedMarkers = forbiddenUserMarkers.filter((marker) => text.includes(marker));
   assert(leakedMarkers.length === 0, `merchant model-config leaked user-site markers: ${leakedMarkers.join(', ')}`);
+}
+
+function assertMerchantModelRoutesHtml(text: string) {
+  const structuralMarkers = [
+    'merchant-model-config-page',
+    'data-page="merchant-model-routes"',
+    'id="merchant-model-routes"'
+  ];
+  const missingStructuralMarkers = structuralMarkers.filter((marker) => !text.includes(marker));
+  assert(
+    missingStructuralMarkers.length === 0,
+    `merchant model-routes page missing structural markers: ${missingStructuralMarkers.join(', ')}`
+  );
+
+  const markerGroups: string[][] = [
+    ['merchant-shell-page'],
+    ['模型线路绑定'],
+    ['第二步绑定上游线路', '第二步：给客户模型绑定上游线路'],
+    ['真实上游模型名']
+  ];
+  const found = markerGroups.filter((group) => group.some((marker) => text.includes(marker))).length;
+  assert(found >= 4, `merchant model-routes page missing expected merchant markers, found ${found}`);
+  assert(!text.includes('id="merchant-model-publish"'), 'merchant model-routes should not render model publishing form');
+  assert(!text.includes('客户看到的模型名'), 'merchant model-routes should not include model publishing fields');
+  const forbiddenUserMarkers = ['个人中心', '余额充值', '通知设置', '令牌入口'];
+  const leakedMarkers = forbiddenUserMarkers.filter((marker) => text.includes(marker));
+  assert(leakedMarkers.length === 0, `merchant model-routes leaked user-site markers: ${leakedMarkers.join(', ')}`);
 }
 
 async function countResidual() {

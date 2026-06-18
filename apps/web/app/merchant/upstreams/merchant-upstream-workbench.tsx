@@ -132,7 +132,7 @@ export function MerchantUpstreamWorkbench({
             apiKey: providerApiKey.trim()
           });
 
-      setMessage(`${copy.providerName}已保存。下一步请到“模型发布”里把客户模型绑定到这条上游线路。`);
+      setMessage(`${copy.providerName}已保存。下一步请到“模型映射”里把客户模型绑定到这条上游线路。`);
       setSelectedProviderId(saved.id);
       resetForm();
       await loadData();
@@ -197,7 +197,7 @@ export function MerchantUpstreamWorkbench({
         <section className="admin-metrics">
           <MetricPanel label="已接入上游" value={formatNumber(visibleProviders.length)} detail={copy.providerName} />
           <MetricPanel label="启用上游" value={formatNumber(activeProviderCount)} detail="可作为模型线路" />
-          <MetricPanel label="已绑定线路" value={formatNumber(activeMappingCount)} detail="由模型发布页维护" />
+          <MetricPanel label="已绑定线路" value={formatNumber(activeMappingCount)} detail="由模型映射页维护" />
           <MetricPanel label="异常上游" value={formatNumber(unhealthyProviderCount)} detail="需要检查" />
         </section>
 
@@ -364,7 +364,7 @@ export function MerchantUpstreamWorkbench({
                     ))}
                     {!providerMappings.length ? (
                       <tr>
-                        <td colSpan={6}>这条上游还没有服务任何客户模型。请到“模型发布”里绑定。</td>
+                        <td colSpan={6}>这条上游还没有服务任何客户模型。请到“模型映射”里绑定。</td>
                       </tr>
                     ) : null}
                   </tbody>
@@ -372,7 +372,7 @@ export function MerchantUpstreamWorkbench({
               </div>
             </div>
           ) : (
-            <p className="table-note">先保存一个真实上游，然后到“模型发布”绑定客户模型。</p>
+            <p className="table-note">先保存一个真实上游，然后到“模型映射”绑定客户模型。</p>
           )}
         </section>
       </section>
@@ -391,17 +391,7 @@ function MetricPanel({ label, value, detail }: { label: string; value: string; d
 }
 
 function isProviderInKind(provider: UpstreamProvider, kind: UpstreamKind) {
-  if (provider.kind === kind) {
-    return true;
-  }
-
-  const text = `${provider.name} ${provider.baseUrl}`.toLowerCase();
-  const looksLikeDeepSeek = text.includes('deepseek');
-  if (kind === 'deepseek') {
-    return provider.kind === 'generic' && looksLikeDeepSeek;
-  }
-
-  return provider.kind === 'generic' && !looksLikeDeepSeek;
+  return provider.kind === kind;
 }
 
 function getWorkbenchCopy(kind: UpstreamKind) {
@@ -409,7 +399,7 @@ function getWorkbenchCopy(kind: UpstreamKind) {
     return {
       eyebrow: 'DeepSeek 上游',
       title: 'DeepSeek 上游接入',
-      description: '这里只维护 DeepSeek 的上游地址、密钥和健康检查；客户模型请到“模型发布”里绑定。',
+      description: '这里只维护 DeepSeek 的上游地址、密钥和健康检查；客户模型先在“模型发布”准备，再到“模型映射”绑定。',
       providerName: 'DeepSeek 上游',
       providerPlaceholder: '例如：deepseek-v4-pro',
       baseUrlPlaceholder: '例如：https://api.deepseek.com'
@@ -419,7 +409,7 @@ function getWorkbenchCopy(kind: UpstreamKind) {
   return {
     eyebrow: '中转站上游',
     title: '中转站上游接入',
-    description: '这里只维护其它中转站的上游地址、密钥和健康检查；客户模型请到“模型发布”里绑定。',
+    description: '这里只维护其它中转站的上游地址、密钥和健康检查；客户模型先在“模型发布”准备，再到“模型映射”绑定。',
     providerName: '中转站上游',
     providerPlaceholder: '例如：aicode-us',
     baseUrlPlaceholder: '例如：https://new.aicode.us.com'

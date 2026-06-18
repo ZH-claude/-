@@ -128,8 +128,8 @@ export default function UsageLogPage() {
         </section>
 
         <div className="metric-panel">
-          <span>筛选范围消费</span>
-          <strong>{formatCents(summary?.totalCostCents ?? 0)}</strong>
+          <span>筛选范围扣除</span>
+          <strong>{formatTokens(summary?.totalCostCents ?? 0)}</strong>
           <small>成功扣费 {billableCount} 次</small>
         </div>
         <div className="metric-panel">
@@ -250,7 +250,7 @@ export default function UsageLogPage() {
                   <th>模型</th>
                   <th>令牌</th>
                   <th>Token</th>
-                  <th>消费</th>
+                  <th>扣除 token</th>
                   <th>request_id</th>
                   <th>usage_event</th>
                   <th>wallet_transaction</th>
@@ -267,7 +267,7 @@ export default function UsageLogPage() {
                       <span className="table-note">{entry.token.keyPreview}</span>
                     </td>
                     <td>{entry.totalTokens}</td>
-                    <td>{formatCents(entry.costCents)}</td>
+                    <td>{formatTokens(entry.costCents)}</td>
                     <td className="request-id-cell">{entry.requestId}</td>
                     <td className="request-id-cell">{entry.id}</td>
                     <td className="request-id-cell">{entry.walletTransaction?.id ?? '-'}</td>
@@ -313,7 +313,7 @@ function toIsoDateTime(value: string) {
 }
 
 function toCsv(rows: UsageLogEntry[]) {
-  const header = ['createdAt', 'status', 'model', 'token', 'totalTokens', 'costCents', 'requestId', 'usageEventId', 'walletTransactionId'];
+  const header = ['createdAt', 'status', 'model', 'token', 'totalTokens', 'costTokens', 'requestId', 'usageEventId', 'walletTransactionId'];
   const body = rows.map((row) => [
     row.createdAt,
     row.status,
@@ -333,6 +333,6 @@ function csvCell(value: string) {
   return `"${value.replace(/"/g, '""')}"`;
 }
 
-function formatCents(value: number) {
-  return `$${(value / 100).toFixed(2)}`;
+function formatTokens(value: number) {
+  return `${new Intl.NumberFormat('zh-CN').format(value)} token`;
 }

@@ -237,7 +237,7 @@ function assertRedirect(response: Response, expectedPath: string, label: string)
 }
 
 function assertMerchantDashboardHtml(text: string) {
-  const markers = ['merchant-shell-page', '商家工作台', '运营概览', '客户剩余额度', '最近告警'];
+  const markers = ['merchant-shell-page', '商家工作台', '运营概览', '客户剩余 token', '最近告警'];
   const found = markers.filter((marker) => text.includes(marker)).length;
   assert(found >= 4, `merchant dashboard HTML missing expected markers, found ${found}`);
 }

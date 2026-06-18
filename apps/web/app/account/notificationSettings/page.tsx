@@ -70,7 +70,7 @@ export default function NotificationSettingsPage() {
         thresholdBaseTokens.trim() &&
         (!Number.isInteger(Number(thresholdBaseTokens)) || Number(thresholdBaseTokens) < 0)
       ) {
-        throw new Error('余额阈值必须是非负基础 token 整数');
+        throw new Error('余额阈值必须是非负 token 整数');
       }
 
       const result = await updateNotificationSettings({
@@ -178,7 +178,7 @@ export default function NotificationSettingsPage() {
               余额预警
             </label>
             <label>
-              余额阈值（基础 token）
+              余额阈值（token）
               <input
                 inputMode="decimal"
                 min="0"
@@ -370,7 +370,7 @@ function formatDeliveryStatus(status: string | null) {
 }
 
 function formatBaseTokens(value: number) {
-  return `${new Intl.NumberFormat('zh-CN').format(value)} 基础 token`;
+  return `${new Intl.NumberFormat('zh-CN').format(value)} token`;
 }
 
 function formatDateTime(value: string | null) {

@@ -62,7 +62,7 @@ export default function RechargePage() {
     try {
       const result = await redeemRechargeCode({ code });
       setCode('');
-      setMessage(`已到账 ${formatBaseTokens(result.transaction.amountBaseTokens ?? result.transaction.amountCents)} 基础 token`);
+      setMessage(`已到账 ${formatBaseTokens(result.transaction.amountBaseTokens ?? result.transaction.amountCents)} token`);
       await loadRechargeData();
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : '兑换码核销失败');
@@ -88,7 +88,7 @@ export default function RechargePage() {
         <div className="account-panel account-summary">
           <div>
             <p className="eyebrow">余额充值</p>
-            <h1>{isLoading ? '加载中' : `${formatBaseTokens(user?.wallet.balanceCents ?? 0)} 基础 token`}</h1>
+            <h1>{isLoading ? '加载中' : `${formatBaseTokens(user?.wallet.balanceCents ?? 0)} token`}</h1>
           </div>
           <button className="icon-button" onClick={() => void loadRechargeData()} title="刷新充值数据" type="button">
             <ReloadOutlined />
@@ -132,8 +132,8 @@ export default function RechargePage() {
                 <tr>
                   <th>时间</th>
                   <th>人民币面值</th>
-                  <th>到账基础 token</th>
-                  <th>充值后基础 token</th>
+                  <th>到账 token</th>
+                  <th>充值后 token</th>
                   <th>状态</th>
                   <th>流水</th>
                 </tr>

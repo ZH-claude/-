@@ -33,9 +33,19 @@ const DEFAULT_MARGIN_PERCENT = '10';
 
 type ModelStatus = 'active' | 'disabled';
 type PricingMode = 'manual' | 'deepseek_base' | 'relay_price';
+type ModelConfigMode = 'publish' | 'routes';
 
-export function MerchantModelConfigView({ username, role }: { username: string; role: string }) {
+export function MerchantModelConfigView({
+  username,
+  role,
+  mode = 'publish'
+}: {
+  username: string;
+  role: string;
+  mode?: ModelConfigMode;
+}) {
   const router = useRouter();
+  const isRoutesPage = mode === 'routes';
   const [groups, setGroups] = useState<AdminGroup[]>([]);
   const [models, setModels] = useState<AdminModelPrice[]>([]);
   const [upstreams, setUpstreams] = useState<UpstreamProvider[]>([]);
@@ -112,12 +122,16 @@ export function MerchantModelConfigView({ username, role }: { username: string; 
       setGroups(configResult.groups);
       setModels(configResult.models);
       setMappings(configResult.upstreamModels);
+      const requestedModel =
+        typeof window === 'undefined' ? '' : new URLSearchParams(window.location.search).get('model') ?? '';
       const nextActiveGroupIds = configResult.groups
         .filter((group) => group.status === 'active')
         .map((group) => group.id);
       setModelGroupIds((current) => keepValidIds(current, configResult.groups, nextActiveGroupIds));
       setMappingProviderId((current) => keepValidId(current, providerResult.items.map((provider) => provider.id), providerResult.items[0]?.id));
-      setMappingPublicModel((current) => keepValidId(current, configResult.models.map((model) => model.model), configResult.models[0]?.model));
+      setMappingPublicModel((current) =>
+        keepValidId(requestedModel || current, configResult.models.map((model) => model.model), configResult.models[0]?.model)
+      );
     } catch (nextError) {
       const nextMessage = nextError instanceof Error ? nextError.message : '模型配置加载失败';
       setError(nextMessage);
@@ -254,6 +268,11 @@ export function MerchantModelConfigView({ username, role }: { username: string; 
   }
 
   function beginCreateMapping(model: AdminModelPrice) {
+    if (!isRoutesPage) {
+      router.push(`/merchant/model-routes?model=${encodeURIComponent(model.model)}`);
+      return;
+    }
+
     resetMappingForm();
     setMappingPublicModel(model.model);
     setMappingUpstreamModel(model.model);
@@ -313,19 +332,26 @@ export function MerchantModelConfigView({ username, role }: { username: string; 
 
   return (
     <MerchantShell
-      activePath="/merchant/model-config"
+      activePath={isRoutesPage ? '/merchant/model-routes' : '/merchant/model-config'}
       isRefreshing={isLoading}
       onLogout={handleLogout}
       onRefresh={() => void loadData()}
       role={role}
       username={username}
     >
-      <section className="admin-content merchant-model-config-page" data-page="merchant-model-config">
+      <section
+        className="admin-content merchant-model-config-page"
+        data-page={isRoutesPage ? 'merchant-model-routes' : 'merchant-model-config'}
+      >
         <div className="admin-heading merchant-dashboard-heading">
           <div>
             <p className="eyebrow">商家工作台</p>
-            <h1>模型发布与线路绑定</h1>
-            <small>先发布客户看到的模型，再把这个模型绑定到 DeepSeek 或中转站上游。</small>
+            <h1>{isRoutesPage ? '模型线路绑定' : '模型发布'}</h1>
+            <small>
+              {isRoutesPage
+                ? '把已经发布的客户模型绑定到 DeepSeek 或中转站上游。'
+                : '先准备用户看到的模型名和扣费规则，上游线路在“模型映射”里绑定。'}
+            </small>
           </div>
           <button className="icon-button" disabled={isLoading} onClick={() => void loadData()} title="刷新模型配置" type="button">
             <ReloadOutlined />
@@ -341,6 +367,8 @@ export function MerchantModelConfigView({ username, role }: { username: string; 
           <MetricPanel label="启用线路" value={formatNumber(stats.activeMappings)} detail="用户请求会走这些线路" />
         </section>
 
+        {!isRoutesPage ? (
+        <>
         <section className="admin-panel" id="merchant-model-publish">
           <span className="anchor-compat" id="merchant-model-prices" aria-hidden="true" />
           <div className="panel-title">
@@ -492,7 +520,7 @@ export function MerchantModelConfigView({ username, role }: { username: string; 
                         </button>
                         <button className="ghost-button compact-button" onClick={() => beginCreateMapping(model)} type="button">
                           <LinkOutlined />
-                          绑定上游
+                          去绑定上游
                         </button>
                       </div>
                     </td>
@@ -507,7 +535,11 @@ export function MerchantModelConfigView({ username, role }: { username: string; 
             </table>
           </div>
         </section>
+        </>
+        ) : null}
 
+        {isRoutesPage ? (
+        <>
         <section className="admin-panel" id="merchant-model-routes">
           <span className="anchor-compat" id="merchant-upstream-models" aria-hidden="true" />
           <div className="panel-title">
@@ -673,6 +705,8 @@ export function MerchantModelConfigView({ username, role }: { username: string; 
             </dl>
           </section>
         ) : null}
+        </>
+        ) : null}
       </section>
     </MerchantShell>
   );
@@ -735,7 +769,7 @@ function formatPricingCost(model: AdminModelPrice) {
 }
 
 function formatKind(upstream: UpstreamProvider) {
-  if (upstream.kind === 'deepseek' || `${upstream.name} ${upstream.baseUrl}`.toLowerCase().includes('deepseek')) {
+  if (upstream.kind === 'deepseek') {
     return 'DeepSeek';
   }
   if (upstream.kind === 'relay') {

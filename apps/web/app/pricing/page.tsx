@@ -111,7 +111,7 @@ export default function PricingPage() {
           </div>
           <div className="formula-box">
             <code>{pricing?.billingFormula.totalCostBaseTokens ?? '加载中'}</code>
-            <small>单位：基础 token / 1K tokens，内部按基础 token 向上取整。</small>
+            <small>单位：token / 1K tokens，内部按 token 向上取整。</small>
           </div>
         </section>
 
@@ -216,5 +216,5 @@ function formatMultiplier(value: string) {
 }
 
 function formatBaseTokensPer1k(value: number) {
-  return `${new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 4 }).format(value)} 基础 token / 1K`;
+  return `${new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 4 }).format(value)} token / 1K`;
 }

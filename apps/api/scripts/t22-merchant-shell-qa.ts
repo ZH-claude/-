@@ -310,7 +310,7 @@ function assertIsShellHtml(text: string) {
 }
 
 function assertMerchantDashboardHtml(text: string) {
-  const markers = ['merchant-shell-page', '商家工作台', '运营概览', '客户剩余额度', '最近告警'];
+  const markers = ['merchant-shell-page', '商家工作台', '运营概览', '客户剩余 token', '最近告警'];
   const foundCount = markers.filter((marker) => text.includes(marker)).length;
   assert(foundCount >= 4, `merchant dashboard page did not render expected markers, found only ${foundCount}`);
 }

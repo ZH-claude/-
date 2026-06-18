@@ -458,8 +458,8 @@ export default function TokenPage() {
                   <th>计费方式</th>
                   <th>状态</th>
                   <th>可用模型</th>
-                  <th>消耗基础 token</th>
-                  <th>剩余基础 token</th>
+                  <th>消耗 token</th>
+                  <th>剩余 token</th>
                   <th>创建时间</th>
                   <th>最后使用时间</th>
                   <th>过期时间</th>
@@ -582,7 +582,7 @@ export default function TokenPage() {
               </label>
               <div className="form-row">
                 <label>
-                  额度（基础 token，可空）
+                  额度（token，可空）
                   <input
                     min={0}
                     onChange={(event) => setForm((current) => ({ ...current, quotaBaseTokens: event.target.value }))}
@@ -665,7 +665,7 @@ function normalizeQuotaBaseTokens(value: string) {
 
   const numericValue = Number(value);
   if (!Number.isInteger(numericValue) || numericValue < 0) {
-    return new Error('额度必须是大于等于 0 的基础 token 整数');
+    return new Error('额度必须是大于等于 0 的 token 整数');
   }
 
   return numericValue;

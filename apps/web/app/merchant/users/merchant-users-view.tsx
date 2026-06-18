@@ -118,7 +118,7 @@ export function MerchantUsersView({ username, role }: { username: string; role: 
                   <th>用户</th>
                   <th>角色</th>
                   <th>状态</th>
-                  <th>客户额度 / 累计扣费</th>
+                  <th>客户 token / 累计扣除</th>
                   <th>上次登录</th>
                 </tr>
               </thead>
@@ -145,8 +145,8 @@ export function MerchantUsersView({ username, role }: { username: string; role: 
                       </span>
                     </td>
                     <td>
-                      {formatMoney(user.wallet.balanceCents)}
-                      <small className="table-note">累计 {formatMoney(user.wallet.totalSpendCents ?? 0)}</small>
+                      {formatTokens(user.wallet.balanceCents)}
+                      <small className="table-note">累计 {formatTokens(user.wallet.totalSpendCents ?? 0)}</small>
                     </td>
                     <td>{formatOptionalDate(user.lastLoginAt)}</td>
                   </tr>
@@ -213,12 +213,12 @@ function getUserStatusClass(status: string) {
   return 'status-pill-danger';
 }
 
-function formatMoney(cents: number | null | undefined) {
-  if (cents === null || cents === undefined) {
+function formatTokens(value: number | null | undefined) {
+  if (value === null || value === undefined) {
     return '-';
   }
 
-  return `¥${(cents / 100).toFixed(2)}`;
+  return `${new Intl.NumberFormat('zh-CN').format(value)} token`;
 }
 
 function formatNumber(value: number | null | undefined) {
