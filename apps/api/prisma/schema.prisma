@@ -183,6 +183,7 @@ model ApiToken {
   name          String
   tokenHash     String                @unique @map("token_hash")
   keyPreview    String                @map("key_preview")
+  encryptedApiKey String?             @map("encrypted_api_key")
   status        ApiTokenStatus        @default(ACTIVE)
   quotaCents    Int?                  @map("quota_cents")
   usedCents     Int                   @default(0) @map("used_cents")

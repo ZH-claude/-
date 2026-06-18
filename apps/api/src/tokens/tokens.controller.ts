@@ -43,6 +43,12 @@ export class TokensController {
     return this.tokensService.resetToken(this.requireUser(request), tokenId);
   }
 
+  @Post(':id/reveal')
+  @UseGuards(AuthGuard)
+  revealTokenKey(@Req() request: AuthenticatedRequest, @Param('id') tokenId: string) {
+    return this.tokensService.revealTokenKey(this.requireUser(request), tokenId);
+  }
+
   @Post(':id/update')
   @UseGuards(AuthGuard)
   updateToken(@Req() request: AuthenticatedRequest, @Param('id') tokenId: string, @Body() body: unknown) {

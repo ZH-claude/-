@@ -14,6 +14,7 @@ import { ApiTokenStatus, Prisma, UserStatus } from '../generated/prisma/client';
 import { ModelCatalogService } from '../model-catalog.service';
 import { PrismaService } from '../prisma.service';
 import { SecurityAuditService } from '../security-audit/security-audit.service';
+import { decryptApiTokenKey, encryptApiTokenKey } from './token-key-crypto';
 
 type TokenInput = {
   name?: unknown;
@@ -90,7 +91,7 @@ export class TokensService {
     );
     const modelNames = await this.normalizeModelNames(user, body.modelNames);
 
-    return this.createTokenWithKeyRetry(async (apiKey, tokenHash, keyPreview) => {
+    return this.createTokenWithKeyRetry(async (apiKey, tokenHash, keyPreview, encryptedApiKey) => {
       const token = await this.prisma.$transaction(async (tx) => {
         const createdToken = await tx.apiToken.create({
           data: {
@@ -98,6 +99,7 @@ export class TokensService {
             name,
             tokenHash,
             keyPreview,
+            encryptedApiKey,
             quotaCents,
             expiresAt,
             note,
@@ -194,13 +196,14 @@ export class TokensService {
   async resetToken(user: AuthenticatedUser, tokenId: string) {
     const existingToken = await this.findOwnedActiveOrDisabledToken(user.id, tokenId);
 
-    return this.createTokenWithKeyRetry(async (apiKey, tokenHash, keyPreview) => {
+    return this.createTokenWithKeyRetry(async (apiKey, tokenHash, keyPreview, encryptedApiKey) => {
       const token = await this.prisma.$transaction(async (tx) => {
         const updatedToken = await tx.apiToken.update({
           where: { id: existingToken.id },
           data: {
             tokenHash,
             keyPreview,
+            encryptedApiKey,
             status: ApiTokenStatus.ACTIVE,
             revokedAt: null,
             lastUsedAt: null,
@@ -234,6 +237,28 @@ export class TokensService {
         token: this.toPublicToken(token)
       };
     });
+  }
+
+  async revealTokenKey(user: AuthenticatedUser, tokenId: string) {
+    const token = await this.findOwnedActiveOrDisabledToken(user.id, tokenId);
+
+    if (!token.encryptedApiKey) {
+      throw new BadRequestException('完整密钥不可恢复，请重置令牌后再复制');
+    }
+
+    await this.securityAuditService.record({
+      actorUserId: user.id,
+      action: 'api_token_key_revealed',
+      targetType: 'api_token',
+      targetId: token.id,
+      metadata: {
+        name: token.name
+      }
+    });
+
+    return {
+      apiKey: decryptApiTokenKey(token.encryptedApiKey)
+    };
   }
 
   async updateToken(user: AuthenticatedUser, tokenId: string, body: TokenInput) {
@@ -536,7 +561,7 @@ export class TokensService {
   }
 
   private async createTokenWithKeyRetry<T>(
-    action: (apiKey: string, tokenHash: string, keyPreview: string) => Promise<T>
+    action: (apiKey: string, tokenHash: string, keyPreview: string, encryptedApiKey: string) => Promise<T>
   ) {
     let lastError: unknown;
 
@@ -544,9 +569,10 @@ export class TokensService {
       const apiKey = this.generateApiKey();
       const tokenHash = this.hashApiKey(apiKey);
       const keyPreview = this.maskApiKey(apiKey);
+      const encryptedApiKey = encryptApiTokenKey(apiKey);
 
       try {
-        return await action(apiKey, tokenHash, keyPreview);
+        return await action(apiKey, tokenHash, keyPreview, encryptedApiKey);
       } catch (error) {
         if (!this.isTokenHashCollision(error)) {
           throw error;

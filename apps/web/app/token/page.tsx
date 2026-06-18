@@ -21,6 +21,7 @@ import {
   createToken,
   deleteToken,
   listTokens,
+  revealTokenKey,
   resetToken,
   updateToken,
   type ApiToken
@@ -313,13 +314,13 @@ export default function TokenPage() {
 
   async function copyTokenInfo(token: ApiToken) {
     const fullKey = oneTimeKey?.tokenId === token.id ? oneTimeKey.apiKey : null;
-    const text = fullKey ?? `${token.name} ${token.keyPreview}`;
+    const text = fullKey ?? (await revealTokenKey(token.id)).apiKey;
 
     try {
       await navigator.clipboard.writeText(text);
-      setMessage(fullKey ? '完整密钥已复制' : '已复制令牌名称和密钥预览');
-    } catch {
-      setError('复制失败，请手动选中');
+      setMessage('完整密钥已复制');
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : '复制失败，请重置令牌后再复制');
     }
   }
 
@@ -494,7 +495,7 @@ export default function TokenPage() {
                     <td>{formatDate(token.expiresAt) ?? '永不过期'}</td>
                     <td>
                       <div className="token-icon-actions">
-                        <button className="icon-button compact-icon-button" onClick={() => void copyTokenInfo(token)} title="复制" type="button">
+                        <button className="icon-button compact-icon-button" onClick={() => void copyTokenInfo(token)} title="复制完整密钥" type="button">
                           <CopyOutlined />
                         </button>
                         <button

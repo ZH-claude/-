@@ -47,6 +47,10 @@ type TokenKeyResponse = {
   token: ApiToken;
 };
 
+type TokenRevealResponse = {
+  apiKey: string;
+};
+
 const API_BASE_URL = '/api';
 
 export async function listTokens() {
@@ -68,6 +72,12 @@ export async function disableToken(tokenId: string) {
 
 export async function resetToken(tokenId: string) {
   return request<TokenKeyResponse>(`/tokens/${encodeURIComponent(tokenId)}/reset`, {
+    method: 'POST'
+  });
+}
+
+export async function revealTokenKey(tokenId: string) {
+  return request<TokenRevealResponse>(`/tokens/${encodeURIComponent(tokenId)}/reveal`, {
     method: 'POST'
   });
 }
