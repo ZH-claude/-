@@ -6,6 +6,7 @@ import {
   CloseOutlined,
   EditOutlined,
   ExperimentOutlined,
+  EyeOutlined,
   LeftOutlined,
   ReloadOutlined,
   RightOutlined,
@@ -72,6 +73,8 @@ export function MerchantModelConfigView({ username, role }: { username: string; 
   const [upstreamModelStatus, setUpstreamModelStatus] = useState<'active' | 'disabled'>('active');
   const [supportsStream, setSupportsStream] = useState(true);
   const [editingUpstreamModelId, setEditingUpstreamModelId] = useState<string | null>(null);
+  const [selectedUpstreamId, setSelectedUpstreamId] = useState<string | null>(null);
+  const [selectedMappingId, setSelectedMappingId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isModelSubmitting, setIsModelSubmitting] = useState(false);
   const [isUpstreamSubmitting, setIsUpstreamSubmitting] = useState(false);
@@ -97,6 +100,23 @@ export function MerchantModelConfigView({ username, role }: { username: string; 
     () => models.find((entry) => entry.id === editingModelId) ?? null,
     [editingModelId, models]
   );
+  const selectedUpstream = useMemo(
+    () => upstreams.find((entry) => entry.id === selectedUpstreamId) ?? null,
+    [selectedUpstreamId, upstreams]
+  );
+  const selectedMapping = useMemo(
+    () => upstreamModels.find((entry) => entry.id === selectedMappingId) ?? null,
+    [selectedMappingId, upstreamModels]
+  );
+  const selectedMappingUpstream = useMemo(
+    () => (selectedMapping ? upstreams.find((entry) => entry.id === selectedMapping.providerId) ?? null : null),
+    [selectedMapping, upstreams]
+  );
+  const selectedUpstreamMappings = useMemo(
+    () => (selectedUpstreamId ? upstreamModels.filter((entry) => entry.providerId === selectedUpstreamId) : []),
+    [selectedUpstreamId, upstreamModels]
+  );
+  const detailUpstream = selectedMappingUpstream ?? selectedUpstream;
 
   async function loadData(page = upstreamModelPagination.page) {
     setIsLoading(true);
@@ -313,6 +333,23 @@ export function MerchantModelConfigView({ username, role }: { username: string; 
     setUpstreamPrompt('');
     setUpstreamModelStatus('active');
     setSupportsStream(true);
+  }
+
+  function showUpstreamDetails(upstream: UpstreamProvider) {
+    setSelectedUpstreamId(upstream.id);
+    setSelectedMappingId(null);
+    document.getElementById('merchant-config-detail')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function showMappingDetails(mapping: UpstreamModelMapping) {
+    setSelectedUpstreamId(mapping.providerId);
+    setSelectedMappingId(mapping.id);
+    document.getElementById('merchant-config-detail')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function clearDetails() {
+    setSelectedUpstreamId(null);
+    setSelectedMappingId(null);
   }
 
   async function handleCheckUpstream(providerId: string) {
@@ -585,6 +622,10 @@ export function MerchantModelConfigView({ username, role }: { username: string; 
                         {upstream.lastHealthLatencyMs !== null ? <small className="table-note">{upstream.lastHealthLatencyMs} 毫秒</small> : null}
                       </td>
                       <td>
+                        <button className="ghost-button compact-button" onClick={() => showUpstreamDetails(upstream)} type="button">
+                          <EyeOutlined />
+                          查看
+                        </button>
                         <button className="ghost-button compact-button" onClick={() => beginEditUpstream(upstream)} type="button">
                           <EditOutlined />
                           修改
@@ -606,6 +647,149 @@ export function MerchantModelConfigView({ username, role }: { username: string; 
             </div>
           </section>
         </section>
+
+        {detailUpstream || selectedMapping ? (
+          <section className="admin-panel config-detail-panel" id="merchant-config-detail">
+            <div className="config-detail-header">
+              <div className="panel-title">
+                <EyeOutlined />
+                <h2>{selectedMapping ? '模型绑定详情' : '上游详情'}</h2>
+              </div>
+              <button className="ghost-button compact-button" onClick={clearDetails} type="button">
+                <CloseOutlined />
+                关闭
+              </button>
+            </div>
+
+            {detailUpstream ? (
+              <div className="config-detail-grid">
+                <dl className="config-detail-list">
+                  <div>
+                    <dt>上游名称</dt>
+                    <dd>{detailUpstream.name}</dd>
+                  </div>
+                  <div>
+                    <dt>上游地址</dt>
+                    <dd>{detailUpstream.baseUrl}</dd>
+                  </div>
+                  <div>
+                    <dt>密钥</dt>
+                    <dd>
+                      {detailUpstream.apiKeyPreview}
+                      <span className="table-note">完整密钥不回显；需要换密钥时点“修改”重新填写。</span>
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>上游状态</dt>
+                    <dd>{formatStatus(detailUpstream.status)}</dd>
+                  </div>
+                </dl>
+
+                <dl className="config-detail-list">
+                  <div>
+                    <dt>健康状态</dt>
+                    <dd>
+                      <span className={`status-pill ${getHealthClass(detailUpstream.healthStatus)}`}>{formatHealthStatus(detailUpstream.healthStatus)}</span>
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>上次检查</dt>
+                    <dd>
+                      {formatOptionalDate(detailUpstream.lastHealthCheckAt)}
+                      {detailUpstream.lastHealthLatencyMs !== null ? <span className="table-note">{detailUpstream.lastHealthLatencyMs} 毫秒</span> : null}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>检查错误</dt>
+                    <dd>{detailUpstream.lastHealthError || '-'}</dd>
+                  </div>
+                  <div>
+                    <dt>创建时间</dt>
+                    <dd>{formatOptionalDate(detailUpstream.createdAt)}</dd>
+                  </div>
+                </dl>
+              </div>
+            ) : null}
+
+            {selectedMapping ? (
+              <dl className="config-detail-list config-detail-list-wide">
+                <div>
+                  <dt>公开模型</dt>
+                  <dd>{selectedMapping.publicModel}</dd>
+                </div>
+                <div>
+                  <dt>真实上游模型</dt>
+                  <dd>{selectedMapping.upstreamModel}</dd>
+                </div>
+                <div>
+                  <dt>线路顺序</dt>
+                  <dd>线路 {selectedMapping.priority}</dd>
+                </div>
+                <div>
+                  <dt>超时时间</dt>
+                  <dd>{selectedMapping.timeoutMs} 毫秒</dd>
+                </div>
+                <div>
+                  <dt>绑定状态</dt>
+                  <dd>{formatStatus(selectedMapping.status)}</dd>
+                </div>
+                <div>
+                  <dt>流式输出</dt>
+                  <dd>{selectedMapping.supportsStream ? '支持' : '不支持'}</dd>
+                </div>
+                <div className="full-width-field">
+                  <dt>附加提示词</dt>
+                  <dd className="config-detail-prompt">{selectedMapping.upstreamPrompt || '-'}</dd>
+                </div>
+              </dl>
+            ) : selectedUpstreamMappings.length ? (
+              <div className="config-detail-linked">
+                <strong>这个上游正在服务的模型</strong>
+                <div className="admin-table-wrap compact-table">
+                  <table className="admin-table model-table">
+                    <thead>
+                      <tr>
+                        <th>公开模型</th>
+                        <th>真实上游模型</th>
+                        <th>线路</th>
+                        <th>超时</th>
+                        <th>提示词</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedUpstreamMappings.map((mapping) => (
+                        <tr key={mapping.id}>
+                          <td>{mapping.publicModel}</td>
+                          <td>{mapping.upstreamModel}</td>
+                          <td>线路 {mapping.priority}</td>
+                          <td>{mapping.timeoutMs} 毫秒</td>
+                          <td>{formatPromptPreview(mapping.upstreamPrompt)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : (
+              <p className="table-note">这个上游还没有绑定公开模型。</p>
+            )}
+
+            <div className="form-actions">
+              {detailUpstream ? (
+                <button className="ghost-button compact-button" onClick={() => beginEditUpstream(detailUpstream)} type="button">
+                  <EditOutlined />
+                  修改上游
+                </button>
+              ) : null}
+              {selectedMapping ? (
+                <button className="ghost-button compact-button" onClick={() => beginEditUpstreamModel(selectedMapping)} type="button">
+                  <EditOutlined />
+                  修改绑定
+                </button>
+              ) : null}
+            </div>
+          </section>
+        ) : null}
 
         <section className="admin-panel" id="merchant-upstream-models">
           <div className="panel-title">
@@ -716,6 +900,10 @@ export function MerchantModelConfigView({ username, role }: { username: string; 
                     </td>
                     <td>{mapping.supportsStream ? '是' : '否'}</td>
                     <td>
+                      <button className="ghost-button compact-button" onClick={() => showMappingDetails(mapping)} type="button">
+                        <EyeOutlined />
+                        查看
+                      </button>
                       <button className="ghost-button compact-button" onClick={() => beginEditUpstreamModel(mapping)} type="button">
                         <EditOutlined />
                         修改

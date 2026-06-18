@@ -598,6 +598,67 @@ button {
   min-width: 720px;
 }
 
+.config-detail-panel {
+  display: grid;
+  gap: 18px;
+}
+
+.config-detail-header {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.config-detail-grid {
+  display: grid;
+  gap: 20px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.config-detail-list {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+}
+
+.config-detail-list div {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 120px minmax(0, 1fr);
+}
+
+.config-detail-list dt {
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.config-detail-list dd {
+  color: #111827;
+  font-size: 14px;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.config-detail-list-wide {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.config-detail-list-wide .full-width-field {
+  grid-column: 1 / -1;
+}
+
+.config-detail-prompt {
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.config-detail-linked {
+  display: grid;
+  gap: 10px;
+}
+
 .recharge-table,
 .recharge-code-table {
   min-width: 820px;
@@ -2185,6 +2246,8 @@ button {
 
   .admin-metrics,
   .admin-grid,
+  .config-detail-grid,
+  .config-detail-list-wide,
   .merchant-action-list,
   .form-row,
   .mapping-form,
@@ -2199,6 +2262,15 @@ button {
 
   .admin-top-actions .ghost-button {
     padding: 0 10px;
+  }
+
+  .config-detail-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .config-detail-list div {
+    grid-template-columns: 1fr;
   }
 
   .table-pagination {
