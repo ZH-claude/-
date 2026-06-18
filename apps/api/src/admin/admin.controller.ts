@@ -119,6 +119,19 @@ export class AdminController {
     return this.adminService.createUpstreamProvider(request.auth.user.id, this.toRecord(body));
   }
 
+  @Post('upstreams/:id/update')
+  updateUpstreamProvider(
+    @Req() request: AuthenticatedRequest,
+    @Param('id') upstreamProviderId: string,
+    @Body() body: unknown
+  ) {
+    if (!request.auth?.user?.id) {
+      throw new BadRequestException('Admin context missing');
+    }
+
+    return this.adminService.updateUpstreamProvider(request.auth.user.id, upstreamProviderId, this.toRecord(body));
+  }
+
   @Post('upstreams/:id/health-check')
   checkUpstreamHealth(
     @Req() request: AuthenticatedRequest,
@@ -207,6 +220,19 @@ export class AdminController {
     }
 
     return this.adminService.createUpstreamModel(request.auth.user.id, this.toRecord(body));
+  }
+
+  @Post('upstream-models/:id/update')
+  updateUpstreamModel(
+    @Req() request: AuthenticatedRequest,
+    @Param('id') upstreamModelId: string,
+    @Body() body: unknown
+  ) {
+    if (!request.auth?.user?.id) {
+      throw new BadRequestException('Admin context missing');
+    }
+
+    return this.adminService.updateUpstreamModel(request.auth.user.id, upstreamModelId, this.toRecord(body));
   }
 
   private parsePositiveInt(value: string | undefined, defaultValue: number, max: number) {

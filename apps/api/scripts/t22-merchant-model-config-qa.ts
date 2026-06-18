@@ -58,8 +58,12 @@ type AdminModelPrice = {
 type AdminUpstreamModel = {
   id: string;
   providerId: string;
+  providerName: string;
   publicModel: string;
   upstreamModel: string;
+  priority: number;
+  timeoutMs: number;
+  upstreamPrompt: string | null;
   status: string;
   supportsStream: boolean;
 };
@@ -392,12 +396,66 @@ async function main() {
     created.upstreamProviderId = upstreamCreate.json.id;
     checks.push('admin_created_upstream_provider_via_api');
 
+    const initialUpstreamKey = created.upstreamApiKey;
+    const updatedUpstreamName = `${created.upstreamProviderName}_edited`;
+    const updatedUpstreamKey = `${created.upstreamApiKey}-edited`;
+    const upstreamUpdate = await post<AdminUpstreamProvider>(
+      `/admin/upstreams/${created.upstreamProviderId}/update`,
+      {
+        name: updatedUpstreamName,
+        baseUrl: `https://${updatedUpstreamName}.example.invalid`,
+        apiKey: updatedUpstreamKey,
+        status: 'active'
+      },
+      adminCookie
+    );
+    assert(upstreamUpdate.status >= 200 && upstreamUpdate.status < 300, `admin update upstream failed with ${upstreamUpdate.status}`);
+    assert(upstreamUpdate.json.id === created.upstreamProviderId, 'updated upstream id mismatch');
+    assert(upstreamUpdate.json.name === updatedUpstreamName, 'updated upstream name mismatch');
+    assert(upstreamUpdate.json.baseUrl === `https://${updatedUpstreamName}.example.invalid`, 'updated upstream baseUrl mismatch');
+    assert(upstreamUpdate.json.healthStatus === 'unknown', 'updated upstream health should reset after key/url change');
+    created.upstreamProviderName = updatedUpstreamName;
+    created.upstreamApiKey = updatedUpstreamKey;
+    checks.push('admin_updated_upstream_provider_via_api');
+
+    const encryptedAfterKeyUpdate = await prisma.upstreamProvider.findUniqueOrThrow({
+      where: { id: created.upstreamProviderId },
+      select: { encryptedApiKey: true }
+    });
+    const renameOnlyUpstreamName = `${created.upstreamProviderName}_rename_only`;
+    const upstreamRenameOnly = await post<AdminUpstreamProvider>(
+      `/admin/upstreams/${created.upstreamProviderId}/update`,
+      {
+        name: renameOnlyUpstreamName,
+        baseUrl: `https://${created.upstreamProviderName}.example.invalid`,
+        status: 'active'
+      },
+      adminCookie
+    );
+    assert(
+      upstreamRenameOnly.status >= 200 && upstreamRenameOnly.status < 300,
+      `admin rename-only upstream update failed with ${upstreamRenameOnly.status}`
+    );
+    const encryptedAfterRenameOnly = await prisma.upstreamProvider.findUniqueOrThrow({
+      where: { id: created.upstreamProviderId },
+      select: { encryptedApiKey: true }
+    });
+    assert(
+      encryptedAfterRenameOnly.encryptedApiKey === encryptedAfterKeyUpdate.encryptedApiKey,
+      'upstream key should be preserved when update omits apiKey'
+    );
+    created.upstreamProviderName = renameOnlyUpstreamName;
+    checks.push('admin_updated_upstream_provider_without_replacing_key');
+
     const upstreamModelCreate = await post<AdminUpstreamModel>(
       '/admin/upstream-models',
       {
         providerId: created.upstreamProviderId,
         publicModel: created.modelName,
         upstreamModel: `${created.modelName}-mapped`,
+        priority: 1,
+        timeoutMs: 5000,
+        upstreamPrompt: 'QA prompt',
         supportsStream: true
       },
       adminCookie
@@ -409,13 +467,44 @@ async function main() {
     created.upstreamModelId = upstreamModelCreate.json.id;
     checks.push('admin_created_upstream_model_mapping_via_api');
 
+    const upstreamModelUpdate = await post<AdminUpstreamModel>(
+      `/admin/upstream-models/${created.upstreamModelId}/update`,
+      {
+        providerId: created.upstreamProviderId,
+        publicModel: created.modelName,
+        upstreamModel: `${created.modelName}-mapped-edited`,
+        priority: 1,
+        timeoutMs: 7000,
+        upstreamPrompt: 'QA prompt edited',
+        status: 'active',
+        supportsStream: false
+      },
+      adminCookie
+    );
+    assert(
+      upstreamModelUpdate.status >= 200 && upstreamModelUpdate.status < 300,
+      `admin update upstream-model failed with ${upstreamModelUpdate.status}`
+    );
+    assert(upstreamModelUpdate.json.id === created.upstreamModelId, 'updated upstream-model id mismatch');
+    assert(upstreamModelUpdate.json.providerId === created.upstreamProviderId, 'updated upstream-model provider mismatch');
+    assert(upstreamModelUpdate.json.publicModel === created.modelName, 'updated upstream-model public model mismatch');
+    assert(upstreamModelUpdate.json.upstreamModel === `${created.modelName}-mapped-edited`, 'updated upstream-model name mismatch');
+    assert(upstreamModelUpdate.json.timeoutMs === 7000, 'updated upstream-model timeout mismatch');
+    assert(upstreamModelUpdate.json.upstreamPrompt === 'QA prompt edited', 'updated upstream-model prompt mismatch');
+    assert(upstreamModelUpdate.json.supportsStream === false, 'updated upstream-model stream flag mismatch');
+    checks.push('admin_updated_upstream_model_mapping_via_api');
+
     const createText = JSON.stringify({
       group: createdGroup.json,
       model: modelCreate.json,
       upstream: upstreamCreate.json,
-      upstreamModel: upstreamModelCreate.json
+      upstreamUpdate: upstreamUpdate.json,
+      upstreamRenameOnly: upstreamRenameOnly.json,
+      upstreamModel: upstreamModelCreate.json,
+      upstreamModelUpdate: upstreamModelUpdate.json
     });
-    assert(!createText.includes(created.upstreamApiKey), 'plaintext api key leaked in create response');
+    assert(!createText.includes(initialUpstreamKey), 'initial plaintext api key leaked in create/update response');
+    assert(!createText.includes(created.upstreamApiKey), 'updated plaintext api key leaked in create/update response');
     assert(!createText.includes('encryptedApiKey'), 'encrypted api key leaked in create responses');
     checks.push('create_responses_do_not_leak_plain_upstream_api_key');
 

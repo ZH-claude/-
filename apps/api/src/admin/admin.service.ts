@@ -776,6 +776,90 @@ export class AdminService implements OnModuleInit {
     }
   }
 
+  async updateUpstreamProvider(adminUserId: string, upstreamProviderId: string, body: UpstreamProviderInput) {
+    const providerId = this.requiredUuid(upstreamProviderId, 'upstreamProviderId');
+    const name = this.requiredText(body.name, 'name', 2, 80);
+    const baseUrl = this.normalizeBaseUrl(body.baseUrl);
+    const nextApiKey = this.optionalText(body.apiKey, 'apiKey', 8, 512);
+    const status = this.normalizeUpstreamStatus(body.status);
+
+    const currentProvider = await this.prisma.upstreamProvider.findUnique({
+      where: { id: providerId }
+    });
+
+    if (!currentProvider) {
+      throw new NotFoundException('Upstream provider not found');
+    }
+
+    const apiKeyChanged = typeof nextApiKey === 'string';
+    const addressChanged = currentProvider.baseUrl !== baseUrl;
+    const updateData: Prisma.UpstreamProviderUpdateInput = {
+      name,
+      baseUrl,
+      status,
+      ...(apiKeyChanged
+        ? {
+            encryptedApiKey: encryptUpstreamApiKey(nextApiKey),
+            apiKeyPreview: maskUpstreamApiKey(nextApiKey)
+          }
+        : {})
+    };
+
+    if (addressChanged || apiKeyChanged) {
+      updateData.healthStatus = UpstreamHealthStatus.UNKNOWN;
+      updateData.lastHealthCheckAt = null;
+      updateData.lastHealthLatencyMs = null;
+      updateData.lastHealthError = null;
+    }
+
+    try {
+      const provider = await this.prisma.$transaction(async (tx) => {
+        const updatedProvider = await tx.upstreamProvider.update({
+          where: { id: providerId },
+          data: updateData,
+          include: {
+            createdByAdmin: {
+              select: { username: true }
+            }
+          }
+        });
+
+        await tx.adminAuditLog.create({
+          data: {
+            adminUserId,
+            action: 'upstream_provider_updated',
+            targetType: 'upstream_provider',
+            targetId: updatedProvider.id,
+            beforeSnapshot: {
+              id: currentProvider.id,
+              name: currentProvider.name,
+              baseUrl: currentProvider.baseUrl,
+              status: currentProvider.status.toLowerCase(),
+              apiKeyPreview: currentProvider.apiKeyPreview
+            },
+            afterSnapshot: {
+              id: updatedProvider.id,
+              name: updatedProvider.name,
+              baseUrl: updatedProvider.baseUrl,
+              status: updatedProvider.status.toLowerCase(),
+              apiKeyPreview: updatedProvider.apiKeyPreview
+            }
+          }
+        });
+
+        return updatedProvider;
+      });
+
+      return this.toPublicUpstreamProvider(provider);
+    } catch (error) {
+      if (this.isUniqueViolation(error)) {
+        throw new ConflictException('Upstream provider name already exists');
+      }
+
+      throw error;
+    }
+  }
+
   async checkUpstreamHealth(adminUserId: string, upstreamProviderId: string) {
     const providerId = this.requiredUuid(upstreamProviderId, 'upstreamProviderId');
     const provider = await this.prisma.upstreamProvider.findUnique({
@@ -1323,6 +1407,134 @@ export class AdminService implements OnModuleInit {
 
         return tx.upstreamModel.findUniqueOrThrow({
           where: { id: createdModel.id },
+          include: {
+            provider: true,
+            modelPrice: true
+          }
+        });
+      });
+
+      return this.toPublicUpstreamModel(upstreamModelRecord);
+    } catch (error) {
+      if (this.isUniqueViolation(error)) {
+        throw new ConflictException('Upstream model mapping already exists');
+      }
+
+      throw error;
+    }
+  }
+
+  async updateUpstreamModel(adminUserId: string, upstreamModelId: string, body: UpstreamModelInput) {
+    const id = this.requiredUuid(upstreamModelId, 'upstreamModelId');
+    const existing = await this.prisma.upstreamModel.findUnique({
+      where: { id },
+      include: {
+        provider: true,
+        modelPrice: true
+      }
+    });
+
+    if (!existing) {
+      throw new NotFoundException('Upstream model mapping not found');
+    }
+
+    const providerId = this.requiredUuid(body.providerId, 'providerId');
+    const publicModel = this.normalizeModelName(body.publicModel, 'publicModel');
+    const upstreamModel = this.normalizeModelName(body.upstreamModel, 'upstreamModel');
+    const priority = this.nonNegativeInt(body.priority, 'priority', 1, 3);
+    const timeoutMs = this.nonNegativeInt(body.timeoutMs, 'timeoutMs', 1000, 30000);
+    const upstreamPrompt = this.optionalText(body.upstreamPrompt, 'upstreamPrompt', 1, 4000) ?? null;
+    const status = this.normalizeModelStatus(body.status);
+    const supportsStream = this.optionalBoolean(body.supportsStream, true);
+
+    const [provider, modelPrice] = await Promise.all([
+      this.prisma.upstreamProvider.findUnique({
+        where: { id: providerId }
+      }),
+      this.prisma.modelPrice.findUnique({
+        where: { model: publicModel }
+      })
+    ]);
+
+    if (!provider) {
+      throw new NotFoundException('Upstream provider not found');
+    }
+
+    if (!modelPrice) {
+      throw new BadRequestException('publicModel must exist in model prices first');
+    }
+
+    try {
+      const upstreamModelRecord = await this.prisma.$transaction(async (tx) => {
+        if (status === ModelStatus.ACTIVE) {
+          const activeMappings = await tx.upstreamModel.findMany({
+            where: {
+              publicModel,
+              status: ModelStatus.ACTIVE,
+              id: { not: id }
+            },
+            select: {
+              id: true,
+              priority: true
+            }
+          });
+
+          if (activeMappings.length >= 3) {
+            throw new BadRequestException('A public model can have at most 3 active upstream mappings');
+          }
+
+          if (activeMappings.some((mapping) => mapping.priority === priority)) {
+            throw new ConflictException('Active upstream priority already exists for this public model');
+          }
+        }
+
+        const updatedModel = await tx.upstreamModel.update({
+          where: { id },
+          data: {
+            providerId,
+            publicModel,
+            upstreamModel,
+            priority,
+            timeoutMs,
+            upstreamPrompt,
+            status,
+            supportsStream
+          }
+        });
+
+        await tx.adminAuditLog.create({
+          data: {
+            adminUserId,
+            action: 'upstream_model_updated',
+            targetType: 'upstream_model',
+            targetId: updatedModel.id,
+            beforeSnapshot: {
+              id: existing.id,
+              providerId: existing.providerId,
+              publicModel: existing.publicModel,
+              upstreamModel: existing.upstreamModel,
+              priority: existing.priority,
+              timeoutMs: existing.timeoutMs,
+              upstreamPrompt: existing.upstreamPrompt,
+              status: existing.status.toLowerCase(),
+              supportsStream: existing.supportsStream
+            },
+            afterSnapshot: {
+              id: updatedModel.id,
+              providerId,
+              publicModel,
+              upstreamModel,
+              priority,
+              timeoutMs,
+              upstreamPrompt,
+              status: status.toLowerCase(),
+              supportsStream
+            }
+          }
+        });
+
+        return tx.upstreamModel.findUniqueOrThrow({
+          where: { id: updatedModel.id },
           include: {
             provider: true,
             modelPrice: true

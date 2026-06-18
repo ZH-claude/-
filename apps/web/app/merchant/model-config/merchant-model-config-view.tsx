@@ -22,6 +22,8 @@ import {
   listModelConfiguration,
   listUpstreamProviders,
   updateModelPrice,
+  updateUpstreamModel,
+  updateUpstreamProvider,
   type AdminGroup,
   type AdminModelPrice,
   type UpstreamModelMapping,
@@ -60,6 +62,7 @@ export function MerchantModelConfigView({ username, role }: { username: string; 
   const [upstreamBaseUrl, setUpstreamBaseUrl] = useState('');
   const [upstreamApiKey, setUpstreamApiKey] = useState('');
   const [upstreamStatus, setUpstreamStatus] = useState<'active' | 'disabled'>('active');
+  const [editingUpstreamId, setEditingUpstreamId] = useState<string | null>(null);
   const [upstreamModelProviderId, setUpstreamModelProviderId] = useState('');
   const [upstreamPublicModel, setUpstreamPublicModel] = useState('');
   const [upstreamModelName, setUpstreamModelName] = useState('');
@@ -68,6 +71,7 @@ export function MerchantModelConfigView({ username, role }: { username: string; 
   const [upstreamPrompt, setUpstreamPrompt] = useState('');
   const [upstreamModelStatus, setUpstreamModelStatus] = useState<'active' | 'disabled'>('active');
   const [supportsStream, setSupportsStream] = useState(true);
+  const [editingUpstreamModelId, setEditingUpstreamModelId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isModelSubmitting, setIsModelSubmitting] = useState(false);
   const [isUpstreamSubmitting, setIsUpstreamSubmitting] = useState(false);
@@ -201,23 +205,27 @@ export function MerchantModelConfigView({ username, role }: { username: string; 
     setModelGroupIds(getDefaultModelGroupIds(groups));
   }
 
-  async function handleCreateUpstream(event: FormEvent<HTMLFormElement>) {
+  async function handleSaveUpstream(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError('');
     setMessage('');
     setIsUpstreamSubmitting(true);
 
     try {
-      const created = await createUpstreamProvider({
+      const payload = {
         name: upstreamName,
         baseUrl: upstreamBaseUrl,
-        apiKey: upstreamApiKey,
+        ...(upstreamApiKey.trim() ? { apiKey: upstreamApiKey } : {}),
         status: upstreamStatus
-      });
-      setUpstreamName('');
-      setUpstreamBaseUrl('');
-      setUpstreamApiKey('');
-      setUpstreamStatus('active');
+      };
+      const saved = editingUpstreamId
+        ? await updateUpstreamProvider(editingUpstreamId, payload)
+        : await createUpstreamProvider({
+            ...payload,
+            apiKey: upstreamApiKey
+          });
+      const created = saved;
+      resetUpstreamForm();
       setMessage(`上游 ${created.name} 已保存，页面只显示脱敏密钥`);
       await loadData();
     } catch (nextError) {
@@ -227,7 +235,26 @@ export function MerchantModelConfigView({ username, role }: { username: string; 
     }
   }
 
-  async function handleCreateUpstreamModel(event: FormEvent<HTMLFormElement>) {
+  function beginEditUpstream(upstream: UpstreamProvider) {
+    setError('');
+    setMessage('');
+    setEditingUpstreamId(upstream.id);
+    setUpstreamName(upstream.name);
+    setUpstreamBaseUrl(upstream.baseUrl);
+    setUpstreamApiKey('');
+    setUpstreamStatus(upstream.status === 'disabled' ? 'disabled' : 'active');
+    document.getElementById('merchant-upstreams')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function resetUpstreamForm() {
+    setEditingUpstreamId(null);
+    setUpstreamName('');
+    setUpstreamBaseUrl('');
+    setUpstreamApiKey('');
+    setUpstreamStatus('active');
+  }
+
+  async function handleSaveUpstreamModel(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError('');
     setMessage('');
@@ -240,7 +267,7 @@ export function MerchantModelConfigView({ username, role }: { username: string; 
     setIsMappingSubmitting(true);
 
     try {
-      const created = await createUpstreamModel({
+      const payload = {
         providerId: upstreamModelProviderId,
         publicModel: upstreamPublicModel,
         upstreamModel: upstreamModelName,
@@ -249,13 +276,11 @@ export function MerchantModelConfigView({ username, role }: { username: string; 
         upstreamPrompt: upstreamPrompt.trim() || undefined,
         status: upstreamModelStatus,
         supportsStream
-      });
-      setUpstreamModelName('');
-      setUpstreamPriority('1');
-      setUpstreamTimeoutMs('5000');
-      setUpstreamPrompt('');
-      setUpstreamModelStatus('active');
-      setSupportsStream(true);
+      };
+      const created = editingUpstreamModelId
+        ? await updateUpstreamModel(editingUpstreamModelId, payload)
+        : await createUpstreamModel(payload);
+      resetUpstreamModelForm();
       setMessage(`映射已保存：${created.publicModel} -> ${created.upstreamModel}`);
       await loadData(1);
     } catch (nextError) {
@@ -263,6 +288,31 @@ export function MerchantModelConfigView({ username, role }: { username: string; 
     } finally {
       setIsMappingSubmitting(false);
     }
+  }
+
+  function beginEditUpstreamModel(mapping: UpstreamModelMapping) {
+    setError('');
+    setMessage('');
+    setEditingUpstreamModelId(mapping.id);
+    setUpstreamModelProviderId(mapping.providerId);
+    setUpstreamPublicModel(mapping.publicModel);
+    setUpstreamModelName(mapping.upstreamModel);
+    setUpstreamPriority(String(mapping.priority));
+    setUpstreamTimeoutMs(String(mapping.timeoutMs));
+    setUpstreamPrompt(mapping.upstreamPrompt ?? '');
+    setUpstreamModelStatus(mapping.status === 'disabled' ? 'disabled' : 'active');
+    setSupportsStream(mapping.supportsStream);
+    document.getElementById('merchant-upstream-models')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function resetUpstreamModelForm() {
+    setEditingUpstreamModelId(null);
+    setUpstreamModelName('');
+    setUpstreamPriority('1');
+    setUpstreamTimeoutMs('5000');
+    setUpstreamPrompt('');
+    setUpstreamModelStatus('active');
+    setSupportsStream(true);
   }
 
   async function handleCheckUpstream(providerId: string) {
@@ -459,7 +509,7 @@ export function MerchantModelConfigView({ username, role }: { username: string; 
               <CloudServerOutlined />
               <h2>上游 API 接入</h2>
             </div>
-            <form className="auth-form compact-form" onSubmit={handleCreateUpstream}>
+            <form className="auth-form compact-form" onSubmit={handleSaveUpstream}>
               <label>
                 名称
                 <input maxLength={80} minLength={2} onChange={(event) => setUpstreamName(event.target.value)} required value={upstreamName} />
@@ -470,7 +520,16 @@ export function MerchantModelConfigView({ username, role }: { username: string; 
               </label>
               <label>
                 上游密钥
-                <input autoComplete="off" maxLength={512} minLength={8} onChange={(event) => setUpstreamApiKey(event.target.value)} required type="password" value={upstreamApiKey} />
+                <input
+                  autoComplete="off"
+                  maxLength={512}
+                  minLength={8}
+                  onChange={(event) => setUpstreamApiKey(event.target.value)}
+                  placeholder={editingUpstreamId ? '不填表示沿用原密钥' : undefined}
+                  required={!editingUpstreamId}
+                  type="password"
+                  value={upstreamApiKey}
+                />
               </label>
               <label>
                 状态
@@ -479,10 +538,18 @@ export function MerchantModelConfigView({ username, role }: { username: string; 
                   <option value="disabled">停用</option>
                 </select>
               </label>
-              <button className="primary-button" disabled={isUpstreamSubmitting} type="submit">
-                <SaveOutlined />
-                {isUpstreamSubmitting ? '保存中' : '保存上游'}
-              </button>
+              <div className="form-actions">
+                <button className="primary-button" disabled={isUpstreamSubmitting} type="submit">
+                  <SaveOutlined />
+                  {isUpstreamSubmitting ? '保存中' : editingUpstreamId ? '保存修改' : '保存上游'}
+                </button>
+                {editingUpstreamId ? (
+                  <button className="ghost-button" disabled={isUpstreamSubmitting} onClick={resetUpstreamForm} type="button">
+                    <CloseOutlined />
+                    取消修改
+                  </button>
+                ) : null}
+              </div>
             </form>
           </section>
 
@@ -518,6 +585,10 @@ export function MerchantModelConfigView({ username, role }: { username: string; 
                         {upstream.lastHealthLatencyMs !== null ? <small className="table-note">{upstream.lastHealthLatencyMs} 毫秒</small> : null}
                       </td>
                       <td>
+                        <button className="ghost-button compact-button" onClick={() => beginEditUpstream(upstream)} type="button">
+                          <EditOutlined />
+                          修改
+                        </button>
                         <button className="ghost-button compact-button" disabled={checkingUpstreamId === upstream.id} onClick={() => void handleCheckUpstream(upstream.id)} type="button">
                           <ExperimentOutlined />
                           {checkingUpstreamId === upstream.id ? '检查中' : '检查'}
@@ -541,7 +612,7 @@ export function MerchantModelConfigView({ username, role }: { username: string; 
             <ExperimentOutlined />
             <h2>上游模型绑定</h2>
           </div>
-          <form className="auth-form mapping-form" onSubmit={handleCreateUpstreamModel}>
+          <form className="auth-form mapping-form" onSubmit={handleSaveUpstreamModel}>
             <label>
               上游
               <select onChange={(event) => setUpstreamModelProviderId(event.target.value)} required value={upstreamModelProviderId}>
@@ -597,10 +668,18 @@ export function MerchantModelConfigView({ username, role }: { username: string; 
               <input checked={supportsStream} onChange={(event) => setSupportsStream(event.target.checked)} type="checkbox" />
               支持流式输出
             </label>
-            <button className="primary-button" disabled={isMappingSubmitting || !upstreams.length || !models.length} type="submit">
-              <SaveOutlined />
-              {isMappingSubmitting ? '保存中' : '保存映射'}
-            </button>
+            <div className="form-actions full-width-field">
+              <button className="primary-button" disabled={isMappingSubmitting || !upstreams.length || !models.length} type="submit">
+                <SaveOutlined />
+                {isMappingSubmitting ? '保存中' : editingUpstreamModelId ? '保存修改' : '保存映射'}
+              </button>
+              {editingUpstreamModelId ? (
+                <button className="ghost-button" disabled={isMappingSubmitting} onClick={resetUpstreamModelForm} type="button">
+                  <CloseOutlined />
+                  取消修改
+                </button>
+              ) : null}
+            </div>
           </form>
 
           <div className="admin-table-wrap">
@@ -615,6 +694,7 @@ export function MerchantModelConfigView({ username, role }: { username: string; 
                   <th>附加提示词</th>
                   <th>状态</th>
                   <th>流式</th>
+                  <th>操作</th>
                 </tr>
               </thead>
               <tbody>
@@ -635,11 +715,17 @@ export function MerchantModelConfigView({ username, role }: { username: string; 
                       </span>
                     </td>
                     <td>{mapping.supportsStream ? '是' : '否'}</td>
+                    <td>
+                      <button className="ghost-button compact-button" onClick={() => beginEditUpstreamModel(mapping)} type="button">
+                        <EditOutlined />
+                        修改
+                      </button>
+                    </td>
                   </tr>
                 ))}
                 {!upstreamModels.length && !isLoading ? (
                   <tr>
-                    <td colSpan={8}>暂无真实上游模型映射</td>
+                    <td colSpan={9}>暂无真实上游模型映射</td>
                   </tr>
                 ) : null}
               </tbody>

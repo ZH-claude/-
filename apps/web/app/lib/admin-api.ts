@@ -429,6 +429,18 @@ export async function createUpstreamProvider(payload: {
   });
 }
 
+export async function updateUpstreamProvider(providerId: string, payload: {
+  name: string;
+  baseUrl: string;
+  apiKey?: string;
+  status: 'active' | 'disabled';
+}) {
+  return request<UpstreamProvider>(`/admin/upstreams/${encodeURIComponent(providerId)}/update`, {
+    method: 'POST',
+    body: payload
+  });
+}
+
 export async function createUserGroup(payload: {
   code: string;
   name: string;
@@ -493,6 +505,22 @@ export async function createUpstreamModel(payload: {
   supportsStream: boolean;
 }) {
   return request<UpstreamModelMapping>('/admin/upstream-models', {
+    method: 'POST',
+    body: payload
+  });
+}
+
+export async function updateUpstreamModel(mappingId: string, payload: {
+  providerId: string;
+  publicModel: string;
+  upstreamModel: string;
+  priority: number;
+  timeoutMs: number;
+  upstreamPrompt?: string;
+  status: 'active' | 'disabled';
+  supportsStream: boolean;
+}) {
+  return request<UpstreamModelMapping>(`/admin/upstream-models/${encodeURIComponent(mappingId)}/update`, {
     method: 'POST',
     body: payload
   });
