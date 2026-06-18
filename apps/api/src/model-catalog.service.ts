@@ -39,21 +39,35 @@ export class ModelCatalogService {
             }
           },
           select: {
+            priority: true,
+            inputPriceCentsPer1k: true,
+            outputPriceCentsPer1k: true,
+            modelMultiplier: true,
             supportsStream: true
-          }
+          },
+          orderBy: [{ priority: 'asc' }, { createdAt: 'asc' }]
         }
       },
       orderBy: { model: 'asc' }
     });
 
-    return models.map((model) => ({
-      model: model.model,
-      displayName: model.displayName,
-      inputPriceCentsPer1k: model.inputPriceCentsPer1k,
-      outputPriceCentsPer1k: model.outputPriceCentsPer1k,
-      modelMultiplier: model.modelMultiplier.toString(),
-      groupMultiplier: group.multiplier.toString(),
-      supportsStream: model.upstreamModels.some((upstreamModel) => upstreamModel.supportsStream)
-    }));
+    return models.map((model) => {
+      const activeRoute = model.upstreamModels.find(
+        (upstreamModel) =>
+          upstreamModel.inputPriceCentsPer1k !== null &&
+          upstreamModel.outputPriceCentsPer1k !== null &&
+          upstreamModel.modelMultiplier !== null
+      );
+
+      return {
+        model: model.model,
+        displayName: model.displayName,
+        inputPriceCentsPer1k: activeRoute?.inputPriceCentsPer1k ?? model.inputPriceCentsPer1k,
+        outputPriceCentsPer1k: activeRoute?.outputPriceCentsPer1k ?? model.outputPriceCentsPer1k,
+        modelMultiplier: activeRoute?.modelMultiplier?.toString() ?? model.modelMultiplier.toString(),
+        groupMultiplier: group.multiplier.toString(),
+        supportsStream: model.upstreamModels.some((upstreamModel) => upstreamModel.supportsStream)
+      };
+    });
   }
 }

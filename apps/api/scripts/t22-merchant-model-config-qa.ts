@@ -38,6 +38,7 @@ type AdminGroup = {
 type AdminUpstreamProvider = {
   id: string;
   name: string;
+  kind: string;
   baseUrl: string;
   apiKeyPreview: string;
   status: string;
@@ -517,6 +518,56 @@ async function main() {
     assert(Number(upstreamModelUpdate.json.routePricing.modelMultiplier) === 2, 'updated upstream-model route multiplier mismatch');
     checks.push('admin_updated_upstream_model_mapping_via_api');
 
+    const mappedProviderKindUpdate = await post<unknown>(
+      `/admin/upstreams/${created.upstreamProviderId}/update`,
+      {
+        name: created.upstreamProviderName,
+        kind: 'deepseek',
+        baseUrl: `https://${created.upstreamProviderName}.example.invalid`,
+        status: 'active'
+      },
+      adminCookie
+    );
+    assert(
+      mappedProviderKindUpdate.status === 400,
+      `admin should not change provider kind after mapping exists, got ${mappedProviderKindUpdate.status}`
+    );
+    checks.push('admin_cannot_change_provider_kind_after_mapping_exists');
+
+    const backupUpstreamKey = `${prefix}-backup-upstream-key-${suffix}`;
+    const backupUpstream = await post<AdminUpstreamProvider>(
+      '/admin/upstreams',
+      {
+        name: `${prefix}_backup_provider`,
+        baseUrl: `https://${prefix}-backup.example.invalid`,
+        apiKey: backupUpstreamKey,
+        status: 'active'
+      },
+      adminCookie
+    );
+    assert(backupUpstream.status >= 200 && backupUpstream.status < 300, `admin create backup upstream failed with ${backupUpstream.status}`);
+
+    const backupMapping = await post<AdminUpstreamModel>(
+      '/admin/upstream-models',
+      {
+        providerId: backupUpstream.json.id,
+        publicModel: created.modelName,
+        upstreamModel: `${created.modelName}-backup`,
+        priority: 2,
+        timeoutMs: 6000,
+        upstreamPrompt: 'QA backup prompt',
+        pricingMode: 'manual',
+        inputPriceCentsPer1k: 101,
+        outputPriceCentsPer1k: 103,
+        modelMultiplier: '4.0000',
+        supportsStream: true
+      },
+      adminCookie
+    );
+    assert(backupMapping.status >= 200 && backupMapping.status < 300, `admin create backup mapping failed with ${backupMapping.status}`);
+    assert(backupMapping.json.priority === 2, 'backup mapping priority mismatch');
+    checks.push('admin_can_add_second_upstream_route_for_same_customer_model');
+
     const createText = JSON.stringify({
       group: createdGroup.json,
       model: modelCreate.json,
@@ -524,10 +575,13 @@ async function main() {
       upstreamUpdate: upstreamUpdate.json,
       upstreamRenameOnly: upstreamRenameOnly.json,
       upstreamModel: upstreamModelCreate.json,
-      upstreamModelUpdate: upstreamModelUpdate.json
+      upstreamModelUpdate: upstreamModelUpdate.json,
+      backupUpstream: backupUpstream.json,
+      backupMapping: backupMapping.json
     });
     assert(!createText.includes(initialUpstreamKey), 'initial plaintext api key leaked in create/update response');
     assert(!createText.includes(created.upstreamApiKey), 'updated plaintext api key leaked in create/update response');
+    assert(!createText.includes(backupUpstreamKey), 'backup plaintext api key leaked in create/update response');
     assert(!createText.includes('encryptedApiKey'), 'encrypted api key leaked in create responses');
     checks.push('create_responses_do_not_leak_plain_upstream_api_key');
 
@@ -602,20 +656,40 @@ async function main() {
 
     const pricing = await get<PricingResponse>('/pricing/models', userCookie);
     assert(pricing.status === 200, `/pricing/models for user failed with ${pricing.status}`);
+    const visiblePricingModel = pricing.json.models.find((model) => model.model === created.modelName);
+    assert(visiblePricingModel, 'new model not visible in /pricing/models after group assignment');
     assert(
-      pricing.json.models.some((model) => model.model === created.modelName),
-      'new model not visible in /pricing/models after group assignment'
+      visiblePricingModel.inputPriceCentsPer1k === 19,
+      `/pricing/models should expose active route input pricing, got ${visiblePricingModel.inputPriceCentsPer1k}`
+    );
+    assert(
+      visiblePricingModel.outputPriceCentsPer1k === 37,
+      `/pricing/models should expose active route output pricing, got ${visiblePricingModel.outputPriceCentsPer1k}`
+    );
+    assert(
+      Number(visiblePricingModel.modelMultiplier) === 2,
+      `/pricing/models should expose active route multiplier, got ${visiblePricingModel.modelMultiplier}`
     );
     assert(pricing.json.group.code === `${prefix}_group`, 'pricing group code should be the created group');
-    checks.push('user_visible_models_reflect_real_group_access_after_assignment');
+    checks.push('user_visible_models_reflect_real_route_pricing_after_assignment');
 
     const authMe = await get<AuthMeResponse>('/auth/me', userCookie);
     assert(authMe.status === 200, `/auth/me for user failed with ${authMe.status}`);
+    const authVisibleModel = authMe.json.user.availableModels.find((model) => model.model === created.modelName);
+    assert(authVisibleModel, '/auth/me should include assigned model in availableModels');
     assert(
-      authMe.json.user.availableModels.some((model) => model.model === created.modelName),
-      '/auth/me should include assigned model in availableModels'
+      authVisibleModel.inputPriceCentsPer1k === 19,
+      `/auth/me should expose active route input pricing, got ${authVisibleModel.inputPriceCentsPer1k}`
     );
-    checks.push('user_auth_me_shows_real_available_models');
+    assert(
+      authVisibleModel.outputPriceCentsPer1k === 37,
+      `/auth/me should expose active route output pricing, got ${authVisibleModel.outputPriceCentsPer1k}`
+    );
+    assert(
+      Number(authVisibleModel.modelMultiplier) === 2,
+      `/auth/me should expose active route multiplier, got ${authVisibleModel.modelMultiplier}`
+    );
+    checks.push('user_auth_me_shows_real_available_models_with_route_pricing');
 
     const tokenCreate = await post<TokenCreateResponse>('/tokens', {
       name: `${prefix}_token`,

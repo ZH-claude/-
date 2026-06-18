@@ -851,6 +851,16 @@ export class AdminService implements OnModuleInit {
       throw new NotFoundException('Upstream provider not found');
     }
 
+    if (kind !== currentProvider.kind) {
+      const existingMappingCount = await this.prisma.upstreamModel.count({
+        where: { providerId }
+      });
+
+      if (existingMappingCount > 0) {
+        throw new BadRequestException('Upstream provider kind cannot be changed while mappings exist');
+      }
+    }
+
     const apiKeyChanged = typeof nextApiKey === 'string';
     const addressChanged = currentProvider.baseUrl !== baseUrl;
     const updateData: Prisma.UpstreamProviderUpdateInput = {
