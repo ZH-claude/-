@@ -813,8 +813,26 @@ function assertRedirectTo(response: WebResult, expectedPath: string, label: stri
 }
 
 function assertMerchantModelConfigHtml(text: string) {
-  const markers = ['merchant-shell-page', '上游接入与模型发布', '上游 API 接入', '模型发布', '上游模型绑定'];
-  const found = markers.filter((marker) => text.includes(marker)).length;
+  const structuralMarkers = [
+    'merchant-model-config-page',
+    'data-page="merchant-model-config"',
+    'id="merchant-model-publish"',
+    'id="merchant-model-routes"'
+  ];
+  const missingStructuralMarkers = structuralMarkers.filter((marker) => !text.includes(marker));
+  assert(
+    missingStructuralMarkers.length === 0,
+    `merchant model-config page missing structural markers: ${missingStructuralMarkers.join(', ')}`
+  );
+
+  const markerGroups: string[][] = [
+    ['merchant-shell-page'],
+    ['模型发布与上游线路'],
+    ['第一步发布客户模型', '第一步：发布客户模型'],
+    ['第二步绑定上游线路', '第二步：给客户模型绑定上游线路'],
+    ['已发布客户模型']
+  ];
+  const found = markerGroups.filter((group) => group.some((marker) => text.includes(marker))).length;
   assert(found >= 4, `merchant model-config page missing expected merchant markers, found ${found}`);
   const forbiddenUserMarkers = ['个人中心', '余额充值', '通知设置', '令牌入口'];
   const leakedMarkers = forbiddenUserMarkers.filter((marker) => text.includes(marker));

@@ -231,7 +231,7 @@ export class RelayService {
       return this.createError(403, 'token_disabled', 'authentication_error', this.normalizeExceptionMessage(error, 'Token is not allowed'));
     }
 
-    if (error instanceof Error && error.name === 'AbortError') {
+    if (this.isAbortLikeError(error)) {
       return this.createError(408, 'upstream_timeout', 'upstream_error', 'Upstream request timed out');
     }
 
@@ -1195,6 +1195,7 @@ export class RelayService {
         if (!this.shouldFailoverError(error)) {
           throw failure;
         }
+        continue;
       }
     }
 
@@ -1273,7 +1274,14 @@ export class RelayService {
       return error.code === 'upstream_error' || error.code === 'upstream_timeout' || this.shouldFailoverUpstreamStatus(error.status);
     }
 
-    return error instanceof Error && error.name === 'AbortError';
+    return this.isAbortLikeError(error);
+  }
+
+  private isAbortLikeError(error: unknown) {
+    return typeof error === 'object'
+      && error !== null
+      && 'name' in error
+      && String((error as { name?: unknown }).name) === 'AbortError';
   }
 
   private normalizeUpstreamTimeoutMs(timeoutMs: number) {
@@ -2071,7 +2079,7 @@ export class RelayService {
         signal: controller.signal
       });
     } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') {
+      if (this.isAbortLikeError(error)) {
         throw error;
       }
 

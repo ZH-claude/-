@@ -62,7 +62,7 @@ type OpenAiResponseObject = {
 
 const API_BASE_URL = process.env.API_BASE_URL ?? 'http://127.0.0.1:3001';
 const DATABASE_URL = process.env.DATABASE_URL;
-const TEMP_UPSTREAM_PUBLIC_HOST = process.env.TEMP_UPSTREAM_PUBLIC_HOST ?? 'host.docker.internal';
+const TEMP_UPSTREAM_PUBLIC_HOST = process.env.TEMP_UPSTREAM_PUBLIC_HOST ?? '127.0.0.1';
 
 if (!DATABASE_URL) {
   throw new Error('DATABASE_URL is required to run the T24 Anthropic compatibility QA script');

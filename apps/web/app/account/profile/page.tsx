@@ -73,6 +73,36 @@ export default function AccountProfilePage() {
   const todayUsage = useMemo(() => summarizeTodayUsage(usageRows), [usageRows]);
   const modelBreakdown = useMemo(() => getModelBreakdown(usageRows), [usageRows]);
   const tokenTrend = useMemo(() => getTokenTrend(usageRows, rangeDays), [rangeDays, usageRows]);
+  const usageSummary = usageData?.summary;
+  const periodCallCount = usageSummary?.total ?? 0;
+  const periodSuccessCount = useMemo(() => {
+    if (!usageSummary) {
+      return 0;
+    }
+
+    return (usageSummary.statusCounts.billable ?? 0) + (usageSummary.statusCounts.free ?? 0);
+  }, [usageSummary]);
+  const periodFailureCount = useMemo(() => {
+    if (!usageSummary) {
+      return 0;
+    }
+
+    return (usageSummary.statusCounts.failed ?? 0) + (usageSummary.statusCounts.metering_unknown ?? 0);
+  }, [usageSummary]);
+  const periodSuccessRate = useMemo(() => {
+    if (periodCallCount === 0) {
+      return 0;
+    }
+
+    return Math.round((periodSuccessCount / periodCallCount) * 1000) / 10;
+  }, [periodCallCount, periodSuccessCount]);
+  const periodAvgTokensPerCall = useMemo(() => {
+    if (periodCallCount === 0) {
+      return 0;
+    }
+
+    return Math.round(usageSummary?.totalTokens ? usageSummary.totalTokens / periodCallCount : 0);
+  }, [periodCallCount, usageSummary?.totalTokens]);
 
   async function loadProfile() {
     setIsLoading(true);
@@ -220,35 +250,42 @@ export default function AccountProfilePage() {
           <section className="profile-metrics">
             <MetricBlock
               accent="green"
-              detail="长期有效"
+              detail="账号可用余额"
               icon={<GiftOutlined />}
-              label="Token 余额"
+              label="token 余额"
               unit="token"
               value={formatNumber(user?.wallet.balanceCents ?? 0)}
             />
             <MetricBlock
               accent="red"
-              detail="累计扣除"
+              detail="历史累计"
               icon={<BarChartOutlined />}
-              label="累计 Token"
+              label="累计消耗 token"
               unit="token"
               value={formatNumber(user?.wallet.totalSpendCents ?? 0)}
             />
             <MetricBlock
               accent="blue"
-              detail="累计成功调用"
-              icon={<CheckCircleOutlined />}
-              label="调用次数"
-              unit="次"
-              value={formatNumber(user?.metrics.totalCallCount ?? 0)}
+              detail={`近 ${rangeDays} 天`}
+              icon={<LineChartOutlined />}
+              label="累计 token"
+              unit="token"
+              value={formatNumber(usageSummary?.totalTokens ?? 0)}
             />
             <MetricBlock
               accent="violet"
-              detail="邀请成功用户"
+              detail={`近 ${rangeDays} 天`}
               icon={<TeamOutlined />}
-              label="邀请用户"
-              unit="人"
-              value={formatNumber(user?.referral.invitedUserCount ?? 0)}
+              label="调用次数"
+              unit="次"
+              value={formatNumber(usageSummary?.total ?? 0)}
+            />
+            <MetricBlock
+              accent="rose"
+              detail={`成功 ${formatNumber(periodSuccessCount)} 次 · 失败 ${formatNumber(periodFailureCount)} 次`}
+              icon={<CheckCircleOutlined />}
+              label="性能指标"
+              value={formatRate(periodSuccessRate)}
             />
           </section>
 
@@ -258,29 +295,29 @@ export default function AccountProfilePage() {
                 accent="orange"
                 detail={`输入 ${formatNumber(todayUsage.promptTokens)} / 输出 ${formatNumber(todayUsage.completionTokens)}`}
                 icon={<ApiOutlined />}
-                label="今日 Token"
+                label="今日 token"
                 value={formatNumber(todayUsage.totalTokens)}
               />
               <UsageTile
                 accent="blue"
-                detail={`近 ${rangeDays} 天最近 100 条真实日志`}
+                detail={`近 ${rangeDays} 天记录`}
                 icon={<BarChartOutlined />}
-                label="累计 Token"
-                value={formatNumber(usageData?.summary.totalTokens ?? 0)}
+                label="累计请求"
+                value={formatNumber(periodCallCount)}
               />
               <UsageTile
                 accent="violet"
-                detail={`${formatNumber(todayUsage.requests)} 次请求`}
+                detail={`平均 ${formatNumber(periodAvgTokensPerCall)} token / 次`}
                 icon={<LineChartOutlined />}
-                label="今日请求"
-                value={formatNumber(todayUsage.requests)}
+                label="平均每次 token"
+                value={formatNumber(periodAvgTokensPerCall)}
               />
               <UsageTile
                 accent="rose"
-                detail="接口暂未记录耗时"
+                detail={`失败 ${formatNumber(periodFailureCount)} 次`}
                 icon={<ReloadOutlined />}
-                label="平均响应"
-                value="-"
+                label="成功率"
+                value={`${formatRate(periodSuccessRate)} 成功`}
               />
             </div>
 
@@ -529,7 +566,7 @@ function MetricBlock({
   detail,
   icon
 }: {
-  accent: 'green' | 'red' | 'blue' | 'violet';
+  accent: 'green' | 'red' | 'blue' | 'violet' | 'rose';
   label: string;
   value: string;
   unit?: string;
@@ -646,6 +683,10 @@ function getTokenTrend(rows: UsageLogEntry[], rangeDays: number) {
 
 function formatTokens(value: number) {
   return `${formatNumber(value)} token`;
+}
+
+function formatRate(value: number) {
+  return `${value.toFixed(1)}%`;
 }
 
 function formatNumber(value: number) {

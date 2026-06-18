@@ -59,7 +59,7 @@ npm run seed:merchant-test-accounts
 
 创建的账号名为 `merchant_test_1`、`merchant_test_2`、`merchant_test_3`。密码只通过 `MERCHANT_TEST_PASSWORD` 传入，不写入生产脚本、`.env.example` 或 GitHub。生产环境应使用 `ADMIN_BOOTSTRAP_USERNAME` 和 `ADMIN_BOOTSTRAP_PASSWORD` 首次创建管理员账号，创建后清空这两个变量并重启。
 
-商家端的“上游/模型”页面用于录入另一个中转站的真实上游地址和 API Key；客户使用本平台发放的 Key 调用本平台，本平台再转发到上游。未配置真实上游时，页面和接口只能显示未配置或空状态，不能用假数据冒充可用。
+商家端现在按“先接入上游、再发布客户模型、最后绑定线路”的顺序使用：`DeepSeek 上游` 和 `中转站上游` 只录入真实上游地址和 API Key；`模型发布` 负责发布客户看到的模型名并绑定到具体上游线路。未配置真实上游时，页面和接口只能显示未配置或空状态，不能用假数据冒充可用。
 
 后续商用计费目标已经改为“统一基础 token 额度”：商家按人民币生成充值码，用户兑换后得到基础 token；DeepSeek 作为 1 倍基准模型，其他模型按倍率消耗基础 token。详细规则和拆分任务见 `docs/product/token-metering-upgrade-plan.md`。
 

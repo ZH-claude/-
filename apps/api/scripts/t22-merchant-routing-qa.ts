@@ -65,7 +65,7 @@ async function main() {
     assertRedirect(ordinaryMerchantEntry, '/account/profile', 'ordinary user merchant entry');
     checks.push('merchant_entry_sends_ordinary_user_back_to_user_console');
 
-    const merchantEntry = await getMerchantEntry(merchantLogin.cookie);
+    const merchantEntry = await followWebRedirectIfNeeded(await getMerchantEntry(merchantLogin.cookie), merchantLogin.cookie, 'merchant entry');
     assert(merchantEntry.status >= 200 && merchantEntry.status < 300, `merchant entry should render dashboard, got ${merchantEntry.status}`);
     const merchantEntryText = await merchantEntry.text();
     assertMerchantDashboardHtml(merchantEntryText);
@@ -194,6 +194,21 @@ async function getMerchantEntry(cookie?: string) {
 async function getUserSiteEntry(cookie?: string) {
   return fetch(`${WEB_BASE_URL}/`, {
     headers: cookie ? { Cookie: cookie } : undefined,
+    redirect: 'manual'
+  });
+}
+
+async function followWebRedirectIfNeeded(response: Response, cookie: string, label: string) {
+  if (response.status < 300 || response.status >= 400) {
+    return response;
+  }
+
+  const location = response.headers.get('location') ?? '';
+  assert(location.length > 0, `${label} redirect should include location`);
+  assert(!location.endsWith('/login') && !location.endsWith('/account/profile'), `${label} redirected to wrong console: ${location}`);
+  const nextUrl = location.startsWith('http') ? location : `${WEB_BASE_URL}${location}`;
+  return fetch(nextUrl, {
+    headers: { Cookie: cookie },
     redirect: 'manual'
   });
 }

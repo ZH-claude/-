@@ -106,6 +106,7 @@ export type AnnouncementCategory = 'announcement' | 'update_log' | 'usage_guide'
 export type UpstreamProvider = {
   id: string;
   name: string;
+  kind: 'generic' | 'deepseek' | 'relay';
   baseUrl: string;
   apiKeyPreview: string;
   status: string;
@@ -137,6 +138,12 @@ export type AdminModelPrice = {
   inputPriceCentsPer1k: number;
   outputPriceCentsPer1k: number;
   modelMultiplier: string;
+  pricingMode: 'manual' | 'deepseek_base' | 'relay_price';
+  upstreamInputPricePerMillion: string | null;
+  upstreamOutputPricePerMillion: string | null;
+  upstreamCurrency: 'CNY' | 'USD' | null;
+  upstreamExchangeRate: string | null;
+  marginPercent: string | null;
   status: string;
   groups: Array<{
     id: string;
@@ -423,6 +430,7 @@ export async function listModelConfiguration(options: { upstreamModelsPage?: num
 
 export async function createUpstreamProvider(payload: {
   name: string;
+  kind?: 'generic' | 'deepseek' | 'relay';
   baseUrl: string;
   apiKey: string;
   status: 'active' | 'disabled';
@@ -435,6 +443,7 @@ export async function createUpstreamProvider(payload: {
 
 export async function updateUpstreamProvider(providerId: string, payload: {
   name: string;
+  kind?: 'generic' | 'deepseek' | 'relay';
   baseUrl: string;
   apiKey?: string;
   status: 'active' | 'disabled';
@@ -471,9 +480,15 @@ export async function assignUserGroup(userId: string, payload: { groupId: string
 export async function createModelPrice(payload: {
   model: string;
   displayName?: string;
-  inputPriceCentsPer1k: number;
-  outputPriceCentsPer1k: number;
-  modelMultiplier: string;
+  pricingMode?: 'manual' | 'deepseek_base' | 'relay_price';
+  inputPriceCentsPer1k?: number;
+  outputPriceCentsPer1k?: number;
+  modelMultiplier?: string;
+  upstreamInputPricePerMillion?: string;
+  upstreamOutputPricePerMillion?: string;
+  upstreamCurrency?: 'CNY' | 'USD';
+  upstreamExchangeRate?: string;
+  marginPercent?: string;
   status: 'active' | 'disabled';
   groupIds: string[];
 }) {
@@ -486,9 +501,15 @@ export async function createModelPrice(payload: {
 export async function updateModelPrice(modelPriceId: string, payload: {
   model: string;
   displayName?: string;
-  inputPriceCentsPer1k: number;
-  outputPriceCentsPer1k: number;
-  modelMultiplier: string;
+  pricingMode?: 'manual' | 'deepseek_base' | 'relay_price';
+  inputPriceCentsPer1k?: number;
+  outputPriceCentsPer1k?: number;
+  modelMultiplier?: string;
+  upstreamInputPricePerMillion?: string;
+  upstreamOutputPricePerMillion?: string;
+  upstreamCurrency?: 'CNY' | 'USD';
+  upstreamExchangeRate?: string;
+  marginPercent?: string;
   status: 'active' | 'disabled';
   groupIds: string[];
 }) {

@@ -11,13 +11,16 @@ import {
   AsyncTaskStatus,
   GroupStatus,
   ModelStatus,
+  ModelPricingMode,
   RechargeCodeStatus,
   UpstreamHealthStatus,
+  UpstreamProviderKind,
   UpstreamProviderStatus,
   UserRole,
   UserStatus,
   UsageEventStatus
 } from '../generated/prisma/client';
+import { calculateRelayTokenPricing, multiplierToBaseTokensPer1k, type TokenPricingCurrency } from '../billing/token-pricing';
 import { PrismaService } from '../prisma.service';
 import { SecurityAuditService } from '../security-audit/security-audit.service';
 import { decryptUpstreamApiKey, encryptUpstreamApiKey, maskUpstreamApiKey } from './upstream-key-crypto';
@@ -52,6 +55,7 @@ type AnnouncementInput = {
 
 type UpstreamProviderInput = {
   name?: unknown;
+  kind?: unknown;
   baseUrl?: unknown;
   apiKey?: unknown;
   status?: unknown;
@@ -71,11 +75,42 @@ type AssignUserGroupInput = {
 type ModelPriceInput = {
   model?: unknown;
   displayName?: unknown;
+  pricingMode?: unknown;
   inputPriceCentsPer1k?: unknown;
   outputPriceCentsPer1k?: unknown;
   modelMultiplier?: unknown;
+  upstreamInputPricePerMillion?: unknown;
+  upstreamOutputPricePerMillion?: unknown;
+  upstreamCurrency?: unknown;
+  upstreamExchangeRate?: unknown;
+  marginPercent?: unknown;
   status?: unknown;
   groupIds?: unknown;
+};
+
+type ModelPriceRecordForPricing = {
+  pricingMode: ModelPricingMode;
+  inputPriceCentsPer1k: number;
+  outputPriceCentsPer1k: number;
+  modelMultiplier: { toString(): string };
+  upstreamInputPricePerMillion: { toString(): string } | null;
+  upstreamOutputPricePerMillion: { toString(): string } | null;
+  upstreamCurrency: string | null;
+  upstreamExchangeRate: { toString(): string } | null;
+  marginPercent: { toString(): string } | null;
+};
+
+type ResolvedModelPricing = {
+  pricingMode: ModelPricingMode;
+  inputPriceCentsPer1k: number;
+  outputPriceCentsPer1k: number;
+  modelMultiplier: string;
+  upstreamInputPricePerMillion: string | null;
+  upstreamOutputPricePerMillion: string | null;
+  upstreamCurrency: TokenPricingCurrency | null;
+  upstreamExchangeRate: string | null;
+  marginPercent: string | null;
+  auditSnapshot: Record<string, unknown>;
 };
 
 type UpstreamModelInput = {
@@ -722,6 +757,7 @@ export class AdminService implements OnModuleInit {
 
   async createUpstreamProvider(adminUserId: string, body: UpstreamProviderInput) {
     const name = this.requiredText(body.name, 'name', 2, 80);
+    const kind = this.normalizeUpstreamProviderKind(body.kind);
     const baseUrl = this.normalizeBaseUrl(body.baseUrl);
     const apiKey = this.requiredText(body.apiKey, 'apiKey', 8, 512);
     const status = this.normalizeUpstreamStatus(body.status);
@@ -733,6 +769,7 @@ export class AdminService implements OnModuleInit {
         const createdProvider = await tx.upstreamProvider.create({
           data: {
             name,
+            kind,
             baseUrl,
             encryptedApiKey,
             apiKeyPreview,
@@ -756,6 +793,7 @@ export class AdminService implements OnModuleInit {
             afterSnapshot: {
               id: createdProvider.id,
               name,
+              kind: kind.toLowerCase(),
               baseUrl,
               status: status.toLowerCase(),
               apiKeyPreview
@@ -779,6 +817,7 @@ export class AdminService implements OnModuleInit {
   async updateUpstreamProvider(adminUserId: string, upstreamProviderId: string, body: UpstreamProviderInput) {
     const providerId = this.requiredUuid(upstreamProviderId, 'upstreamProviderId');
     const name = this.requiredText(body.name, 'name', 2, 80);
+    const kind = this.normalizeUpstreamProviderKind(body.kind);
     const baseUrl = this.normalizeBaseUrl(body.baseUrl);
     const nextApiKey = this.optionalText(body.apiKey, 'apiKey', 8, 512);
     const status = this.normalizeUpstreamStatus(body.status);
@@ -795,6 +834,7 @@ export class AdminService implements OnModuleInit {
     const addressChanged = currentProvider.baseUrl !== baseUrl;
     const updateData: Prisma.UpstreamProviderUpdateInput = {
       name,
+      kind,
       baseUrl,
       status,
       ...(apiKeyChanged
@@ -833,6 +873,7 @@ export class AdminService implements OnModuleInit {
             beforeSnapshot: {
               id: currentProvider.id,
               name: currentProvider.name,
+              kind: currentProvider.kind.toLowerCase(),
               baseUrl: currentProvider.baseUrl,
               status: currentProvider.status.toLowerCase(),
               apiKeyPreview: currentProvider.apiKeyPreview
@@ -840,6 +881,7 @@ export class AdminService implements OnModuleInit {
             afterSnapshot: {
               id: updatedProvider.id,
               name: updatedProvider.name,
+              kind: updatedProvider.kind.toLowerCase(),
               baseUrl: updatedProvider.baseUrl,
               status: updatedProvider.status.toLowerCase(),
               apiKeyPreview: updatedProvider.apiKeyPreview
@@ -1111,9 +1153,7 @@ export class AdminService implements OnModuleInit {
   async createModelPrice(adminUserId: string, body: ModelPriceInput) {
     const model = this.normalizeModelName(body.model, 'model');
     const displayName = this.optionalText(body.displayName, 'displayName', 1, 120) ?? null;
-    const inputPriceCentsPer1k = this.nonNegativeInt(body.inputPriceCentsPer1k, 'inputPriceCentsPer1k', 0, 100000000);
-    const outputPriceCentsPer1k = this.nonNegativeInt(body.outputPriceCentsPer1k, 'outputPriceCentsPer1k', 0, 100000000);
-    const modelMultiplier = this.normalizeMultiplier(body.modelMultiplier, 'modelMultiplier');
+    const pricing = this.resolveModelPricingForCreate(body);
     const status = this.normalizeModelStatus(body.status);
     const groupIds = this.requiredUuidArray(body.groupIds, 'groupIds');
 
@@ -1131,9 +1171,15 @@ export class AdminService implements OnModuleInit {
           data: {
             model,
             displayName,
-            inputPriceCentsPer1k,
-            outputPriceCentsPer1k,
-            modelMultiplier,
+            inputPriceCentsPer1k: pricing.inputPriceCentsPer1k,
+            outputPriceCentsPer1k: pricing.outputPriceCentsPer1k,
+            modelMultiplier: pricing.modelMultiplier,
+            pricingMode: pricing.pricingMode,
+            upstreamInputPricePerMillion: pricing.upstreamInputPricePerMillion,
+            upstreamOutputPricePerMillion: pricing.upstreamOutputPricePerMillion,
+            upstreamCurrency: pricing.upstreamCurrency,
+            upstreamExchangeRate: pricing.upstreamExchangeRate,
+            marginPercent: pricing.marginPercent,
             status
           }
         });
@@ -1155,9 +1201,7 @@ export class AdminService implements OnModuleInit {
             afterSnapshot: {
               id: createdModel.id,
               model,
-              inputPriceCentsPer1k,
-              outputPriceCentsPer1k,
-              modelMultiplier: modelMultiplier.toString(),
+              ...pricing.auditSnapshot,
               status: status.toLowerCase(),
               groupIds
             }
@@ -1218,18 +1262,7 @@ export class AdminService implements OnModuleInit {
       body.displayName === undefined
         ? existing.displayName
         : this.optionalText(body.displayName, 'displayName', 1, 120) ?? null;
-    const inputPriceCentsPer1k =
-      body.inputPriceCentsPer1k === undefined
-        ? existing.inputPriceCentsPer1k
-        : this.nonNegativeInt(body.inputPriceCentsPer1k, 'inputPriceCentsPer1k', 0, 100000000);
-    const outputPriceCentsPer1k =
-      body.outputPriceCentsPer1k === undefined
-        ? existing.outputPriceCentsPer1k
-        : this.nonNegativeInt(body.outputPriceCentsPer1k, 'outputPriceCentsPer1k', 0, 100000000);
-    const modelMultiplier =
-      body.modelMultiplier === undefined
-        ? existing.modelMultiplier
-        : this.normalizeMultiplier(body.modelMultiplier, 'modelMultiplier');
+    const pricing = this.resolveModelPricingForUpdate(body, existing);
     const status = body.status === undefined ? existing.status : this.normalizeModelStatus(body.status);
     const groupIds =
       body.groupIds === undefined
@@ -1251,9 +1284,15 @@ export class AdminService implements OnModuleInit {
           data: {
             model,
             displayName,
-            inputPriceCentsPer1k,
-            outputPriceCentsPer1k,
-            modelMultiplier,
+            inputPriceCentsPer1k: pricing.inputPriceCentsPer1k,
+            outputPriceCentsPer1k: pricing.outputPriceCentsPer1k,
+            modelMultiplier: pricing.modelMultiplier,
+            pricingMode: pricing.pricingMode,
+            upstreamInputPricePerMillion: pricing.upstreamInputPricePerMillion,
+            upstreamOutputPricePerMillion: pricing.upstreamOutputPricePerMillion,
+            upstreamCurrency: pricing.upstreamCurrency,
+            upstreamExchangeRate: pricing.upstreamExchangeRate,
+            marginPercent: pricing.marginPercent,
             status
           }
         });
@@ -1281,15 +1320,19 @@ export class AdminService implements OnModuleInit {
               inputPriceCentsPer1k: existing.inputPriceCentsPer1k,
               outputPriceCentsPer1k: existing.outputPriceCentsPer1k,
               modelMultiplier: existing.modelMultiplier.toString(),
+              pricingMode: existing.pricingMode.toLowerCase(),
+              upstreamInputPricePerMillion: existing.upstreamInputPricePerMillion?.toString() ?? null,
+              upstreamOutputPricePerMillion: existing.upstreamOutputPricePerMillion?.toString() ?? null,
+              upstreamCurrency: existing.upstreamCurrency,
+              upstreamExchangeRate: existing.upstreamExchangeRate?.toString() ?? null,
+              marginPercent: existing.marginPercent?.toString() ?? null,
               status: existing.status.toLowerCase(),
               groupIds: existing.groupAccesses.map((access) => access.group.id)
             },
             afterSnapshot: {
               id: updatedModel.id,
               model,
-              inputPriceCentsPer1k,
-              outputPriceCentsPer1k,
-              modelMultiplier: modelMultiplier.toString(),
+              ...pricing.auditSnapshot,
               status: status.toLowerCase(),
               groupIds
             }
@@ -1558,6 +1601,229 @@ export class AdminService implements OnModuleInit {
     }
 
     return value.trim();
+  }
+
+  private resolveModelPricingForCreate(body: ModelPriceInput): ResolvedModelPricing {
+    const pricingMode = this.normalizePricingMode(body.pricingMode, ModelPricingMode.MANUAL);
+    return this.resolveModelPricing(pricingMode, body);
+  }
+
+  private resolveModelPricingForUpdate(
+    body: ModelPriceInput,
+    existing: ModelPriceRecordForPricing
+  ): ResolvedModelPricing {
+    const pricingMode =
+      body.pricingMode === undefined ? existing.pricingMode : this.normalizePricingMode(body.pricingMode, existing.pricingMode);
+
+    return this.resolveModelPricing(pricingMode, body, existing);
+  }
+
+  private resolveModelPricing(
+    pricingMode: ModelPricingMode,
+    body: ModelPriceInput,
+    existing?: ModelPriceRecordForPricing
+  ): ResolvedModelPricing {
+    if (pricingMode === ModelPricingMode.DEEPSEEK_BASE) {
+      const modelMultiplier =
+        body.modelMultiplier === undefined && existing?.pricingMode === ModelPricingMode.DEEPSEEK_BASE
+          ? existing.modelMultiplier.toString()
+          : this.normalizeMultiplier(body.modelMultiplier, 'modelMultiplier');
+      const inputPriceCentsPer1k = multiplierToBaseTokensPer1k(1);
+      const outputPriceCentsPer1k = multiplierToBaseTokensPer1k(1);
+
+      return this.buildResolvedModelPricing({
+        pricingMode,
+        inputPriceCentsPer1k,
+        outputPriceCentsPer1k,
+        modelMultiplier,
+        upstreamInputPricePerMillion: null,
+        upstreamOutputPricePerMillion: null,
+        upstreamCurrency: null,
+        upstreamExchangeRate: null,
+        marginPercent: null
+      });
+    }
+
+    if (pricingMode === ModelPricingMode.RELAY_PRICE) {
+      const inputPricePerMillion = this.modelPriceNumber(
+        body.upstreamInputPricePerMillion,
+        existing?.upstreamInputPricePerMillion,
+        'upstreamInputPricePerMillion'
+      );
+      const outputPricePerMillion = this.modelPriceNumber(
+        body.upstreamOutputPricePerMillion,
+        existing?.upstreamOutputPricePerMillion,
+        'upstreamOutputPricePerMillion'
+      );
+      const currency = this.normalizeTokenPricingCurrency(body.upstreamCurrency ?? existing?.upstreamCurrency);
+      const usdToCnyRate =
+        currency === 'USD'
+          ? this.modelPricePositiveNumber(body.upstreamExchangeRate, existing?.upstreamExchangeRate, 'upstreamExchangeRate')
+          : 1;
+      const marginPercent = this.modelPriceNumber(body.marginPercent, existing?.marginPercent, 'marginPercent', 0, 1000, 10);
+      const calculated = calculateRelayTokenPricing({
+        inputPricePerMillion,
+        outputPricePerMillion,
+        currency,
+        usdToCnyRate,
+        marginPercent
+      });
+
+      return this.buildResolvedModelPricing({
+        pricingMode,
+        inputPriceCentsPer1k: calculated.inputBaseTokensPer1k,
+        outputPriceCentsPer1k: calculated.outputBaseTokensPer1k,
+        modelMultiplier: '1.0000',
+        upstreamInputPricePerMillion: inputPricePerMillion.toFixed(4),
+        upstreamOutputPricePerMillion: outputPricePerMillion.toFixed(4),
+        upstreamCurrency: calculated.currency,
+        upstreamExchangeRate: calculated.exchangeRate.toFixed(6),
+        marginPercent: calculated.marginPercent.toFixed(4)
+      });
+    }
+
+    const inputPriceCentsPer1k =
+      body.inputPriceCentsPer1k === undefined && existing
+        ? existing.inputPriceCentsPer1k
+        : this.nonNegativeInt(body.inputPriceCentsPer1k, 'inputPriceCentsPer1k', 0, 100000000);
+    const outputPriceCentsPer1k =
+      body.outputPriceCentsPer1k === undefined && existing
+        ? existing.outputPriceCentsPer1k
+        : this.nonNegativeInt(body.outputPriceCentsPer1k, 'outputPriceCentsPer1k', 0, 100000000);
+    const modelMultiplier =
+      body.modelMultiplier === undefined && existing
+        ? existing.modelMultiplier.toString()
+        : this.normalizeMultiplier(body.modelMultiplier, 'modelMultiplier');
+
+    return this.buildResolvedModelPricing({
+      pricingMode: ModelPricingMode.MANUAL,
+      inputPriceCentsPer1k,
+      outputPriceCentsPer1k,
+      modelMultiplier,
+      upstreamInputPricePerMillion: null,
+      upstreamOutputPricePerMillion: null,
+      upstreamCurrency: null,
+      upstreamExchangeRate: null,
+      marginPercent: null
+    });
+  }
+
+  private buildResolvedModelPricing(input: Omit<ResolvedModelPricing, 'auditSnapshot'>): ResolvedModelPricing {
+    return {
+      ...input,
+      auditSnapshot: {
+        pricingMode: input.pricingMode.toLowerCase(),
+        inputPriceCentsPer1k: input.inputPriceCentsPer1k,
+        outputPriceCentsPer1k: input.outputPriceCentsPer1k,
+        modelMultiplier: input.modelMultiplier,
+        upstreamInputPricePerMillion: input.upstreamInputPricePerMillion,
+        upstreamOutputPricePerMillion: input.upstreamOutputPricePerMillion,
+        upstreamCurrency: input.upstreamCurrency,
+        upstreamExchangeRate: input.upstreamExchangeRate,
+        marginPercent: input.marginPercent
+      }
+    };
+  }
+
+  private modelPriceNumber(
+    value: unknown,
+    fallback: { toString(): string } | null | undefined,
+    field: string,
+    min = 0,
+    max = 1000000,
+    defaultValue?: number
+  ) {
+    if (value === undefined || value === null || value === '') {
+      if (fallback) {
+        return this.numberFromString(fallback.toString(), field, min, max);
+      }
+      if (defaultValue !== undefined) {
+        return defaultValue;
+      }
+      throw new BadRequestException(`${field} is required`);
+    }
+
+    return this.numberFromString(String(value), field, min, max);
+  }
+
+  private modelPricePositiveNumber(
+    value: unknown,
+    fallback: { toString(): string } | null | undefined,
+    field: string
+  ) {
+    return this.modelPriceNumber(value, fallback, field, 0.000001, 10000);
+  }
+
+  private numberFromString(value: string, field: string, min: number, max: number) {
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue) || numericValue < min || numericValue > max) {
+      throw new BadRequestException(`${field} must be a number between ${min} and ${max}`);
+    }
+
+    return numericValue;
+  }
+
+  private normalizePricingMode(value: unknown, fallback: ModelPricingMode): ModelPricingMode {
+    if (value === undefined || value === null || value === '') {
+      return fallback;
+    }
+
+    if (typeof value !== 'string') {
+      throw new BadRequestException('pricingMode must be manual, deepseek_base, or relay_price');
+    }
+
+    const normalized = value.toLowerCase();
+    if (normalized === ModelPricingMode.MANUAL.toLowerCase()) {
+      return ModelPricingMode.MANUAL;
+    }
+    if (normalized === ModelPricingMode.DEEPSEEK_BASE.toLowerCase()) {
+      return ModelPricingMode.DEEPSEEK_BASE;
+    }
+    if (normalized === ModelPricingMode.RELAY_PRICE.toLowerCase()) {
+      return ModelPricingMode.RELAY_PRICE;
+    }
+
+    throw new BadRequestException('pricingMode must be manual, deepseek_base, or relay_price');
+  }
+
+  private normalizeTokenPricingCurrency(value: unknown): TokenPricingCurrency {
+    if (value === undefined || value === null || value === '') {
+      return 'CNY';
+    }
+
+    if (typeof value !== 'string') {
+      throw new BadRequestException('upstreamCurrency must be CNY or USD');
+    }
+
+    const normalized = value.toUpperCase();
+    if (normalized === 'CNY' || normalized === 'USD') {
+      return normalized;
+    }
+
+    throw new BadRequestException('upstreamCurrency must be CNY or USD');
+  }
+
+  private normalizeUpstreamProviderKind(value: unknown): UpstreamProviderKind {
+    if (value === undefined || value === null || value === '') {
+      return UpstreamProviderKind.GENERIC;
+    }
+
+    if (typeof value !== 'string') {
+      throw new BadRequestException('kind must be generic, deepseek, or relay');
+    }
+
+    const normalized = value.toLowerCase();
+    if (normalized === UpstreamProviderKind.GENERIC.toLowerCase()) {
+      return UpstreamProviderKind.GENERIC;
+    }
+    if (normalized === UpstreamProviderKind.DEEPSEEK.toLowerCase()) {
+      return UpstreamProviderKind.DEEPSEEK;
+    }
+    if (normalized === UpstreamProviderKind.RELAY.toLowerCase()) {
+      return UpstreamProviderKind.RELAY;
+    }
+
+    throw new BadRequestException('kind must be generic, deepseek, or relay');
   }
 
   private normalizeBaseUrl(value: unknown) {
@@ -2166,6 +2432,12 @@ export class AdminService implements OnModuleInit {
     inputPriceCentsPer1k: number;
     outputPriceCentsPer1k: number;
     modelMultiplier: { toString(): string };
+    pricingMode: ModelPricingMode;
+    upstreamInputPricePerMillion: { toString(): string } | null;
+    upstreamOutputPricePerMillion: { toString(): string } | null;
+    upstreamCurrency: string | null;
+    upstreamExchangeRate: { toString(): string } | null;
+    marginPercent: { toString(): string } | null;
     status: ModelStatus;
     createdAt: Date;
     updatedAt: Date;
@@ -2198,6 +2470,12 @@ export class AdminService implements OnModuleInit {
       inputPriceCentsPer1k: model.inputPriceCentsPer1k,
       outputPriceCentsPer1k: model.outputPriceCentsPer1k,
       modelMultiplier: model.modelMultiplier.toString(),
+      pricingMode: model.pricingMode.toLowerCase(),
+      upstreamInputPricePerMillion: model.upstreamInputPricePerMillion?.toString() ?? null,
+      upstreamOutputPricePerMillion: model.upstreamOutputPricePerMillion?.toString() ?? null,
+      upstreamCurrency: model.upstreamCurrency,
+      upstreamExchangeRate: model.upstreamExchangeRate?.toString() ?? null,
+      marginPercent: model.marginPercent?.toString() ?? null,
       status: model.status.toLowerCase(),
       groups: (model.groupAccesses ?? []).map((access) => ({
         id: access.group.id,
@@ -2263,6 +2541,7 @@ export class AdminService implements OnModuleInit {
   private toPublicUpstreamProvider(provider: {
     id: string;
     name: string;
+    kind: UpstreamProviderKind;
     baseUrl: string;
     apiKeyPreview: string;
     status: UpstreamProviderStatus;
@@ -2277,6 +2556,7 @@ export class AdminService implements OnModuleInit {
     return {
       id: provider.id,
       name: provider.name,
+      kind: provider.kind.toLowerCase(),
       baseUrl: provider.baseUrl,
       apiKeyPreview: provider.apiKeyPreview,
       status: provider.status.toLowerCase(),

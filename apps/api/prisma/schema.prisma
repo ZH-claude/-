@@ -41,6 +41,12 @@ enum UpstreamProviderStatus {
   DISABLED
 }
 
+enum UpstreamProviderKind {
+  GENERIC
+  DEEPSEEK
+  RELAY
+}
+
 enum UpstreamHealthStatus {
   UNKNOWN
   HEALTHY
@@ -50,6 +56,12 @@ enum UpstreamHealthStatus {
 enum ModelStatus {
   ACTIVE
   DISABLED
+}
+
+enum ModelPricingMode {
+  MANUAL
+  DEEPSEEK_BASE
+  RELAY_PRICE
 }
 
 enum ApiTokenStatus {
@@ -449,6 +461,7 @@ model AsyncTask {
 model UpstreamProvider {
   id                  String                 @id @default(uuid()) @db.Uuid
   name                String                 @unique
+  kind                UpstreamProviderKind   @default(GENERIC)
   baseUrl             String                 @map("base_url")
   encryptedApiKey     String                 @map("encrypted_api_key")
   apiKeyPreview       String                 @map("api_key_preview")
@@ -478,6 +491,12 @@ model ModelPrice {
   inputPriceCentsPer1k  Int                   @default(0) @map("input_price_cents_per_1k")
   outputPriceCentsPer1k Int                   @default(0) @map("output_price_cents_per_1k")
   modelMultiplier       Decimal               @default(1.0) @map("model_multiplier") @db.Decimal(10, 4)
+  pricingMode           ModelPricingMode      @default(MANUAL) @map("pricing_mode")
+  upstreamInputPricePerMillion  Decimal?      @map("upstream_input_price_per_million") @db.Decimal(12, 4)
+  upstreamOutputPricePerMillion Decimal?      @map("upstream_output_price_per_million") @db.Decimal(12, 4)
+  upstreamCurrency      String?               @map("upstream_currency")
+  upstreamExchangeRate  Decimal?              @map("upstream_exchange_rate") @db.Decimal(12, 6)
+  marginPercent         Decimal?              @map("margin_percent") @db.Decimal(8, 4)
   status                ModelStatus           @default(ACTIVE)
   groupAccesses         ModelGroupAccess[]
   upstreamModels        UpstreamModel[]       @relation("ModelUpstreamMappings")
