@@ -81,10 +81,9 @@ let residualAfter: ResidualCounts | null = null;
 
 const merchantPages: WebPageCheck[] = [
   { path: '/merchant', markers: ['merchant-shell-page', '商家工作台'] },
-  { path: '/admin', markers: ['merchant-shell-page', '用户与公告'] },
   { path: '/merchant/users', markers: ['merchant-shell-page', '用户管理'] },
   { path: '/merchant/recharge-codes', markers: ['merchant-shell-page', '充值码'] },
-  { path: '/merchant/model-config', markers: ['merchant-shell-page', '上游'] },
+  { path: '/merchant/model-config', markers: ['merchant-shell-page', '上游接入与模型发布'] },
   { path: '/merchant/announcements', markers: ['merchant-shell-page', '公告'] },
   { path: '/merchant/audit', markers: ['merchant-shell-page', '审计'] },
   { path: '/merchant/service-status', markers: ['merchant-shell-page', '服务状态'] },
@@ -93,12 +92,11 @@ const merchantPages: WebPageCheck[] = [
 ];
 
 const userPages: WebPageCheck[] = [
-  { path: '/account/profile', markers: ['console-shell-page', '账户余额'] },
+  { path: '/account/profile', markers: ['console-shell-page', '客户剩余额度'] },
   { path: '/account/topup/recharge', markers: ['console-shell-page', '余额充值'] },
   { path: '/token', markers: ['console-shell-page', '令牌'] },
   { path: '/log', markers: ['console-shell-page', '日志'] },
   { path: '/account/pricing', markers: ['console-shell-page', '费用'] },
-  { path: '/groupAvailability', markers: ['console-shell-page', '分组'] },
   { path: '/account/notificationSettings', markers: ['console-shell-page', '通知'] },
   { path: '/midjourney', markers: ['console-shell-page', '绘图'] },
   { path: '/uptimeStatus', markers: ['console-shell-page', '服务'] }
@@ -143,7 +141,6 @@ const userApiChecks: ApiCheck[] = [
   { method: 'GET', path: '/recharge/records' },
   { method: 'GET', path: '/usage/logs' },
   { method: 'GET', path: '/pricing/models' },
-  { method: 'GET', path: '/group-availability/models' },
   { method: 'GET', path: '/notifications/settings' },
   { method: 'GET', path: '/async-tasks?kind=image' },
   { method: 'GET', path: '/service-status' }
@@ -186,6 +183,18 @@ async function main() {
       await assertMerchantPageIsolation(page, merchantCookie, userCookie);
     }
     checks.push('all_merchant_pages_render_for_merchant_and_redirect_for_ordinary_user');
+
+    const merchantUserSiteEntry = await getWebPage('/', merchantCookie);
+    assertRedirect(merchantUserSiteEntry, '/merchant', 'merchant / user-site entry redirect');
+    checks.push('merchant_account_is_kept_out_of_user_site_entry');
+
+    const merchantLegacyAdmin = await getWebPage('/admin', merchantCookie);
+    assertRedirect(merchantLegacyAdmin, '/merchant', 'merchant legacy /admin redirect');
+    const ordinaryRemovedGroupPage = await getWebPage('/groupAvailability', userCookie);
+    assertRedirect(ordinaryRemovedGroupPage, '/account/profile', 'ordinary user removed group page redirect');
+    const merchantRemovedGroupPage = await getWebPage('/groupAvailability', merchantCookie);
+    assertRedirect(merchantRemovedGroupPage, '/merchant', 'merchant removed group page redirect');
+    checks.push('removed_group_and_legacy_admin_pages_redirect_to_correct_sites');
 
     for (const page of userPages) {
       await assertUserPageRenders(page, userCookie);
@@ -266,7 +275,7 @@ async function seedUsers(): Promise<SeededContext> {
       update: {},
       create: {
         code: 'default',
-        name: '默认分组'
+        name: '默认归属'
       }
     });
 

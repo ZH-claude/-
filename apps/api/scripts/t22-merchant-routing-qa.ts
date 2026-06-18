@@ -71,6 +71,10 @@ async function main() {
     assertMerchantDashboardHtml(merchantEntryText);
     checks.push('merchant_entry_renders_real_dashboard_for_admin');
 
+    const merchantUserSiteEntry = await getUserSiteEntry(merchantLogin.cookie);
+    assertRedirect(merchantUserSiteEntry, '/merchant', 'merchant user-site entry');
+    checks.push('merchant_account_is_redirected_away_from_user_site_entry');
+
     const ordinaryAdminUsers = await getApi('/admin/users?limit=1', ordinaryLogin.cookie);
     assert(ordinaryAdminUsers.status === 403, `ordinary user admin API should be 403, got ${ordinaryAdminUsers.status}`);
     const merchantAdminUsers = await getApi('/admin/users?limit=1', merchantLogin.cookie);
@@ -187,6 +191,13 @@ async function getMerchantEntry(cookie?: string) {
   });
 }
 
+async function getUserSiteEntry(cookie?: string) {
+  return fetch(`${WEB_BASE_URL}/`, {
+    headers: cookie ? { Cookie: cookie } : undefined,
+    redirect: 'manual'
+  });
+}
+
 async function getApi(path: string, cookie: string) {
   return fetch(`${API_BASE_URL}${path}`, {
     headers: { Cookie: cookie },
@@ -211,7 +222,7 @@ function assertRedirect(response: Response, expectedPath: string, label: string)
 }
 
 function assertMerchantDashboardHtml(text: string) {
-  const markers = ['merchant-shell-page', '商家工作台', '运营概览', '账户余额', '最近告警'];
+  const markers = ['merchant-shell-page', '商家工作台', '运营概览', '客户剩余额度', '最近告警'];
   const found = markers.filter((marker) => text.includes(marker)).length;
   assert(found >= 4, `merchant dashboard HTML missing expected markers, found ${found}`);
 }

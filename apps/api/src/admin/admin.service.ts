@@ -1102,6 +1102,138 @@ export class AdminService implements OnModuleInit {
     }
   }
 
+  async updateModelPrice(adminUserId: string, modelPriceId: string, body: ModelPriceInput) {
+    const id = this.requiredUuid(modelPriceId, 'modelPriceId');
+    const existing = await this.prisma.modelPrice.findUnique({
+      where: { id },
+      include: {
+        groupAccesses: {
+          include: { group: true },
+          orderBy: { createdAt: 'asc' }
+        },
+        upstreamModels: {
+          include: { provider: true },
+          orderBy: { createdAt: 'desc' }
+        }
+      }
+    });
+
+    if (!existing) {
+      throw new NotFoundException('Model not found');
+    }
+
+    const model = body.model === undefined ? existing.model : this.normalizeModelName(body.model, 'model');
+    if (model !== existing.model && existing.upstreamModels.length > 0) {
+      throw new BadRequestException('Model with upstream mappings cannot change public model name');
+    }
+
+    const displayName =
+      body.displayName === undefined
+        ? existing.displayName
+        : this.optionalText(body.displayName, 'displayName', 1, 120) ?? null;
+    const inputPriceCentsPer1k =
+      body.inputPriceCentsPer1k === undefined
+        ? existing.inputPriceCentsPer1k
+        : this.nonNegativeInt(body.inputPriceCentsPer1k, 'inputPriceCentsPer1k', 0, 100000000);
+    const outputPriceCentsPer1k =
+      body.outputPriceCentsPer1k === undefined
+        ? existing.outputPriceCentsPer1k
+        : this.nonNegativeInt(body.outputPriceCentsPer1k, 'outputPriceCentsPer1k', 0, 100000000);
+    const modelMultiplier =
+      body.modelMultiplier === undefined
+        ? existing.modelMultiplier
+        : this.normalizeMultiplier(body.modelMultiplier, 'modelMultiplier');
+    const status = body.status === undefined ? existing.status : this.normalizeModelStatus(body.status);
+    const groupIds =
+      body.groupIds === undefined
+        ? existing.groupAccesses.map((access) => access.group.id)
+        : this.requiredUuidArray(body.groupIds, 'groupIds');
+
+    const groups = await this.prisma.userGroup.findMany({
+      where: { id: { in: groupIds } }
+    });
+
+    if (groups.length !== groupIds.length) {
+      throw new BadRequestException('groupIds contains unknown user group');
+    }
+
+    try {
+      const modelPrice = await this.prisma.$transaction(async (tx) => {
+        const updatedModel = await tx.modelPrice.update({
+          where: { id },
+          data: {
+            model,
+            displayName,
+            inputPriceCentsPer1k,
+            outputPriceCentsPer1k,
+            modelMultiplier,
+            status
+          }
+        });
+
+        await tx.modelGroupAccess.deleteMany({
+          where: { modelPriceId: id }
+        });
+
+        await tx.modelGroupAccess.createMany({
+          data: groupIds.map((groupId) => ({
+            modelPriceId: updatedModel.id,
+            groupId
+          }))
+        });
+
+        await tx.adminAuditLog.create({
+          data: {
+            adminUserId,
+            action: 'model_price_updated',
+            targetType: 'model_price',
+            targetId: updatedModel.id,
+            beforeSnapshot: {
+              id: existing.id,
+              model: existing.model,
+              inputPriceCentsPer1k: existing.inputPriceCentsPer1k,
+              outputPriceCentsPer1k: existing.outputPriceCentsPer1k,
+              modelMultiplier: existing.modelMultiplier.toString(),
+              status: existing.status.toLowerCase(),
+              groupIds: existing.groupAccesses.map((access) => access.group.id)
+            },
+            afterSnapshot: {
+              id: updatedModel.id,
+              model,
+              inputPriceCentsPer1k,
+              outputPriceCentsPer1k,
+              modelMultiplier: modelMultiplier.toString(),
+              status: status.toLowerCase(),
+              groupIds
+            }
+          }
+        });
+
+        return tx.modelPrice.findUniqueOrThrow({
+          where: { id: updatedModel.id },
+          include: {
+            groupAccesses: {
+              include: { group: true },
+              orderBy: { createdAt: 'asc' }
+            },
+            upstreamModels: {
+              include: { provider: true },
+              orderBy: { createdAt: 'desc' }
+            }
+          }
+        });
+      });
+
+      return this.toPublicModelPrice(modelPrice);
+    } catch (error) {
+      if (this.isUniqueViolation(error)) {
+        throw new ConflictException('Model already exists');
+      }
+
+      throw error;
+    }
+  }
+
   async createUpstreamModel(adminUserId: string, body: UpstreamModelInput) {
     const providerId = this.requiredUuid(body.providerId, 'providerId');
     const publicModel = this.normalizeModelName(body.publicModel, 'publicModel');

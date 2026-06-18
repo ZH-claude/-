@@ -30,6 +30,7 @@
     "qa:t22:merchant-role-isolation": "tsx scripts/t22-merchant-role-isolation-qa.ts",
     "qa:t22:merchant-dashboard": "tsx scripts/t22-merchant-dashboard-qa.ts",
     "qa:profile-alignment": "tsx scripts/profile-alignment-qa.ts",
+    "qa:t24:compatibility": "tsx scripts/t24-anthropic-compatibility-qa.ts",
     "qa:t22:merchant-routing": "tsx scripts/t22-merchant-routing-qa.ts",
     "qa:t22:merchant-shell": "tsx scripts/t22-merchant-shell-qa.ts",
     "seed:merchant-test-accounts": "tsx scripts/seed-merchant-test-accounts.ts",

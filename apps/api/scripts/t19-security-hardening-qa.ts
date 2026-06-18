@@ -21,6 +21,7 @@ type CreateTokenResponse = {
   token: {
     id: string;
     name: string;
+    quotaCents?: number | null;
   };
 };
 
@@ -85,6 +86,20 @@ async function main() {
     );
     assert(token.status === 201 || token.status === 200, `create token failed with ${token.status}`);
     assert(token.json.apiKey, 'create token did not return one-time apiKey');
+
+    const updatedToken = await post<{ token: { id: string; name: string; quotaCents: number | null } }>(
+      `/tokens/${token.json.token.id}/update`,
+      {
+        name: `${prefix}_token_edited`,
+        quotaCents: 2500,
+        modelNames: []
+      },
+      userASessionCookie
+    );
+    assert(updatedToken.status === 201 || updatedToken.status === 200, `update token failed with ${updatedToken.status}`);
+    assert(updatedToken.json.token.name === `${prefix}_token_edited`, 'updated token name mismatch');
+    assert(updatedToken.json.token.quotaCents === 2500, 'updated token quota mismatch');
+    checks.push('owned_token_update_persists_without_exposing_secret');
 
     const ordinaryDeleteForeignToken = await del(`/tokens/${token.json.token.id}`, userB.cookie);
     assert(
@@ -204,6 +219,7 @@ async function main() {
       'user_login_succeeded',
       'user_password_changed',
       'api_token_created',
+      'api_token_updated',
       'api_token_reset',
       'api_token_disabled',
       'api_token_deleted'

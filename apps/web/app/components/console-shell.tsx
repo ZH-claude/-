@@ -1,7 +1,6 @@
 'use client';
 
 import {
-  AppstoreOutlined,
   BellOutlined,
   CloudServerOutlined,
   DollarOutlined,
@@ -27,7 +26,6 @@ type NavigationItem = {
 
 const primaryNavItems: NavigationItem[] = [
   { href: '/', label: '首页', icon: <HomeOutlined /> },
-  { href: '/groupAvailability', label: '分组状态', icon: <AppstoreOutlined /> },
   { href: '/token', label: '令牌', icon: <KeyOutlined /> },
   { href: '/log', label: '日志', icon: <FileTextOutlined /> },
   { href: '/midjourney', label: '绘图', icon: <PictureOutlined /> },
@@ -100,7 +98,7 @@ export function ConsoleShell({
       <header className="relay-console-topbar">
         <Link className="relay-console-brand" href="/">
           <span className="shell-logo-mark">中</span>
-          <span>中转站控制台</span>
+          <span>中转站用户端</span>
         </Link>
         <nav className="relay-primary-nav" aria-label="主导航">
           {primaryNavItems.map((item) => (

@@ -305,8 +305,8 @@ function formatAuditAction(action: string) {
     upstream_model_created: '创建模型映射',
     upstream_provider_created: '创建上游',
     upstream_provider_health_checked: '检查上游',
-    user_group_assigned: '调整用户分组',
-    user_group_created: '创建分组',
+    user_group_assigned: '调整用户归属',
+    user_group_created: '创建默认归属',
     user_login_succeeded: '登录成功',
     user_logged_out: '退出登录',
     user_password_changed: '修改密码',
@@ -324,7 +324,7 @@ function formatTargetType(targetType: string) {
     upstream_model: '模型映射',
     upstream_provider: '上游',
     user: '用户',
-    user_group: '分组'
+    user_group: '用户归属'
   };
 
   return labels[targetType] ?? targetType.replace(/_/g, ' ');

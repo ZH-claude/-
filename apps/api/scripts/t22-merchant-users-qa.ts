@@ -403,7 +403,7 @@ function assertRedirect(
 }
 
 function assertMerchantUsersHtml(text: string) {
-  const markers = ['merchant-shell-page', '用户管理', '用户列表', '分组概览'];
+  const markers = ['merchant-shell-page', '用户管理', '用户列表', '客户额度'];
   const found = markers.filter((marker) => text.includes(marker)).length;
   assert(found >= 3, `merchant users page missing expected markers, found ${found}`);
 }

@@ -248,6 +248,7 @@ async function main() {
         adminModelConfigPage.status >= 200 && adminModelConfigPage.status < 300,
         `merchant /merchant/model-config should be accessible for admin, got ${adminModelConfigPage.status}`
       );
+      assertMerchantModelConfigHtml(adminModelConfigPage.text);
       checks.push('admin_can_open_merchant_model_config_page');
     }
 
@@ -274,6 +275,21 @@ async function main() {
     assert(
       ordinaryCreateModel.status === 403,
       `ordinary user /admin/models create should be 403, got ${ordinaryCreateModel.status}`
+    );
+
+    const ordinaryUpdateModel = await post<unknown>(
+      '/admin/models/00000000-0000-0000-0000-000000000000/update',
+      {
+        model: `${prefix}_forbidden_model`,
+        groupIds: [seededUsers.adminId],
+        inputPriceCentsPer1k: 1,
+        outputPriceCentsPer1k: 1
+      },
+      userCookie
+    );
+    assert(
+      ordinaryUpdateModel.status === 403,
+      `ordinary user /admin/models update should be 403, got ${ordinaryUpdateModel.status}`
     );
 
     const ordinaryCreateUpstream = await post<unknown>(
@@ -340,6 +356,28 @@ async function main() {
     assert(modelCreate.status >= 200 && modelCreate.status < 300, `admin create model failed with ${modelCreate.status}`);
     assert(modelCreate.json.model === created.modelName, 'created model name mismatch');
     checks.push('admin_created_model_price_via_api');
+
+    const updatedModelName = `${created.modelName}_edited`;
+    const modelUpdate = await post<AdminModelPrice>(
+      `/admin/models/${modelCreate.json.id}/update`,
+      {
+        model: updatedModelName,
+        displayName: `${prefix} QA Model Edited`,
+        inputPriceCentsPer1k: 10,
+        outputPriceCentsPer1k: 20,
+        modelMultiplier: '1.5000',
+        status: 'active',
+        groupIds: [created.groupId]
+      },
+      adminCookie
+    );
+    assert(modelUpdate.status >= 200 && modelUpdate.status < 300, `admin update model failed with ${modelUpdate.status}`);
+    assert(modelUpdate.json.model === updatedModelName, 'updated model name mismatch');
+    assert(modelUpdate.json.inputPriceCentsPer1k === 10, 'updated input price mismatch');
+    assert(modelUpdate.json.outputPriceCentsPer1k === 20, 'updated output price mismatch');
+    assert(Number(modelUpdate.json.modelMultiplier) === 1.5, 'updated multiplier mismatch');
+    created.modelName = updatedModelName;
+    checks.push('admin_updated_model_price_via_api');
 
     const upstreamCreate = await post<AdminUpstreamProvider>(
       '/admin/upstreams',
@@ -683,6 +721,15 @@ function assertRedirectTo(response: WebResult, expectedPath: string, label: stri
     response.location === expectedPath || response.location.endsWith(expectedPath),
     `${label} should redirect to ${expectedPath}, got ${response.location}`
   );
+}
+
+function assertMerchantModelConfigHtml(text: string) {
+  const markers = ['merchant-shell-page', '上游接入与模型发布', '上游 API 接入', '模型发布', '上游模型绑定'];
+  const found = markers.filter((marker) => text.includes(marker)).length;
+  assert(found >= 4, `merchant model-config page missing expected merchant markers, found ${found}`);
+  const forbiddenUserMarkers = ['个人中心', '余额充值', '通知设置', '令牌入口'];
+  const leakedMarkers = forbiddenUserMarkers.filter((marker) => text.includes(marker));
+  assert(leakedMarkers.length === 0, `merchant model-config leaked user-site markers: ${leakedMarkers.join(', ')}`);
 }
 
 async function countResidual() {

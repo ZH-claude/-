@@ -72,6 +72,13 @@ export async function resetToken(tokenId: string) {
   });
 }
 
+export async function updateToken(tokenId: string, payload: CreateApiTokenPayload) {
+  return request<TokenResponse>(`/tokens/${encodeURIComponent(tokenId)}/update`, {
+    method: 'POST',
+    body: payload
+  });
+}
+
 export async function deleteToken(tokenId: string) {
   return request<{ ok: boolean; token: ApiToken }>(`/tokens/${encodeURIComponent(tokenId)}`, {
     method: 'DELETE'

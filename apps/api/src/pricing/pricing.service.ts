@@ -16,7 +16,7 @@ export class PricingService {
         name: user.group.name,
         multiplier: user.group.multiplier.toString()
       },
-      currency: 'CNY',
+      currency: 'USD',
       unit: 'cents_per_1k_tokens',
       billingFormula: {
         totalCostCents: BILLING_FORMULA,

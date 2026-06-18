@@ -236,6 +236,109 @@ export class TokensService {
     });
   }
 
+  async updateToken(user: AuthenticatedUser, tokenId: string, body: TokenInput) {
+    const existingToken = await this.findOwnedTokenWithModelAccesses(user.id, tokenId);
+    const name = body.name === undefined ? existingToken.name : this.requiredText(body.name, 'name', 2, 80);
+    const quotaCents =
+      body.quotaCents === undefined
+        ? existingToken.quotaCents
+        : this.optionalNonNegativeInt(body.quotaCents, 'quotaCents', MAX_QUOTA_CENTS);
+    const expiresAt =
+      body.expiresAt === undefined ? existingToken.expiresAt : this.optionalFutureDate(body.expiresAt, 'expiresAt');
+    const note = body.note === undefined ? existingToken.note : this.optionalText(body.note, 'note', 1, 240) ?? null;
+    const rateLimitRequestsPerMinute =
+      body.rateLimitRequestsPerMinute === undefined
+        ? existingToken.rateLimitRequestsPerMinute
+        : this.optionalPositiveInt(
+            body.rateLimitRequestsPerMinute,
+            'rateLimitRequestsPerMinute',
+            MAX_RATE_LIMIT_REQUESTS_PER_MINUTE
+          );
+    const modelRateLimitRequestsPerMinute =
+      body.modelRateLimitRequestsPerMinute === undefined
+        ? existingToken.modelRateLimitRequestsPerMinute
+        : this.optionalPositiveInt(
+            body.modelRateLimitRequestsPerMinute,
+            'modelRateLimitRequestsPerMinute',
+            MAX_RATE_LIMIT_REQUESTS_PER_MINUTE
+          );
+    const ipRateLimitRequestsPerMinute =
+      body.ipRateLimitRequestsPerMinute === undefined
+        ? existingToken.ipRateLimitRequestsPerMinute
+        : this.optionalPositiveInt(
+            body.ipRateLimitRequestsPerMinute,
+            'ipRateLimitRequestsPerMinute',
+            MAX_RATE_LIMIT_REQUESTS_PER_MINUTE
+          );
+    const ipWhitelist = body.ipWhitelist === undefined ? existingToken.ipWhitelist : this.normalizeIpWhitelist(body.ipWhitelist);
+    const activationTtlSeconds =
+      body.activationTtlSeconds === undefined
+        ? existingToken.activationTtlSeconds
+        : this.optionalPositiveInt(body.activationTtlSeconds, 'activationTtlSeconds', MAX_ACTIVATION_TTL_SECONDS);
+    const modelNames =
+      body.modelNames === undefined
+        ? existingToken.modelAccesses.map((access) => access.model)
+        : await this.normalizeModelNames(user, body.modelNames);
+
+    const token = await this.prisma.$transaction(async (tx) => {
+      const updatedToken = await tx.apiToken.update({
+        where: { id: existingToken.id },
+        data: {
+          name,
+          quotaCents,
+          expiresAt,
+          note,
+          rateLimitRequestsPerMinute,
+          modelRateLimitRequestsPerMinute,
+          ipRateLimitRequestsPerMinute,
+          ipWhitelist,
+          activationTtlSeconds
+        }
+      });
+
+      await tx.apiTokenModelAccess.deleteMany({
+        where: { apiTokenId: updatedToken.id }
+      });
+
+      if (modelNames.length > 0) {
+        await tx.apiTokenModelAccess.createMany({
+          data: modelNames.map((model) => ({
+            apiTokenId: updatedToken.id,
+            model
+          }))
+        });
+      }
+
+      await this.securityAuditService.record({
+        tx,
+        actorUserId: user.id,
+        action: 'api_token_updated',
+        targetType: 'api_token',
+        targetId: updatedToken.id,
+        metadata: {
+          name,
+          previousName: existingToken.name,
+          hasQuota: quotaCents !== null,
+          hasExpiresAt: expiresAt !== null,
+          modelCount: modelNames.length
+        }
+      });
+
+      return tx.apiToken.findUniqueOrThrow({
+        where: { id: updatedToken.id },
+        include: {
+          modelAccesses: {
+            orderBy: { model: 'asc' }
+          }
+        }
+      });
+    });
+
+    return {
+      token: this.toPublicToken(token)
+    };
+  }
+
   async deleteToken(user: AuthenticatedUser, tokenId: string) {
     const existingToken = await this.findOwnedActiveOrDisabledToken(user.id, tokenId);
     const now = new Date();
@@ -397,6 +500,31 @@ export class TokensService {
         id: tokenId,
         userId,
         deletedAt: null
+      }
+    });
+
+    if (!token) {
+      throw new NotFoundException('API Token not found');
+    }
+
+    return token;
+  }
+
+  private async findOwnedTokenWithModelAccesses(userId: string, tokenId: string) {
+    if (!this.isUuid(tokenId)) {
+      throw new BadRequestException('tokenId must be a valid UUID');
+    }
+
+    const token = await this.prisma.apiToken.findFirst({
+      where: {
+        id: tokenId,
+        userId,
+        deletedAt: null
+      },
+      include: {
+        modelAccesses: {
+          orderBy: { model: 'asc' }
+        }
       }
     });
 

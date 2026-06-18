@@ -86,14 +86,14 @@ export default function PricingPage() {
         </section>
 
         <div className="metric-panel">
-          <span>当前分组</span>
-          <strong>{pricing?.group.name ?? '-'}</strong>
-          <small>{pricing?.group.code ?? '-'}</small>
+          <span>可用模型</span>
+          <strong>{pricing?.models.length ?? 0}</strong>
+          <small>当前账号可调用</small>
         </div>
         <div className="metric-panel">
-          <span>分组倍率</span>
-          <strong>x{formatMultiplier(pricing?.group.multiplier ?? '0')}</strong>
-          <small>仅显示当前账号可用分组</small>
+          <span>计费模型</span>
+          <strong>{paidModelCount}</strong>
+          <small>输入或输出有单价</small>
         </div>
         <div className="metric-panel">
           <span>搜索结果</span>
@@ -111,7 +111,7 @@ export default function PricingPage() {
           </div>
           <div className="formula-box">
             <code>{pricing?.billingFormula.totalCostCents ?? '加载中'}</code>
-            <small>单位：分 / 1K tokens，最终费用按整数分向上取整。</small>
+            <small>单位：美元 / 1K tokens，内部按美分向上取整。</small>
           </div>
         </section>
 
@@ -145,7 +145,6 @@ export default function PricingPage() {
                   <th>公开输入单价</th>
                   <th>公开输出单价</th>
                   <th>模型倍率</th>
-                  <th>分组倍率</th>
                   <th>实际输入单价</th>
                   <th>实际输出单价</th>
                   <th>能力</th>
@@ -158,7 +157,7 @@ export default function PricingPage() {
                 ))}
                 {!isLoading && filteredModels.length === 0 ? (
                   <tr>
-                    <td colSpan={9}>暂无匹配模型</td>
+                    <td colSpan={8}>暂无匹配模型</td>
                   </tr>
                 ) : null}
               </tbody>
@@ -185,7 +184,6 @@ function PricingRow({ model, onCopy }: { model: PricingModel; onCopy: (model: st
       <td>{formatCentsPer1k(model.inputPriceCentsPer1k)}</td>
       <td>{formatCentsPer1k(model.outputPriceCentsPer1k)}</td>
       <td>x{formatMultiplier(model.modelMultiplier)}</td>
-      <td>x{formatMultiplier(model.groupMultiplier)}</td>
       <td>{formatCentsPer1k(effectiveInputPrice)}</td>
       <td>{formatCentsPer1k(effectiveOutputPrice)}</td>
       <td>
@@ -218,5 +216,5 @@ function formatMultiplier(value: string) {
 }
 
 function formatCentsPer1k(value: number) {
-  return `${(value / 100).toFixed(4)} 元 / 1K`;
+  return `$${(value / 100).toFixed(4)} / 1K`;
 }

@@ -184,6 +184,19 @@ export class AdminController {
     return this.adminService.createModelPrice(request.auth.user.id, this.toRecord(body));
   }
 
+  @Post('models/:id/update')
+  updateModelPrice(
+    @Req() request: AuthenticatedRequest,
+    @Param('id') modelPriceId: string,
+    @Body() body: unknown
+  ) {
+    if (!request.auth?.user?.id) {
+      throw new BadRequestException('Admin context missing');
+    }
+
+    return this.adminService.updateModelPrice(request.auth.user.id, modelPriceId, this.toRecord(body));
+  }
+
   @Post('upstream-models')
   createUpstreamModel(
     @Req() request: AuthenticatedRequest,

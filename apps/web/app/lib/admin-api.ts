@@ -461,6 +461,21 @@ export async function createModelPrice(payload: {
   });
 }
 
+export async function updateModelPrice(modelPriceId: string, payload: {
+  model: string;
+  displayName?: string;
+  inputPriceCentsPer1k: number;
+  outputPriceCentsPer1k: number;
+  modelMultiplier: string;
+  status: 'active' | 'disabled';
+  groupIds: string[];
+}) {
+  return request<AdminModelPrice>(`/admin/models/${encodeURIComponent(modelPriceId)}/update`, {
+    method: 'POST',
+    body: payload
+  });
+}
+
 export async function createUpstreamModel(payload: {
   providerId: string;
   publicModel: string;

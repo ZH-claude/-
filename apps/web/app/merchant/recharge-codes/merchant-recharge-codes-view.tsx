@@ -22,7 +22,7 @@ export function MerchantRechargeCodesView({ username, role }: { username: string
   const router = useRouter();
   const [codes, setCodes] = useState<AdminRechargeCode[]>([]);
   const [createdCodes, setCreatedCodes] = useState<CreatedRechargeCode[]>([]);
-  const [amountCents, setAmountCents] = useState('1000');
+  const [amountCny, setAmountCny] = useState('10.00');
   const [count, setCount] = useState('1');
   const [isLoading, setIsLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
@@ -72,8 +72,9 @@ export function MerchantRechargeCodesView({ username, role }: { username: string
     setIsCreating(true);
 
     try {
+      const rechargeAmountCents = parseCurrencyToCents(amountCny, '金额', { allowZero: false });
       const result = await createRechargeCodes({
-        amountCents: Number(amountCents),
+        amountCents: rechargeAmountCents,
         count: Number(count)
       });
       setCreatedCodes(result.items);
@@ -152,15 +153,15 @@ export function MerchantRechargeCodesView({ username, role }: { username: string
           </div>
           <form className="auth-form mapping-form" onSubmit={handleCreate}>
             <label>
-              金额（分）
+              金额（人民币）
               <input
-                min="1"
-                max="100000000"
-                onChange={(event) => setAmountCents(event.target.value)}
+                min="0.01"
+                max="1000000"
+                onChange={(event) => setAmountCny(event.target.value)}
                 required
-                step="1"
+                step="0.01"
                 type="number"
-                value={amountCents}
+                value={amountCny}
               />
             </label>
             <label>
@@ -288,7 +289,22 @@ function formatMoney(cents: number | null | undefined) {
     return '-';
   }
 
-  return `${(cents / 100).toFixed(2)} 元`;
+  return `¥${(cents / 100).toFixed(2)}`;
+}
+
+function parseCurrencyToCents(value: string, label: string, options: { allowZero: boolean }) {
+  const numericValue = Number(value);
+  const cents = Math.round(numericValue * 100);
+
+  if (!Number.isFinite(numericValue) || !Number.isInteger(cents) || cents < 0 || (!options.allowZero && cents === 0)) {
+    throw new Error(`${label}必须是${options.allowZero ? '大于等于 0' : '大于 0'}的人民币金额`);
+  }
+
+  if (Math.abs(cents / 100 - numericValue) > 0.000001) {
+    throw new Error(`${label}最多保留两位小数`);
+  }
+
+  return cents;
 }
 
 function formatNumber(value: number | null | undefined) {

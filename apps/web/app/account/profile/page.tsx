@@ -58,8 +58,6 @@ export default function AccountProfilePage() {
     );
   }, [modelQuery, user?.availableModels]);
 
-  const groupMultiplier = user?.availableModels[0]?.groupMultiplier ?? '1';
-
   async function loadProfile() {
     setIsLoading(true);
     setError('');
@@ -175,10 +173,6 @@ export default function AccountProfilePage() {
                   <CheckCircleOutlined />
                   {formatRole(user?.role)}
                 </span>
-                <span className="profile-tag green">
-                  <TeamOutlined />
-                  分组：{user?.group.code ?? '-'}
-                </span>
               </div>
             </div>
             <div className="profile-helper-panel">
@@ -188,8 +182,8 @@ export default function AccountProfilePage() {
           </section>
 
           <section className="profile-card profile-metrics">
-            <MetricBlock label="账户余额" value={formatCents(user?.wallet.balanceCents ?? 0)} tone="green" detail="长期有效" />
-            <MetricBlock label="累计消费" value={formatCents(user?.wallet.totalSpendCents ?? 0)} tone="red" />
+            <MetricBlock label="客户剩余额度" value={formatCents(user?.wallet.balanceCents ?? 0)} tone="green" detail="长期有效" />
+            <MetricBlock label="累计客户扣费" value={formatCents(user?.wallet.totalSpendCents ?? 0)} tone="red" />
             <MetricBlock label="调用次数" value={`${user?.metrics.totalCallCount ?? 0} 次`} icon={<CheckCircleOutlined />} />
             <MetricBlock label="邀请用户" value={`${user?.referral.invitedUserCount ?? 0} 人`} icon={<TeamOutlined />} />
           </section>
@@ -264,19 +258,13 @@ export default function AccountProfilePage() {
             <label className="profile-search">
               <SearchOutlined />
               <input
-                aria-label="搜索分组或模型"
+                aria-label="搜索模型"
                 onChange={(event) => setModelQuery(event.target.value)}
-                placeholder="搜索分组或模型"
+                placeholder="搜索模型"
                 type="search"
                 value={modelQuery}
               />
             </label>
-            <div className="profile-model-tabs">
-              <button className="active" type="button">
-                {user?.group.code ?? 'default'}
-                <span>{formatMultiplier(groupMultiplier)}x</span>
-              </button>
-            </div>
             <div className="profile-model-summary">
               <span>可用模型数量：{filteredModels.length}</span>
               <button className="ghost-button compact-button" onClick={() => void copyAllModels()} type="button">
@@ -401,20 +389,8 @@ function formatRole(role?: string) {
   return '-';
 }
 
-function formatMultiplier(value: string) {
-  const numericValue = Number(value);
-  if (!Number.isFinite(numericValue)) {
-    return value;
-  }
-
-  return numericValue.toLocaleString('zh-CN', {
-    maximumFractionDigits: 4,
-    minimumFractionDigits: 0
-  });
-}
-
 function formatCents(value: number) {
-  return `${(value / 100).toFixed(2)} 元`;
+  return `$${(value / 100).toFixed(2)}`;
 }
 
 function formatDateTime(value?: string | null) {

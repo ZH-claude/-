@@ -342,6 +342,27 @@ button {
   color: #047857;
 }
 
+.form-note {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  color: #1e40af;
+  font-size: 14px;
+  line-height: 1.5;
+  margin: 0 0 14px;
+  padding: 10px 12px;
+}
+
+.form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.table-note.tone-red {
+  color: #b91c1c;
+}
+
 .account-page {
   min-height: 100vh;
 }
@@ -446,6 +467,10 @@ button {
   border-collapse: collapse;
   min-width: 760px;
   width: 100%;
+}
+
+.admin-table.group-status-table {
+  min-width: 100%;
 }
 
 .admin-table th,
@@ -782,6 +807,11 @@ button {
   gap: 4px;
   min-width: 0;
   overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.merchant-primary-nav::-webkit-scrollbar {
+  display: none;
 }
 
 .merchant-primary-nav a {
@@ -873,8 +903,8 @@ button {
 #merchant-dashboard,
 #merchant-users,
 #merchant-recharge-codes,
-#merchant-groups,
 #merchant-models,
+#merchant-model-prices,
 #merchant-upstream-models,
 #merchant-upstreams,
 #merchant-announcements,
@@ -975,6 +1005,47 @@ button {
   color: #64748b;
   display: block;
   margin-top: 8px;
+}
+
+.merchant-action-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.merchant-action-list {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.merchant-action-link {
+  align-items: flex-start;
+  border-left: 3px solid #2563eb;
+  color: #111827;
+  display: flex;
+  gap: 10px;
+  min-width: 0;
+  padding: 2px 0 2px 12px;
+}
+
+.merchant-action-link span {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.merchant-action-link strong,
+.merchant-action-link small {
+  overflow-wrap: anywhere;
+}
+
+.merchant-action-link small {
+  color: #64748b;
+  line-height: 1.5;
+}
+
+.merchant-action-link:hover {
+  color: #2563eb;
 }
 
 .dashboard-rows {
@@ -1126,6 +1197,228 @@ button {
 
 .token-form {
   max-width: none;
+}
+
+.token-management-page {
+  display: grid;
+  gap: 14px;
+}
+
+.token-filter-panel,
+.token-table-panel,
+.token-key-banner {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+}
+
+.token-filter-panel {
+  align-items: end;
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) minmax(160px, 1fr) auto;
+  padding: 22px 28px;
+}
+
+.token-filter-panel label,
+.token-dialog label,
+.token-model-checkboxes {
+  color: #374151;
+  display: grid;
+  font-size: 14px;
+  font-weight: 700;
+  gap: 8px;
+}
+
+.token-filter-panel input,
+.token-filter-panel select,
+.token-dialog input,
+.token-dialog select,
+.token-dialog textarea {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  color: #111827;
+  min-height: 42px;
+  min-width: 0;
+  padding: 0 12px;
+  width: 100%;
+}
+
+.token-dialog textarea {
+  line-height: 1.5;
+  padding: 10px 12px;
+  resize: vertical;
+}
+
+.token-filter-actions,
+.token-table-toolbar,
+.token-dialog-actions,
+.token-pagination,
+.token-icon-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.token-table-panel {
+  display: grid;
+  gap: 12px;
+  padding: 20px 28px 18px;
+}
+
+.token-table-header {
+  align-items: center;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.token-table-header h1 {
+  font-size: 18px;
+  margin: 0;
+}
+
+.token-table-toolbar .ghost-button.active {
+  border-color: #2563eb;
+  color: #2563eb;
+}
+
+.simple-token-table {
+  min-width: 1320px;
+}
+
+.simple-token-table th,
+.simple-token-table td {
+  white-space: nowrap;
+}
+
+.token-icon-actions {
+  flex-wrap: nowrap;
+}
+
+.compact-icon-button {
+  min-height: 30px;
+  width: 30px;
+}
+
+.token-model-scope {
+  display: inline-block;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+  white-space: nowrap;
+}
+
+.token-pagination {
+  justify-content: flex-end;
+}
+
+.token-pagination span {
+  color: #475569;
+}
+
+.token-page-number {
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  color: #2563eb;
+  font-weight: 800;
+  min-width: 34px;
+  padding: 7px 10px;
+  text-align: center;
+}
+
+.token-pagination select {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  min-height: 36px;
+  padding: 0 10px;
+}
+
+.token-key-banner {
+  align-items: center;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  padding: 14px 18px;
+}
+
+.token-key-banner div {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.token-key-banner code {
+  color: #111827;
+  font-family: Consolas, 'Liberation Mono', monospace;
+  overflow-wrap: anywhere;
+}
+
+.token-dialog-backdrop {
+  align-items: center;
+  background: rgba(15, 23, 42, 0.38);
+  bottom: 0;
+  display: flex;
+  justify-content: center;
+  left: 0;
+  padding: 24px;
+  position: fixed;
+  right: 0;
+  top: 0;
+  z-index: 50;
+}
+
+.token-dialog {
+  background: #ffffff;
+  border-radius: 8px;
+  box-shadow: 0 22px 60px rgba(15, 23, 42, 0.22);
+  display: grid;
+  gap: 14px;
+  max-height: min(760px, calc(100vh - 48px));
+  max-width: 760px;
+  overflow: auto;
+  padding: 22px;
+  width: min(760px, 100%);
+}
+
+.token-dialog-header {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.token-dialog-header h2 {
+  font-size: 20px;
+  margin: 0;
+}
+
+.token-model-checkboxes {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  max-height: 180px;
+  overflow: auto;
+  padding: 12px;
+}
+
+.token-model-checkboxes legend {
+  color: #374151;
+  font-weight: 800;
+  padding: 0 6px;
+}
+
+.token-model-checkboxes label {
+  align-items: center;
+  display: flex;
+  font-weight: 600;
+}
+
+.token-model-checkboxes input {
+  min-height: auto;
+  width: auto;
 }
 
 .log-filter-form {
@@ -1888,6 +2181,7 @@ button {
 
   .admin-metrics,
   .admin-grid,
+  .merchant-action-list,
   .form-row,
   .mapping-form,
     .group-summary-grid,

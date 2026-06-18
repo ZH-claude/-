@@ -14,7 +14,7 @@ export type PricingResponse = {
     name: string;
     multiplier: string;
   };
-  currency: 'CNY' | string;
+  currency: 'USD' | string;
   unit: 'cents_per_1k_tokens' | string;
   billingFormula: {
     totalCostCents: string;

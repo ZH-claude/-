@@ -116,7 +116,7 @@ async function main() {
     const userBToken = await createToken(userBCookie, `${prefix}_token_b`);
 
     const billable = await relayChat(userAToken.apiKey, 'billable request');
-    assert(billable.status === 200, `billable relay call failed with ${billable.status}`);
+    assert(billable.status === 200, `billable relay call failed with ${billable.status}: ${JSON.stringify(billable.json)}`);
     assert(Boolean(billable.headers.get('x-request-id')), 'billable relay call missing x-request-id');
     assert(Boolean(billable.headers.get('x-usage-event-id')), 'billable relay call missing x-usage-event-id');
     checks.push('real_billable_relay_call_created_usage_headers');

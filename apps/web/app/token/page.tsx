@@ -1,11 +1,16 @@
 'use client';
 
 import {
+  CloseOutlined,
   CopyOutlined,
   DeleteOutlined,
+  DownloadOutlined,
+  EditOutlined,
   KeyOutlined,
+  PlusOutlined,
   ReloadOutlined,
-  StopOutlined,
+  SaveOutlined,
+  SearchOutlined,
   SyncOutlined
 } from '@ant-design/icons';
 import { useRouter } from 'next/navigation';
@@ -15,9 +20,9 @@ import { getProfile, type AvailableModel } from '../lib/auth-api';
 import {
   createToken,
   deleteToken,
-  disableToken,
   listTokens,
   resetToken,
+  updateToken,
   type ApiToken
 } from '../lib/token-api';
 
@@ -27,23 +32,52 @@ type OneTimeKey = {
   apiKey: string;
 };
 
+type TokenFilters = {
+  name: string;
+  model: string;
+  status: string;
+};
+
+type TokenFormState = {
+  name: string;
+  quotaUsd: string;
+  expiresAt: string;
+  modelNames: string[];
+  note: string;
+};
+
+const defaultFilters: TokenFilters = {
+  name: '',
+  model: '',
+  status: 'all'
+};
+
+const emptyTokenForm: TokenFormState = {
+  name: '',
+  quotaUsd: '',
+  expiresAt: '',
+  modelNames: [],
+  note: ''
+};
+
+const pageSizeOptions = [10, 20, 50];
+
 export default function TokenPage() {
   const router = useRouter();
   const [tokens, setTokens] = useState<ApiToken[]>([]);
   const [availableModels, setAvailableModels] = useState<AvailableModel[]>([]);
   const [oneTimeKey, setOneTimeKey] = useState<OneTimeKey | null>(null);
-  const [name, setName] = useState('');
-  const [quotaCents, setQuotaCents] = useState('');
-  const [expiresAt, setExpiresAt] = useState('');
-  const [note, setNote] = useState('');
-  const [modelNames, setModelNames] = useState<string[]>([]);
-  const [rateLimitRequestsPerMinute, setRateLimitRequestsPerMinute] = useState('');
-  const [modelRateLimitRequestsPerMinute, setModelRateLimitRequestsPerMinute] = useState('');
-  const [ipRateLimitRequestsPerMinute, setIpRateLimitRequestsPerMinute] = useState('');
-  const [ipWhitelist, setIpWhitelist] = useState('');
-  const [activationTtlMinutes, setActivationTtlMinutes] = useState('');
+  const [draftFilters, setDraftFilters] = useState<TokenFilters>(defaultFilters);
+  const [appliedFilters, setAppliedFilters] = useState<TokenFilters>(defaultFilters);
+  const [form, setForm] = useState<TokenFormState>(emptyTokenForm);
+  const [dialogMode, setDialogMode] = useState<'create' | 'edit' | null>(null);
+  const [editingTokenId, setEditingTokenId] = useState('');
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [isMultiSelect, setIsMultiSelect] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const [isLoading, setIsLoading] = useState(true);
-  const [isCreating, setIsCreating] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [busyTokenId, setBusyTokenId] = useState('');
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
@@ -52,11 +86,39 @@ export default function TokenPage() {
     void loadTokenPage();
   }, []);
 
-  const tokenStats = useMemo(() => {
-    const activeCount = tokens.filter((token) => getTokenEffectiveState(token).state === 'active').length;
-    const disabledCount = tokens.filter((token) => token.status === 'disabled').length;
-    return { activeCount, disabledCount };
-  }, [tokens]);
+  const modelFilterOptions = useMemo(() => {
+    const names = [
+      ...availableModels.map((model) => model.model),
+      ...tokens.flatMap((token) => token.modelNames)
+    ];
+    return [...new Set(names)].sort((left, right) => left.localeCompare(right));
+  }, [availableModels, tokens]);
+
+  const filteredTokens = useMemo(() => {
+    return tokens.filter((token) => {
+      const state = getTokenEffectiveState(token).state;
+      const nameMatched = appliedFilters.name
+        ? token.name.toLowerCase().includes(appliedFilters.name.trim().toLowerCase())
+        : true;
+      const statusMatched = appliedFilters.status === 'all' ? true : state === appliedFilters.status;
+      const modelMatched = appliedFilters.model
+        ? token.modelNames.length === 0 || token.modelNames.includes(appliedFilters.model)
+        : true;
+      return nameMatched && statusMatched && modelMatched;
+    });
+  }, [appliedFilters, tokens]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredTokens.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const pageStart = (currentPage - 1) * pageSize;
+  const pageTokens = filteredTokens.slice(pageStart, pageStart + pageSize);
+  const selectedCount = selectedIds.length;
+
+  useEffect(() => {
+    if (page > totalPages) {
+      setPage(totalPages);
+    }
+  }, [page, totalPages]);
 
   async function loadTokenPage() {
     setIsLoading(true);
@@ -74,94 +136,89 @@ export default function TokenPage() {
     }
   }
 
-  async function handleCreate(event: FormEvent<HTMLFormElement>) {
+  function applyFilters(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setAppliedFilters(draftFilters);
+    setPage(1);
+    setSelectedIds([]);
+  }
+
+  function resetFilters() {
+    setDraftFilters(defaultFilters);
+    setAppliedFilters(defaultFilters);
+    setPage(1);
+    setSelectedIds([]);
+  }
+
+  function openCreateDialog() {
+    setError('');
+    setMessage('');
+    setDialogMode('create');
+    setEditingTokenId('');
+    setForm(emptyTokenForm);
+  }
+
+  function openEditDialog(token: ApiToken) {
+    setError('');
+    setMessage('');
+    setDialogMode('edit');
+    setEditingTokenId(token.id);
+    setForm({
+      name: token.name,
+      quotaUsd: token.quotaCents === null || token.quotaCents === undefined ? '' : (token.quotaCents / 100).toFixed(2),
+      expiresAt: token.expiresAt && new Date(token.expiresAt) > new Date() ? toDateTimeLocal(token.expiresAt) : '',
+      modelNames: token.modelNames,
+      note: token.note ?? ''
+    });
+  }
+
+  function closeDialog() {
+    setDialogMode(null);
+    setEditingTokenId('');
+    setForm(emptyTokenForm);
+  }
+
+  async function handleSaveToken(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError('');
     setMessage('');
 
-    const quotaValue = normalizeQuotaCents(quotaCents);
+    const quotaValue = normalizeQuotaCents(form.quotaUsd);
     if (quotaValue instanceof Error) {
       setError(quotaValue.message);
       return;
     }
 
-    const tokenLimitValue = normalizePositiveInteger(rateLimitRequestsPerMinute, '令牌每分钟请求数');
-    if (tokenLimitValue instanceof Error) {
-      setError(tokenLimitValue.message);
-      return;
-    }
-
-    const modelLimitValue = normalizePositiveInteger(modelRateLimitRequestsPerMinute, '单模型每分钟请求数');
-    if (modelLimitValue instanceof Error) {
-      setError(modelLimitValue.message);
-      return;
-    }
-
-    const ipLimitValue = normalizePositiveInteger(ipRateLimitRequestsPerMinute, '单 IP 每分钟请求数');
-    if (ipLimitValue instanceof Error) {
-      setError(ipLimitValue.message);
-      return;
-    }
-
-    const activationTtlValue = normalizePositiveInteger(activationTtlMinutes, '首次激活有效分钟数');
-    if (activationTtlValue instanceof Error) {
-      setError(activationTtlValue.message);
-      return;
-    }
-
-    setIsCreating(true);
+    setIsSaving(true);
 
     try {
-      const result = await createToken({
-        name: name.trim(),
+      const payload = {
+        name: form.name.trim(),
         quotaCents: quotaValue,
-        expiresAt: expiresAt ? new Date(expiresAt).toISOString() : undefined,
-        note: note.trim() || undefined,
-        modelNames,
-        rateLimitRequestsPerMinute: tokenLimitValue,
-        modelRateLimitRequestsPerMinute: modelLimitValue,
-        ipRateLimitRequestsPerMinute: ipLimitValue,
-        ipWhitelist: normalizeIpWhitelistInput(ipWhitelist),
-        activationTtlSeconds: activationTtlValue === undefined ? undefined : activationTtlValue * 60
-      });
+        expiresAt: form.expiresAt ? new Date(form.expiresAt).toISOString() : null,
+        modelNames: form.modelNames,
+        note: form.note.trim()
+      };
 
-      setOneTimeKey({
-        tokenId: result.token.id,
-        tokenName: result.token.name,
-        apiKey: result.apiKey
-      });
-      setName('');
-      setQuotaCents('');
-      setExpiresAt('');
-      setNote('');
-      setModelNames([]);
-      setRateLimitRequestsPerMinute('');
-      setModelRateLimitRequestsPerMinute('');
-      setIpRateLimitRequestsPerMinute('');
-      setIpWhitelist('');
-      setActivationTtlMinutes('');
-      setMessage('令牌已创建，请立即保存明文 API Key');
+      if (dialogMode === 'edit') {
+        const result = await updateToken(editingTokenId, payload);
+        setMessage(`令牌 ${result.token.name} 已修改`);
+      } else {
+        const result = await createToken(payload);
+        setOneTimeKey({
+          tokenId: result.token.id,
+          tokenName: result.token.name,
+          apiKey: result.apiKey
+        });
+        setMessage('令牌已新增，完整密钥只显示这一次');
+      }
+
+      closeDialog();
       await loadTokenPage();
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : '创建令牌失败');
+      setError(nextError instanceof Error ? nextError.message : '令牌保存失败');
     } finally {
-      setIsCreating(false);
-    }
-  }
-
-  async function handleDisable(tokenId: string) {
-    setError('');
-    setMessage('');
-    setBusyTokenId(tokenId);
-
-    try {
-      await disableToken(tokenId);
-      setMessage('令牌已禁用');
-      await loadTokenPage();
-    } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : '禁用令牌失败');
-    } finally {
-      setBusyTokenId('');
+      setIsSaving(false);
     }
   }
 
@@ -177,7 +234,7 @@ export default function TokenPage() {
         tokenName: result.token.name,
         apiKey: result.apiKey
       });
-      setMessage('令牌已重置，请立即保存新的明文 API Key');
+      setMessage('令牌已重置，完整密钥只显示这一次');
       await loadTokenPage();
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : '重置令牌失败');
@@ -201,6 +258,7 @@ export default function TokenPage() {
       if (oneTimeKey?.tokenId === tokenId) {
         setOneTimeKey(null);
       }
+      setSelectedIds((current) => current.filter((id) => id !== tokenId));
       setMessage('令牌已删除');
       await loadTokenPage();
     } catch (nextError) {
@@ -210,331 +268,411 @@ export default function TokenPage() {
     }
   }
 
-  async function copyApiKey() {
+  async function handleBatchDelete() {
+    setError('');
+    setMessage('');
+
+    if (selectedIds.length === 0) {
+      setError('请先选择令牌');
+      return;
+    }
+
+    if (!window.confirm(`确认删除选中的 ${selectedIds.length} 个令牌？`)) {
+      return;
+    }
+
+    setBusyTokenId('batch');
+
+    try {
+      for (const tokenId of selectedIds) {
+        await deleteToken(tokenId);
+      }
+      setOneTimeKey((current) => (current && selectedIds.includes(current.tokenId) ? null : current));
+      setSelectedIds([]);
+      setMessage('选中令牌已删除');
+      await loadTokenPage();
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : '批量删除失败');
+    } finally {
+      setBusyTokenId('');
+    }
+  }
+
+  async function copyOneTimeKey() {
     if (!oneTimeKey) {
       return;
     }
 
     try {
       await navigator.clipboard.writeText(oneTimeKey.apiKey);
-      setMessage('API Key 已复制');
+      setMessage('完整密钥已复制');
     } catch {
-      setError('复制失败，请手动选中 API Key');
+      setError('复制失败，请手动选中');
     }
+  }
+
+  async function copyTokenInfo(token: ApiToken) {
+    const fullKey = oneTimeKey?.tokenId === token.id ? oneTimeKey.apiKey : null;
+    const text = fullKey ?? `${token.name} ${token.keyPreview}`;
+
+    try {
+      await navigator.clipboard.writeText(text);
+      setMessage(fullKey ? '完整密钥已复制' : '已复制令牌名称和密钥预览');
+    } catch {
+      setError('复制失败，请手动选中');
+    }
+  }
+
+  function exportTokens() {
+    const header = ['令牌名称', '计费方式', '状态', '可用模型', '消耗额度', '剩余额度', '创建时间', '最后使用时间', '过期时间'];
+    const rows = filteredTokens.map((token) => [
+      token.name,
+      '按量优先',
+      getTokenEffectiveState(token).label,
+      formatModelScope(token),
+      formatCents(token.usedCents),
+      formatRemainingQuota(token),
+      formatDate(token.createdAt) ?? '-',
+      formatDate(token.lastUsedAt) ?? '-',
+      formatDate(token.expiresAt) ?? '永不过期'
+    ]);
+    const csv = [header, ...rows].map((row) => row.map(quoteCsvCell).join(',')).join('\n');
+    const blob = new Blob([`\ufeff${csv}`], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `tokens-${new Date().toISOString().slice(0, 10)}.csv`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function toggleMultiSelect() {
+    setIsMultiSelect((current) => !current);
+    setSelectedIds([]);
+  }
+
+  function toggleSelected(tokenId: string) {
+    setSelectedIds((current) =>
+      current.includes(tokenId) ? current.filter((id) => id !== tokenId) : [...current, tokenId]
+    );
   }
 
   return (
     <ConsoleShell activePath="/token" isRefreshing={isLoading} onRefresh={() => void loadTokenPage()}>
-      <section className="console-content-grid">
-        <section className="account-panel account-summary">
-          <div>
-            <p className="eyebrow">API 令牌</p>
-            <h1>令牌管理</h1>
+      <section className="token-management-page">
+        <form className="token-filter-panel" onSubmit={applyFilters}>
+          <label>
+            令牌名称：
+            <input
+              onChange={(event) => setDraftFilters((current) => ({ ...current, name: event.target.value }))}
+              placeholder="请输入"
+              type="search"
+              value={draftFilters.name}
+            />
+          </label>
+          <label>
+            可用模型：
+            <select onChange={(event) => setDraftFilters((current) => ({ ...current, model: event.target.value }))} value={draftFilters.model}>
+              <option value="">全部模型</option>
+              {modelFilterOptions.map((model) => (
+                <option key={model} value={model}>
+                  {model}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            状态：
+            <select onChange={(event) => setDraftFilters((current) => ({ ...current, status: event.target.value }))} value={draftFilters.status}>
+              <option value="all">全部状态</option>
+              <option value="active">正常</option>
+              <option value="disabled">已禁用</option>
+              <option value="expired">已过期</option>
+              <option value="quota_exhausted">额度用尽</option>
+            </select>
+          </label>
+          <div className="token-filter-actions">
+            <button className="ghost-button" onClick={resetFilters} type="button">
+              重置
+            </button>
+            <button className="primary-button" type="submit">
+              <SearchOutlined />
+              查询
+            </button>
           </div>
-          <button className="icon-button" disabled={isLoading} onClick={() => void loadTokenPage()} title="刷新令牌" type="button">
-            <ReloadOutlined />
-          </button>
-        </section>
+        </form>
 
-        <div className="metric-panel">
-          <span>令牌总数</span>
-          <strong>{tokens.length}</strong>
-          <small>不含已删除令牌</small>
-        </div>
-        <div className="metric-panel">
-          <span>可用令牌</span>
-          <strong>{tokenStats.activeCount}</strong>
-          <small>可用于 API 鉴权</small>
-        </div>
-        <div className="metric-panel">
-          <span>已禁用</span>
-          <strong>{tokenStats.disabledCount}</strong>
-          <small>不会通过鉴权</small>
-        </div>
-
-        {error ? <p className="form-error wide-panel">{error}</p> : null}
-        {message ? <p className="form-success wide-panel">{message}</p> : null}
+        {error ? <p className="form-error">{error}</p> : null}
+        {message ? <p className="form-success">{message}</p> : null}
 
         {oneTimeKey ? (
-          <section className="account-panel wide-panel">
-            <div className="panel-title">
-              <KeyOutlined />
-              <h2>一次性 API Key</h2>
+          <section className="token-key-banner">
+            <div>
+              <strong>{oneTimeKey.tokenName}</strong>
+              <code>{oneTimeKey.apiKey}</code>
             </div>
-            <div className="one-time-key-box">
-              <div>
-                <strong>{oneTimeKey.tokenName}</strong>
-                <code>{oneTimeKey.apiKey}</code>
-              </div>
-              <button className="ghost-button" onClick={() => void copyApiKey()} type="button">
-                <CopyOutlined />
-                复制
-              </button>
-            </div>
+            <button className="ghost-button compact-button" onClick={() => void copyOneTimeKey()} type="button">
+              <CopyOutlined />
+              复制完整密钥
+            </button>
+            <button className="icon-button" onClick={() => setOneTimeKey(null)} title="关闭" type="button">
+              <CloseOutlined />
+            </button>
           </section>
         ) : null}
 
-        <section className="account-panel wide-panel">
-          <div className="panel-title">
-            <KeyOutlined />
-            <h2>创建令牌</h2>
+        <section className="token-table-panel">
+          <div className="token-table-header">
+            <h1>令牌管理</h1>
+            <div className="token-table-toolbar">
+              <button className={`ghost-button compact-button ${isMultiSelect ? 'active' : ''}`} onClick={toggleMultiSelect} type="button">
+                多选
+              </button>
+              {isMultiSelect ? (
+                <button className="ghost-button compact-button" disabled={busyTokenId === 'batch' || selectedCount === 0} onClick={() => void handleBatchDelete()} type="button">
+                  <DeleteOutlined />
+                  删除选中
+                </button>
+              ) : null}
+              <button className="ghost-button compact-button" onClick={exportTokens} type="button">
+                <DownloadOutlined />
+                导出
+              </button>
+              <button className="primary-button compact-button" onClick={openCreateDialog} type="button">
+                <PlusOutlined />
+                新增
+              </button>
+              <button className="icon-button" disabled={isLoading} onClick={() => void loadTokenPage()} title="刷新" type="button">
+                <ReloadOutlined />
+              </button>
+            </div>
           </div>
-          <form className="auth-form token-form" onSubmit={handleCreate}>
-            <div className="form-row">
+
+          <div className="admin-table-wrap">
+            <table className="admin-table token-table simple-token-table">
+              <thead>
+                <tr>
+                  {isMultiSelect ? <th>选择</th> : null}
+                  <th>令牌名称</th>
+                  <th>计费方式</th>
+                  <th>状态</th>
+                  <th>可用模型</th>
+                  <th>消耗额度</th>
+                  <th>剩余额度</th>
+                  <th>创建时间</th>
+                  <th>最后使用时间</th>
+                  <th>过期时间</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pageTokens.map((token) => (
+                  <tr key={token.id}>
+                    {isMultiSelect ? (
+                      <td>
+                        <input
+                          aria-label={`选择 ${token.name}`}
+                          checked={selectedIds.includes(token.id)}
+                          onChange={() => toggleSelected(token.id)}
+                          type="checkbox"
+                        />
+                      </td>
+                    ) : null}
+                    <td>
+                      <strong>{token.name}</strong>
+                      <small className="table-note">{token.keyPreview}</small>
+                    </td>
+                    <td>
+                      <span className="status-pill status-pill-warning">按量优先</span>
+                    </td>
+                    <td>{renderTokenState(token)}</td>
+                    <td>{renderModelScope(token)}</td>
+                    <td>{formatCents(token.usedCents)}</td>
+                    <td>{formatRemainingQuota(token)}</td>
+                    <td>{formatDate(token.createdAt)}</td>
+                    <td>{formatDate(token.lastUsedAt) ?? '-'}</td>
+                    <td>{formatDate(token.expiresAt) ?? '永不过期'}</td>
+                    <td>
+                      <div className="token-icon-actions">
+                        <button className="icon-button compact-icon-button" onClick={() => void copyTokenInfo(token)} title="复制" type="button">
+                          <CopyOutlined />
+                        </button>
+                        <button
+                          className="icon-button compact-icon-button"
+                          disabled={busyTokenId === token.id}
+                          onClick={() => void handleDelete(token.id)}
+                          title="删除"
+                          type="button"
+                        >
+                          <DeleteOutlined />
+                        </button>
+                        <button
+                          className="icon-button compact-icon-button"
+                          disabled={busyTokenId === token.id || getTokenEffectiveState(token).state !== 'active'}
+                          onClick={() => void handleReset(token)}
+                          title="重置密钥"
+                          type="button"
+                        >
+                          <SyncOutlined />
+                        </button>
+                        <button className="icon-button compact-icon-button" onClick={() => openEditDialog(token)} title="修改" type="button">
+                          <EditOutlined />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {!isLoading && pageTokens.length === 0 ? (
+                  <tr>
+                    <td colSpan={isMultiSelect ? 11 : 10}>暂无令牌</td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="token-pagination">
+            <span>
+              第 {filteredTokens.length === 0 ? 0 : pageStart + 1}-{Math.min(pageStart + pageSize, filteredTokens.length)} 条/总共 {filteredTokens.length} 条
+            </span>
+            <button className="ghost-button compact-button" disabled={currentPage <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))} type="button">
+              上一页
+            </button>
+            <span className="token-page-number">{currentPage}</span>
+            <button className="ghost-button compact-button" disabled={currentPage >= totalPages} onClick={() => setPage((current) => Math.min(totalPages, current + 1))} type="button">
+              下一页
+            </button>
+            <select
+              aria-label="每页条数"
+              onChange={(event) => {
+                setPageSize(Number(event.target.value));
+                setPage(1);
+              }}
+              value={pageSize}
+            >
+              {pageSizeOptions.map((option) => (
+                <option key={option} value={option}>
+                  {option} 条/页
+                </option>
+              ))}
+            </select>
+          </div>
+        </section>
+
+        {dialogMode ? (
+          <div className="token-dialog-backdrop" role="presentation">
+            <form className="token-dialog" onSubmit={handleSaveToken}>
+              <div className="token-dialog-header">
+                <h2>{dialogMode === 'edit' ? '修改令牌' : '新增令牌'}</h2>
+                <button className="icon-button" onClick={closeDialog} title="关闭" type="button">
+                  <CloseOutlined />
+                </button>
+              </div>
               <label>
-                名称
+                令牌名称
                 <input
                   maxLength={80}
                   minLength={2}
-                  onChange={(event) => setName(event.target.value)}
+                  onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
+                  placeholder="请输入令牌名称"
                   required
-                  type="text"
-                  value={name}
+                  value={form.name}
                 />
               </label>
+              <div className="form-row">
+                <label>
+                  额度（美元，可空）
+                  <input
+                    min={0}
+                    onChange={(event) => setForm((current) => ({ ...current, quotaUsd: event.target.value }))}
+                    placeholder="留空表示不限制"
+                    step={0.01}
+                    type="number"
+                    value={form.quotaUsd}
+                  />
+                </label>
+                <label>
+                  过期时间
+                  <input
+                    onChange={(event) => setForm((current) => ({ ...current, expiresAt: event.target.value }))}
+                    type="datetime-local"
+                    value={form.expiresAt}
+                  />
+                </label>
+              </div>
+              <fieldset className="token-model-checkboxes">
+                <legend>可用模型</legend>
+                <label>
+                  <input
+                    checked={form.modelNames.length === 0}
+                    onChange={() => setForm((current) => ({ ...current, modelNames: [] }))}
+                    type="checkbox"
+                  />
+                  全部可用模型
+                </label>
+                {availableModels.map((model) => (
+                  <label key={model.model}>
+                    <input
+                      checked={form.modelNames.includes(model.model)}
+                      onChange={() => toggleFormModel(model.model)}
+                      type="checkbox"
+                    />
+                    {model.displayName ? `${model.model} - ${model.displayName}` : model.model}
+                  </label>
+                ))}
+              </fieldset>
               <label>
-                额度（分，可空）
-                <input
-                  min={0}
-                  onChange={(event) => setQuotaCents(event.target.value)}
-                  placeholder="留空表示不设置令牌额度"
-                  step={1}
-                  type="number"
-                  value={quotaCents}
+                备注
+                <textarea
+                  maxLength={240}
+                  onChange={(event) => setForm((current) => ({ ...current, note: event.target.value }))}
+                  placeholder="可空"
+                  rows={3}
+                  value={form.note}
                 />
               </label>
-            </div>
-            <div className="form-row">
-              <label>
-                过期时间
-                <input onChange={(event) => setExpiresAt(event.target.value)} type="datetime-local" value={expiresAt} />
-              </label>
-              <label>
-                可用模型
-                <select
-                  className="multi-select"
-                  multiple
-                  onChange={(event) =>
-                    setModelNames(Array.from(event.currentTarget.selectedOptions).map((option) => option.value))
-                  }
-                  value={modelNames}
-                >
-                  {availableModels.map((model) => (
-                    <option key={model.model} value={model.model}>
-                      {model.displayName ? `${model.model} - ${model.displayName}` : model.model}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-            <div className="form-row">
-              <label>
-                令牌 RPM
-                <input
-                  min={1}
-                  onChange={(event) => setRateLimitRequestsPerMinute(event.target.value)}
-                  placeholder="留空表示不限制"
-                  step={1}
-                  type="number"
-                  value={rateLimitRequestsPerMinute}
-                />
-              </label>
-              <label>
-                单模型 RPM
-                <input
-                  min={1}
-                  onChange={(event) => setModelRateLimitRequestsPerMinute(event.target.value)}
-                  placeholder="留空表示不限制"
-                  step={1}
-                  type="number"
-                  value={modelRateLimitRequestsPerMinute}
-                />
-              </label>
-            </div>
-            <div className="form-row">
-              <label>
-                单 IP RPM
-                <input
-                  min={1}
-                  onChange={(event) => setIpRateLimitRequestsPerMinute(event.target.value)}
-                  placeholder="留空表示不限制"
-                  step={1}
-                  type="number"
-                  value={ipRateLimitRequestsPerMinute}
-                />
-              </label>
-              <label>
-                首次激活有效分钟
-                <input
-                  min={1}
-                  onChange={(event) => setActivationTtlMinutes(event.target.value)}
-                  placeholder="留空表示永久"
-                  step={1}
-                  type="number"
-                  value={activationTtlMinutes}
-                />
-              </label>
-            </div>
-            <label>
-              IP 白名单
-              <textarea
-                onChange={(event) => setIpWhitelist(event.target.value)}
-                placeholder="每行或逗号分隔一个 IP，留空表示不限制"
-                rows={3}
-                value={ipWhitelist}
-              />
-            </label>
-            <label>
-              备注
-              <textarea maxLength={240} onChange={(event) => setNote(event.target.value)} rows={3} value={note} />
-            </label>
-            <button className="primary-button" disabled={isCreating} type="submit">
-              <KeyOutlined />
-              {isCreating ? '创建中' : '创建令牌'}
-            </button>
-          </form>
-        </section>
-
-        <section className="account-panel wide-panel">
-          <div className="panel-title">
-            <KeyOutlined />
-            <h2>令牌列表</h2>
+              <div className="token-dialog-actions">
+                <button className="ghost-button" disabled={isSaving} onClick={closeDialog} type="button">
+                  取消
+                </button>
+                <button className="primary-button" disabled={isSaving} type="submit">
+                  <SaveOutlined />
+                  {isSaving ? '保存中' : '保存'}
+                </button>
+              </div>
+            </form>
           </div>
-          <div className="admin-table-wrap">
-            {isLoading ? (
-              <p className="empty-state">加载中...</p>
-            ) : tokens.length === 0 ? (
-              <p className="empty-state">暂无令牌</p>
-            ) : (
-              <table className="admin-table token-table">
-                <thead>
-                  <tr>
-                    <th>名称</th>
-                    <th>Key 预览</th>
-                    <th>状态</th>
-                    <th>额度</th>
-                    <th>模型范围</th>
-                    <th>过期时间</th>
-                    <th>最近使用</th>
-                    <th>操作</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {tokens.map((token) => (
-                    <tr key={token.id}>
-                      <td>
-                        <strong>{token.name}</strong>
-                        {token.note ? <span className="table-note">{token.note}</span> : null}
-                        {renderPolicySummary(token)}
-                      </td>
-                      <td>{token.keyPreview}</td>
-                      <td>{renderTokenState(token)}</td>
-                      <td>
-                        {token.quotaCents === null || token.quotaCents === undefined
-                          ? '不限制'
-                          : `${formatCents(token.usedCents)} / ${formatCents(token.quotaCents)}`}
-                      </td>
-                      <td>{token.modelNames.length > 0 ? token.modelNames.join(', ') : '继承分组可用模型'}</td>
-                      <td>{formatDateTime(token.expiresAt) ?? '永不过期'}</td>
-                      <td>{formatDateTime(token.lastUsedAt) ?? '未使用'}</td>
-                      <td>
-                        <div className="table-action-row">
-                          <button
-                            className="ghost-button compact-button"
-                            disabled={busyTokenId === token.id || token.status === 'disabled'}
-                            onClick={() => void handleDisable(token.id)}
-                            type="button"
-                          >
-                            <StopOutlined />
-                            禁用
-                          </button>
-                          <button
-                            className="ghost-button compact-button"
-                            disabled={busyTokenId === token.id || getTokenEffectiveState(token).state !== 'active'}
-                            title={
-                              getTokenEffectiveState(token).state === 'active'
-                                ? '重置 API Key'
-                                : '当前令牌不可用，请创建新令牌'
-                            }
-                            onClick={() => void handleReset(token)}
-                            type="button"
-                          >
-                            <SyncOutlined />
-                            重置
-                          </button>
-                          <button
-                            className="ghost-button compact-button"
-                            disabled={busyTokenId === token.id}
-                            onClick={() => void handleDelete(token.id)}
-                            type="button"
-                          >
-                            <DeleteOutlined />
-                            删除
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-        </section>
+        ) : null}
       </section>
     </ConsoleShell>
   );
+
+  function toggleFormModel(model: string) {
+    setForm((current) => ({
+      ...current,
+      modelNames: current.modelNames.includes(model)
+        ? current.modelNames.filter((entry) => entry !== model)
+        : [...current.modelNames, model]
+    }));
+  }
 }
 
 function normalizeQuotaCents(value: string) {
   if (!value.trim()) {
-    return undefined;
+    return null;
   }
 
   const numericValue = Number(value);
-  if (!Number.isInteger(numericValue) || numericValue < 0) {
-    return new Error('额度必须是大于等于 0 的整数分');
+  const cents = Math.round(numericValue * 100);
+  if (!Number.isFinite(numericValue) || cents < 0) {
+    return new Error('额度必须是大于等于 0 的美元金额');
   }
 
-  return numericValue;
-}
-
-function normalizePositiveInteger(value: string, label: string) {
-  if (!value.trim()) {
-    return undefined;
+  if (Math.abs(cents / 100 - numericValue) > 0.000001) {
+    return new Error('额度最多保留两位小数');
   }
 
-  const numericValue = Number(value);
-  if (!Number.isInteger(numericValue) || numericValue < 1) {
-    return new Error(`${label}必须是大于 0 的整数`);
-  }
-
-  return numericValue;
-}
-
-function normalizeIpWhitelistInput(value: string) {
-  return [...new Set(value.split(/[,\s]+/).map((entry) => entry.trim()).filter(Boolean))];
-}
-
-function renderPolicySummary(token: ApiToken) {
-  const parts = [
-    token.rateLimitRequestsPerMinute ? `token ${token.rateLimitRequestsPerMinute} RPM` : null,
-    token.modelRateLimitRequestsPerMinute ? `model ${token.modelRateLimitRequestsPerMinute} RPM` : null,
-    token.ipRateLimitRequestsPerMinute ? `IP ${token.ipRateLimitRequestsPerMinute} RPM` : null,
-    (token.ipWhitelist ?? []).length > 0 ? `IP whitelist ${(token.ipWhitelist ?? []).length}` : null,
-    token.activationTtlSeconds ? `activation ${formatDuration(token.activationTtlSeconds)}` : null,
-    token.activatedAt ? `activated ${formatDateTime(token.activatedAt)}` : null,
-    token.activationExpiresAt ? `activation expires ${formatDateTime(token.activationExpiresAt)}` : null
-  ].filter((part): part is string => Boolean(part));
-
-  return <span className="table-note">Policy: {parts.length > 0 ? parts.join(' · ') : 'unlimited'}</span>;
-}
-
-function formatDuration(seconds: number) {
-  if (seconds % 60 === 0) {
-    return `${seconds / 60} min`;
-  }
-
-  return `${seconds}s`;
+  return cents;
 }
 
 function renderTokenState(token: ApiToken) {
@@ -569,16 +707,58 @@ function getTokenEffectiveState(token: ApiToken) {
   }
 
   if (token.status === 'active') {
-    return { state: 'active', label: '可用' };
+    return { state: 'active', label: '正常' };
   }
 
   return { state: token.status, label: token.status };
 }
 
-function formatDateTime(value?: string | null) {
-  return value ? new Date(value).toLocaleString() : null;
+function renderModelScope(token: ApiToken) {
+  if (token.modelNames.length === 0) {
+    return <span className="status-pill status-pill-warning">无限制</span>;
+  }
+
+  return (
+    <span className="token-model-scope" title={token.modelNames.join(', ')}>
+      {token.modelNames.join(', ')}
+    </span>
+  );
+}
+
+function formatModelScope(token: ApiToken) {
+  return token.modelNames.length === 0 ? '无限制' : token.modelNames.join(', ');
+}
+
+function formatRemainingQuota(token: ApiToken) {
+  if (token.quotaCents === null || token.quotaCents === undefined) {
+    return '无限制';
+  }
+
+  return formatCents(Math.max(0, token.quotaCents - token.usedCents));
+}
+
+function formatDate(value?: string | null) {
+  if (!value) {
+    return null;
+  }
+
+  return new Intl.DateTimeFormat('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).format(new Date(value));
+}
+
+function toDateTimeLocal(value: string) {
+  const date = new Date(value);
+  const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return localDate.toISOString().slice(0, 16);
 }
 
 function formatCents(value: number) {
-  return `${(value / 100).toFixed(2)} 元`;
+  return `$${(value / 100).toFixed(2)}`;
+}
+
+function quoteCsvCell(value: string) {
+  return `"${value.replace(/"/g, '""')}"`;
 }

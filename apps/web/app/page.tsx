@@ -7,7 +7,6 @@ import {
   CreditCardOutlined,
   FileTextOutlined,
   KeyOutlined,
-  LineChartOutlined,
   PictureOutlined
 } from '@ant-design/icons';
 import { Alert, Card, Col, Empty, List, Row, Space, Spin, Statistic, Typography } from 'antd';
@@ -23,7 +22,6 @@ const documentEntries = [
   { title: '调用日志', href: '/log', icon: <FileTextOutlined /> },
   { title: '绘图', href: '/midjourney', icon: <PictureOutlined /> },
   { title: '余额充值', href: '/account/topup/recharge', icon: <CreditCardOutlined /> },
-  { title: '分组状态', href: '/groupAvailability', icon: <LineChartOutlined /> },
   { title: '服务状态', href: '/uptimeStatus', icon: <CloudServerOutlined /> },
   { title: '通知设置', href: '/account/notificationSettings', icon: <BellOutlined /> }
 ];
@@ -89,7 +87,7 @@ export default function HomePage() {
       <section className="profile-card account-summary">
         <div>
           <p className="eyebrow">首页</p>
-          <h1>中转站控制台</h1>
+          <h1>中转站用户端</h1>
           <p className="page-subtitle">
             <ApiOutlined /> 智能服务中转后台
           </p>

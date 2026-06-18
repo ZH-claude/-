@@ -3,12 +3,13 @@
 import {
   ApiOutlined,
   CloudServerOutlined,
+  CloseOutlined,
+  EditOutlined,
   ExperimentOutlined,
   LeftOutlined,
   ReloadOutlined,
   RightOutlined,
-  SaveOutlined,
-  TeamOutlined
+  SaveOutlined
 } from '@ant-design/icons';
 import { useRouter } from 'next/navigation';
 import { type FormEvent, useEffect, useMemo, useState } from 'react';
@@ -18,9 +19,9 @@ import {
   createModelPrice,
   createUpstreamModel,
   createUpstreamProvider,
-  createUserGroup,
   listModelConfiguration,
   listUpstreamProviders,
+  updateModelPrice,
   type AdminGroup,
   type AdminModelPrice,
   type UpstreamModelMapping,
@@ -47,17 +48,14 @@ export function MerchantModelConfigView({ username, role }: { username: string; 
   const [upstreamModelPagination, setUpstreamModelPagination] = useState<PaginationState>(
     DEFAULT_UPSTREAM_MODEL_PAGINATION
   );
-  const [groupCode, setGroupCode] = useState('');
-  const [groupName, setGroupName] = useState('');
-  const [groupMultiplier, setGroupMultiplier] = useState('1.0000');
-  const [groupStatus, setGroupStatus] = useState<'active' | 'disabled'>('active');
   const [modelName, setModelName] = useState('');
   const [modelDisplayName, setModelDisplayName] = useState('');
-  const [inputPriceCentsPer1k, setInputPriceCentsPer1k] = useState('0');
-  const [outputPriceCentsPer1k, setOutputPriceCentsPer1k] = useState('0');
+  const [inputPriceCnyPer1k, setInputPriceCnyPer1k] = useState('0.00');
+  const [outputPriceCnyPer1k, setOutputPriceCnyPer1k] = useState('0.00');
   const [modelMultiplier, setModelMultiplier] = useState('1.0000');
   const [modelStatus, setModelStatus] = useState<'active' | 'disabled'>('active');
   const [modelGroupIds, setModelGroupIds] = useState<string[]>([]);
+  const [editingModelId, setEditingModelId] = useState<string | null>(null);
   const [upstreamName, setUpstreamName] = useState('');
   const [upstreamBaseUrl, setUpstreamBaseUrl] = useState('');
   const [upstreamApiKey, setUpstreamApiKey] = useState('');
@@ -68,7 +66,6 @@ export function MerchantModelConfigView({ username, role }: { username: string; 
   const [upstreamModelStatus, setUpstreamModelStatus] = useState<'active' | 'disabled'>('active');
   const [supportsStream, setSupportsStream] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
-  const [isGroupSubmitting, setIsGroupSubmitting] = useState(false);
   const [isModelSubmitting, setIsModelSubmitting] = useState(false);
   const [isUpstreamSubmitting, setIsUpstreamSubmitting] = useState(false);
   const [isMappingSubmitting, setIsMappingSubmitting] = useState(false);
@@ -83,13 +80,16 @@ export function MerchantModelConfigView({ username, role }: { username: string; 
 
   const stats = useMemo(() => {
     return {
-      groups: groups.length,
       activeModels: models.filter((entry) => entry.status === 'active').length,
       activeUpstreams: upstreams.filter((entry) => entry.status === 'active').length,
       unhealthyUpstreams: upstreams.filter((entry) => entry.healthStatus === 'unhealthy').length,
       activeMappings: upstreamModels.filter((entry) => entry.status === 'active').length
     };
-  }, [groups, models, upstreamModels, upstreams]);
+  }, [models, upstreamModels, upstreams]);
+  const editingModel = useMemo(
+    () => models.find((entry) => entry.id === editingModelId) ?? null,
+    [editingModelId, models]
+  );
 
   async function loadData(page = upstreamModelPagination.page) {
     setIsLoading(true);
@@ -124,7 +124,7 @@ export function MerchantModelConfigView({ username, role }: { username: string; 
     setModels(result.models);
     setUpstreamModels(result.upstreamModels);
     setUpstreamModelPagination(result.upstreamModelsPagination);
-    setModelGroupIds((current) => keepValidIds(current, result.groups.map((entry) => entry.id), result.groups[0]?.id));
+    setModelGroupIds(getDefaultModelGroupIds(result.groups));
     setUpstreamModelProviderId((current) =>
       keepValidId(current, providerOptions.map((entry) => entry.id), providerOptions[0]?.id)
     );
@@ -133,67 +133,69 @@ export function MerchantModelConfigView({ username, role }: { username: string; 
     );
   }
 
-  async function handleCreateGroup(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError('');
-    setMessage('');
-    setIsGroupSubmitting(true);
-
-    try {
-      const created = await createUserGroup({
-        code: groupCode,
-        name: groupName,
-        multiplier: groupMultiplier,
-        status: groupStatus
-      });
-      setGroupCode('');
-      setGroupName('');
-      setGroupMultiplier('1.0000');
-      setGroupStatus('active');
-      setMessage(`分组 ${created.code} 已保存`);
-      await loadData();
-    } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : '分组保存失败');
-    } finally {
-      setIsGroupSubmitting(false);
-    }
-  }
-
-  async function handleCreateModel(event: FormEvent<HTMLFormElement>) {
+  async function handleSaveModel(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError('');
     setMessage('');
 
-    if (!modelGroupIds.length) {
-      setError('至少选择一个可见分组');
+    const nextGroupIds = editingModelId ? modelGroupIds : getDefaultModelGroupIds(groups);
+    if (!nextGroupIds.length) {
+      setError('系统默认归属还没准备好，请先完成初始化');
       return;
     }
 
     setIsModelSubmitting(true);
 
     try {
-      const created = await createModelPrice({
+      const payload = {
         model: modelName,
         displayName: modelDisplayName || undefined,
-        inputPriceCentsPer1k: Number(inputPriceCentsPer1k),
-        outputPriceCentsPer1k: Number(outputPriceCentsPer1k),
+        inputPriceCentsPer1k: parseCurrencyToCents(inputPriceCnyPer1k, '输入单价', { allowZero: true }),
+        outputPriceCentsPer1k: parseCurrencyToCents(outputPriceCnyPer1k, '输出单价', { allowZero: true }),
         modelMultiplier,
         status: modelStatus,
-        groupIds: modelGroupIds
-      });
-      setModelName('');
-      setModelDisplayName('');
-      setInputPriceCentsPer1k('0');
-      setOutputPriceCentsPer1k('0');
-      setModelMultiplier('1.0000');
-      setModelStatus('active');
-      setMessage(`模型 ${created.model} 已保存，完成上游映射后用户端可见`);
+        groupIds: nextGroupIds
+      };
+      const saved = editingModelId
+        ? await updateModelPrice(editingModelId, payload)
+        : await createModelPrice(payload);
+      resetModelForm();
+      setMessage(
+        saved.upstreamMappings.length > 0
+          ? `模型 ${saved.model} 已保存，用户端可见还要求上游处于启用状态`
+          : `模型 ${saved.model} 已保存，还需要在下方绑定上游模型后用户端才可见`
+      );
       await loadData();
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : '模型保存失败');
     } finally {
       setIsModelSubmitting(false);
     }
+  }
+
+  function beginEditModel(model: AdminModelPrice) {
+    setError('');
+    setMessage('');
+    setEditingModelId(model.id);
+    setModelName(model.model);
+    setModelDisplayName(model.displayName ?? '');
+    setInputPriceCnyPer1k((model.inputPriceCentsPer1k / 100).toFixed(2));
+    setOutputPriceCnyPer1k((model.outputPriceCentsPer1k / 100).toFixed(2));
+    setModelMultiplier(model.modelMultiplier);
+    setModelStatus(model.status === 'disabled' ? 'disabled' : 'active');
+    setModelGroupIds(model.groups.length ? model.groups.map((group) => group.id) : getDefaultModelGroupIds(groups));
+    document.getElementById('merchant-model-prices')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function resetModelForm() {
+    setEditingModelId(null);
+    setModelName('');
+    setModelDisplayName('');
+    setInputPriceCnyPer1k('0.00');
+    setOutputPriceCnyPer1k('0.00');
+    setModelMultiplier('1.0000');
+    setModelStatus('active');
+    setModelGroupIds(getDefaultModelGroupIds(groups));
   }
 
   async function handleCreateUpstream(event: FormEvent<HTMLFormElement>) {
@@ -300,8 +302,8 @@ export function MerchantModelConfigView({ username, role }: { username: string; 
         <div className="admin-heading merchant-dashboard-heading">
           <div>
             <p className="eyebrow">商家工作台</p>
-            <h1>模型与上游配置</h1>
-            <small>分组、价格、上游、映射和健康检查均来自真实数据。</small>
+            <h1>上游接入与模型发布</h1>
+            <small>从这里接入真实上游 API，发布客户可见模型，并完成上游模型绑定。</small>
           </div>
           <button className="icon-button" disabled={isLoading} onClick={() => void loadData()} title="刷新模型配置" type="button">
             <ReloadOutlined />
@@ -312,98 +314,35 @@ export function MerchantModelConfigView({ username, role }: { username: string; 
         {message ? <p className="form-success">{message}</p> : null}
 
         <section className="admin-metrics">
-          <MetricPanel label="分组" value={formatNumber(stats.groups)} detail="真实用户分组" />
           <MetricPanel label="启用模型" value={formatNumber(stats.activeModels)} detail={`全部模型 ${formatNumber(models.length)}`} tone="green" />
           <MetricPanel label="启用上游" value={formatNumber(stats.activeUpstreams)} detail={`异常 ${formatNumber(stats.unhealthyUpstreams)}`} />
           <MetricPanel label="当前页映射" value={formatNumber(stats.activeMappings)} detail={`总映射 ${formatNumber(upstreamModelPagination.total)}`} />
         </section>
 
         <section className="admin-grid">
-          <section className="admin-panel" id="merchant-groups">
-            <div className="panel-title">
-              <TeamOutlined />
-              <h2>分组配置</h2>
-            </div>
-            <form className="auth-form compact-form" onSubmit={handleCreateGroup}>
-              <label>
-                分组代码
-                <input maxLength={40} minLength={2} onChange={(event) => setGroupCode(event.target.value)} placeholder="例如：贵宾分组" required value={groupCode} />
-              </label>
-              <label>
-                分组名称
-                <input maxLength={80} minLength={2} onChange={(event) => setGroupName(event.target.value)} required value={groupName} />
-              </label>
-              <label>
-                分组倍率
-                <input max="100" min="0.0001" onChange={(event) => setGroupMultiplier(event.target.value)} required step="0.0001" type="number" value={groupMultiplier} />
-              </label>
-              <label>
-                状态
-                <select onChange={(event) => setGroupStatus(event.target.value as 'active' | 'disabled')} value={groupStatus}>
-                  <option value="active">启用</option>
-                  <option value="disabled">停用</option>
-                </select>
-              </label>
-              <button className="primary-button" disabled={isGroupSubmitting} type="submit">
-                <SaveOutlined />
-                {isGroupSubmitting ? '保存中' : '保存分组'}
-              </button>
-            </form>
-          </section>
-
-          <section className="admin-panel">
-            <div className="panel-title">
-              <TeamOutlined />
-              <h2>分组状态</h2>
-            </div>
-            <div className="admin-table-wrap compact-table">
-              <table className="admin-table group-status-table">
-                <thead>
-                  <tr>
-                    <th>代码</th>
-                    <th>名称</th>
-                    <th>倍率</th>
-                    <th>状态</th>
-                    <th>用户/模型</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {groups.map((group) => (
-                    <tr key={group.id}>
-                      <td>{group.code}</td>
-                      <td>{group.name}</td>
-                      <td>{group.multiplier}</td>
-                      <td>
-                        <span className={`status-pill ${group.status === 'active' ? 'status-pill-success' : 'status-pill-muted'}`}>
-                          {formatStatus(group.status)}
-                        </span>
-                      </td>
-                      <td>
-                        {group.userCount} / {group.modelAccessCount}
-                      </td>
-                    </tr>
-                  ))}
-                  {!groups.length && !isLoading ? (
-                    <tr>
-                      <td colSpan={5}>暂无真实分组</td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
-          </section>
-        </section>
-
-        <section className="admin-grid">
           <section className="admin-panel" id="merchant-model-prices">
             <div className="panel-title">
               <ApiOutlined />
-              <h2>模型价格与授权</h2>
+              <h2>模型发布</h2>
             </div>
-            <form className="auth-form compact-form" onSubmit={handleCreateModel}>
+            {editingModel ? (
+              <p className="form-note">
+                正在修改 {editingModel.model}
+                {editingModel.upstreamMappings.length > 0 ? '。已绑定上游后不能直接改公开模型名。' : '。当前未绑定上游，可以修改公开模型名。'}
+              </p>
+            ) : null}
+            <form className="auth-form compact-form" onSubmit={handleSaveModel}>
               <label>
                 公开模型
-                <input maxLength={120} minLength={2} onChange={(event) => setModelName(event.target.value)} placeholder="例如：通用模型" required value={modelName} />
+                <input
+                  disabled={Boolean(editingModel && editingModel.upstreamMappings.length > 0)}
+                  maxLength={120}
+                  minLength={2}
+                  onChange={(event) => setModelName(event.target.value)}
+                  placeholder="例如：gpt-5.5"
+                  required
+                  value={modelName}
+                />
               </label>
               <label>
                 展示名称
@@ -411,27 +350,17 @@ export function MerchantModelConfigView({ username, role }: { username: string; 
               </label>
               <div className="form-row">
                 <label>
-                  输入单价
-                  <input min="0" onChange={(event) => setInputPriceCentsPer1k(event.target.value)} required step="1" type="number" value={inputPriceCentsPer1k} />
+                  输入单价（人民币 / 1K）
+                  <input min="0" onChange={(event) => setInputPriceCnyPer1k(event.target.value)} required step="0.01" type="number" value={inputPriceCnyPer1k} />
                 </label>
                 <label>
-                  输出单价
-                  <input min="0" onChange={(event) => setOutputPriceCentsPer1k(event.target.value)} required step="1" type="number" value={outputPriceCentsPer1k} />
+                  输出单价（人民币 / 1K）
+                  <input min="0" onChange={(event) => setOutputPriceCnyPer1k(event.target.value)} required step="0.01" type="number" value={outputPriceCnyPer1k} />
                 </label>
               </div>
               <label>
                 模型倍率
                 <input max="100" min="0.0001" onChange={(event) => setModelMultiplier(event.target.value)} required step="0.0001" type="number" value={modelMultiplier} />
-              </label>
-              <label>
-                可见分组
-                <select className="multi-select" multiple onChange={(event) => setModelGroupIds(Array.from(event.currentTarget.selectedOptions, (option) => option.value))} required value={modelGroupIds}>
-                  {groups.map((group) => (
-                    <option key={group.id} value={group.id}>
-                      {group.name} ({group.code})
-                    </option>
-                  ))}
-                </select>
               </label>
               <label>
                 状态
@@ -440,10 +369,18 @@ export function MerchantModelConfigView({ username, role }: { username: string; 
                   <option value="disabled">停用</option>
                 </select>
               </label>
-              <button className="primary-button" disabled={isModelSubmitting || !groups.length} type="submit">
-                <SaveOutlined />
-                {isModelSubmitting ? '保存中' : '保存模型'}
-              </button>
+              <div className="form-actions">
+                <button className="primary-button" disabled={isModelSubmitting || !modelGroupIds.length} type="submit">
+                  <SaveOutlined />
+                  {isModelSubmitting ? '保存中' : editingModel ? '保存修改' : '保存模型'}
+                </button>
+                {editingModel ? (
+                  <button className="ghost-button" disabled={isModelSubmitting} onClick={resetModelForm} type="button">
+                    <CloseOutlined />
+                    取消修改
+                  </button>
+                ) : null}
+              </div>
             </form>
           </section>
 
@@ -458,31 +395,44 @@ export function MerchantModelConfigView({ username, role }: { username: string; 
                   <tr>
                     <th>模型</th>
                     <th>价格</th>
-                    <th>分组</th>
                     <th>映射</th>
                     <th>状态</th>
+                    <th>操作</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {models.map((model) => (
-                    <tr key={model.id}>
-                      <td>
-                        <strong>{model.model}</strong>
-                        {model.displayName ? <small className="table-note">{model.displayName}</small> : null}
-                      </td>
-                      <td>
-                        {model.inputPriceCentsPer1k}/{model.outputPriceCentsPer1k}
-                        <small className="table-note">倍率 {model.modelMultiplier}</small>
-                      </td>
-                      <td>{model.groups.map((group) => group.code).join(', ') || '-'}</td>
-                      <td>{model.upstreamMappings.length}</td>
-                      <td>
-                        <span className={`status-pill ${model.status === 'active' ? 'status-pill-success' : 'status-pill-muted'}`}>
-                          {formatStatus(model.status)}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
+                  {models.map((model) => {
+                    const visibleMappingCount = getVisibleMappingCount(model);
+                    return (
+                      <tr key={model.id}>
+                        <td>
+                          <strong>{model.model}</strong>
+                          {model.displayName ? <small className="table-note">{model.displayName}</small> : null}
+                        </td>
+                        <td>
+                          {formatMoneyPer1k(model.inputPriceCentsPer1k)} / {formatMoneyPer1k(model.outputPriceCentsPer1k)}
+                          <small className="table-note">倍率 {model.modelMultiplier}</small>
+                        </td>
+                        <td>
+                          {model.upstreamMappings.length}
+                          <small className={`table-note ${visibleMappingCount > 0 ? '' : 'tone-red'}`}>
+                            {visibleMappingCount > 0 ? `可见绑定 ${visibleMappingCount}` : '未绑定启用上游，用户端不可见'}
+                          </small>
+                        </td>
+                        <td>
+                          <span className={`status-pill ${model.status === 'active' ? 'status-pill-success' : 'status-pill-muted'}`}>
+                            {formatStatus(model.status)}
+                          </span>
+                        </td>
+                        <td>
+                          <button className="ghost-button compact-button" onClick={() => beginEditModel(model)} type="button">
+                            <EditOutlined />
+                            修改
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
                   {!models.length && !isLoading ? (
                     <tr>
                       <td colSpan={5}>暂无真实模型</td>
@@ -498,7 +448,7 @@ export function MerchantModelConfigView({ username, role }: { username: string; 
           <section className="admin-panel">
             <div className="panel-title">
               <CloudServerOutlined />
-              <h2>上游配置</h2>
+              <h2>上游 API 接入</h2>
             </div>
             <form className="auth-form compact-form" onSubmit={handleCreateUpstream}>
               <label>
@@ -580,7 +530,7 @@ export function MerchantModelConfigView({ username, role }: { username: string; 
         <section className="admin-panel" id="merchant-upstream-models">
           <div className="panel-title">
             <ExperimentOutlined />
-            <h2>上游模型映射</h2>
+            <h2>上游模型绑定</h2>
           </div>
           <form className="auth-form mapping-form" onSubmit={handleCreateUpstreamModel}>
             <label>
@@ -699,17 +649,17 @@ function MetricPanel({ label, value, detail, tone }: { label: string; value: str
   );
 }
 
-function keepValidIds(current: string[], validIds: string[], fallback?: string) {
-  const validSet = new Set(validIds);
-  const filtered = current.filter((id) => validSet.has(id));
-  if (filtered.length > 0) {
-    return filtered;
-  }
-  return fallback ? [fallback] : [];
-}
-
 function keepValidId(current: string, validIds: string[], fallback?: string) {
   return current && validIds.includes(current) ? current : fallback ?? '';
+}
+
+function getDefaultModelGroupIds(groups: AdminGroup[]) {
+  const activeGroups = groups.filter((group) => group.status === 'active').map((group) => group.id);
+  return activeGroups.length ? activeGroups : groups.map((group) => group.id);
+}
+
+function getVisibleMappingCount(model: AdminModelPrice) {
+  return model.upstreamMappings.filter((mapping) => mapping.status === 'active' && mapping.providerStatus === 'active').length;
 }
 
 function formatStatus(status: string) {
@@ -754,6 +704,29 @@ function formatNumber(value: number | null | undefined) {
   }
 
   return new Intl.NumberFormat('zh-CN').format(value);
+}
+
+function formatMoneyPer1k(cents: number | null | undefined) {
+  if (cents === null || cents === undefined) {
+    return '-';
+  }
+
+  return `¥${(cents / 100).toFixed(4)}/1K`;
+}
+
+function parseCurrencyToCents(value: string, label: string, options: { allowZero: boolean }) {
+  const numericValue = Number(value);
+  const cents = Math.round(numericValue * 100);
+
+  if (!Number.isFinite(numericValue) || !Number.isInteger(cents) || cents < 0 || (!options.allowZero && cents === 0)) {
+    throw new Error(`${label}必须是${options.allowZero ? '大于等于 0' : '大于 0'}的人民币金额`);
+  }
+
+  if (Math.abs(cents / 100 - numericValue) > 0.000001) {
+    throw new Error(`${label}最多保留两位小数`);
+  }
+
+  return cents;
 }
 
 function formatOptionalDate(value: string | null) {

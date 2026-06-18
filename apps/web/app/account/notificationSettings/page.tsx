@@ -22,7 +22,7 @@ export default function NotificationSettingsPage() {
   const router = useRouter();
   const [settings, setSettings] = useState<NotificationSettingsResponse | null>(null);
   const [balanceLowEnabled, setBalanceLowEnabled] = useState(false);
-  const [thresholdYuan, setThresholdYuan] = useState('');
+  const [thresholdUsd, setThresholdUsd] = useState('');
   const [securityAlertsEnabled, setSecurityAlertsEnabled] = useState(true);
   const [systemAnnouncementsEnabled, setSystemAnnouncementsEnabled] = useState(true);
   const [promotionsEnabled, setPromotionsEnabled] = useState(false);
@@ -65,8 +65,8 @@ export default function NotificationSettingsPage() {
     setMessage('');
 
     try {
-      const thresholdCents = thresholdYuan.trim() ? Math.round(Number(thresholdYuan) * 100) : null;
-      if (thresholdYuan.trim() && (!Number.isFinite(Number(thresholdYuan)) || Number(thresholdYuan) < 0)) {
+      const thresholdCents = thresholdUsd.trim() ? Math.round(Number(thresholdUsd) * 100) : null;
+      if (thresholdUsd.trim() && (!Number.isFinite(Number(thresholdUsd)) || Number(thresholdUsd) < 0)) {
         throw new Error('余额阈值必须是非负金额');
       }
 
@@ -115,7 +115,7 @@ export default function NotificationSettingsPage() {
   function applySettings(nextSettings: NotificationSettingsResponse) {
     setSettings(nextSettings);
     setBalanceLowEnabled(nextSettings.preference.balanceLowEnabled);
-    setThresholdYuan(
+    setThresholdUsd(
       nextSettings.preference.balanceLowThresholdCents === null
         ? ''
         : (nextSettings.preference.balanceLowThresholdCents / 100).toFixed(2)
@@ -147,7 +147,7 @@ export default function NotificationSettingsPage() {
         <div className="metric-panel">
           <span>余额预警</span>
           <strong>{balanceLowEnabled ? '已启用' : '未启用'}</strong>
-          <small>阈值 {thresholdYuan ? `${thresholdYuan} 元` : '-'}</small>
+          <small>阈值 {thresholdUsd ? `$${Number(thresholdUsd).toFixed(2)}` : '-'}</small>
         </div>
         <div className="metric-panel">
           <span>Webhook</span>
@@ -175,15 +175,15 @@ export default function NotificationSettingsPage() {
               余额预警
             </label>
             <label>
-              余额阈值（元）
+              余额阈值（美元）
               <input
                 inputMode="decimal"
                 min="0"
-                onChange={(event) => setThresholdYuan(event.target.value)}
+                onChange={(event) => setThresholdUsd(event.target.value)}
                 placeholder="10.00"
                 step="0.01"
                 type="number"
-                value={thresholdYuan}
+                value={thresholdUsd}
               />
             </label>
             <label className="toggle-label">
@@ -367,7 +367,7 @@ function formatDeliveryStatus(status: string | null) {
 }
 
 function formatCents(value: number) {
-  return `${(value / 100).toFixed(2)} 元`;
+  return `$${(value / 100).toFixed(2)}`;
 }
 
 function formatDateTime(value: string | null) {

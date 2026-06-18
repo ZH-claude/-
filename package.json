@@ -29,6 +29,7 @@
     "qa:t22:merchant-role-isolation": "npm --prefix apps/api run qa:t22:merchant-role-isolation",
     "qa:t22:merchant-routing": "npm --prefix apps/api run qa:t22:merchant-routing",
     "qa:t22:merchant-shell": "npm --prefix apps/api run qa:t22:merchant-shell",
+    "qa:t24:compatibility": "npm --prefix apps/api run qa:t24:compatibility",
     "seed:merchant-test-accounts": "npm --prefix apps/api run seed:merchant-test-accounts",
     "preflight:t21:prod": "node ops/deploy/preflight.mjs --env-file .env",
     "deploy:t21:prod": "sh ops/deploy/deploy.sh",

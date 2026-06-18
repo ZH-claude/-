@@ -102,10 +102,13 @@ async function main() {
     assertMerchantDashboardHtml(adminMerchantEntryText);
     checks.push('admin_merchant_entry_renders_dashboard');
 
+    const adminUserSiteEntry = await requestUserSiteEntry(adminLogin.cookies);
+    assertRedirect(adminUserSiteEntry, '/merchant', 'admin user-site entry redirect');
+    checks.push('admin_is_kept_inside_merchant_site_when_opening_user_entry');
+
     const adminPage = await requestAdminPage(adminLogin.cookies);
-    assert(adminPage.status >= 200 && adminPage.status < 300, `admin page status should be 2xx, got ${adminPage.status}`);
-    assertIsShellHtml(adminPage.text);
-    checks.push('admin_page_renders_and_matches_navigation_markers');
+    assertRedirect(adminPage, '/merchant', 'legacy admin page for merchant');
+    checks.push('legacy_admin_page_redirects_to_merchant_entry');
 
     const adminUsersApi = await requestAdminUsers(adminLogin.cookies);
     assert(adminUsersApi.status === 200, `admin /admin/users should be 200, got ${adminUsersApi.status}`);
@@ -255,6 +258,14 @@ async function requestMerchantEntry(cookie: string) {
   return response;
 }
 
+async function requestUserSiteEntry(cookie: string) {
+  const response = await fetch(`${WEB_BASE_URL}/`, {
+    headers: { Cookie: cookie },
+    redirect: 'manual'
+  });
+  return response;
+}
+
 async function requestAdminPage(cookie: string): Promise<WebResult> {
   const response = await fetch(`${WEB_BASE_URL}/admin`, {
     headers: { Cookie: cookie },
@@ -270,7 +281,7 @@ async function requestAdminPage(cookie: string): Promise<WebResult> {
   };
 }
 
-function assertRedirect(response: Response, expectedPath: string, label: string) {
+function assertRedirect(response: { status: number; headers: Headers }, expectedPath: string, label: string) {
   assert(response.status >= 300 && response.status < 400, `${label} should be a redirect, got ${response.status}`);
   const location = response.headers.get('location') ?? '';
   assert(
@@ -284,17 +295,22 @@ function assertIsShellHtml(text: string) {
     'merchant-shell-page',
     'merchant-primary-nav',
     'merchant-sidebar',
-    'Relay Console',
+    '商家控制台',
+    '上游 API',
+    '模型发布',
     '充值码',
     '审计',
     '服务状态'
   ];
   const foundCount = markers.filter((marker) => text.includes(marker)).length;
   assert(foundCount >= 5, `admin page did not render expected merchant shell markers, found only ${foundCount} markers`);
+  const forbiddenUserMarkers = ['个人中心', '余额充值', '费用说明', '通知设置', '令牌入口'];
+  const leakedMarkers = forbiddenUserMarkers.filter((marker) => text.includes(marker));
+  assert(leakedMarkers.length === 0, `merchant shell leaked user-site markers: ${leakedMarkers.join(', ')}`);
 }
 
 function assertMerchantDashboardHtml(text: string) {
-  const markers = ['merchant-shell-page', '商家工作台', '运营概览', '账户余额', '最近告警'];
+  const markers = ['merchant-shell-page', '商家工作台', '运营概览', '客户剩余额度', '最近告警'];
   const foundCount = markers.filter((marker) => text.includes(marker)).length;
   assert(foundCount >= 4, `merchant dashboard page did not render expected markers, found only ${foundCount}`);
 }

@@ -10,6 +10,7 @@ import {
   ReloadOutlined,
   TeamOutlined
 } from '@ant-design/icons';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import { MerchantShell } from '../components/merchant-shell';
@@ -90,10 +91,47 @@ export function MerchantDashboardView({ username, role }: { username: string; ro
         {error ? <p className="form-error">{error}</p> : null}
 
         <section className="admin-metrics">
-          <MetricPanel label="账户余额" value={formatMoney(summary?.wallets.totalBalanceCents)} detail="所有未删除用户钱包余额" tone="green" />
-          <MetricPanel label="今日消费" value={formatMoney(summary?.today.spendCents)} detail={`${summary?.today.callCount ?? 0} 次调用`} tone="red" />
+          <MetricPanel label="客户剩余额度" value={formatMoney(summary?.wallets.totalBalanceCents)} detail="全部客户未用完的额度" tone="green" />
+          <MetricPanel label="今日客户扣费" value={formatMoney(summary?.today.spendCents)} detail={`${summary?.today.callCount ?? 0} 次客户调用`} tone="red" />
           <MetricPanel label="活跃用户" value={formatNumber(summary?.users.active)} detail={`总用户 ${summary?.users.total ?? 0}`} />
           <MetricPanel label="上游状态" value={healthLabel} detail={`${summary?.upstreams.active ?? 0} 个启用上游`} />
+        </section>
+
+        <section className="admin-panel merchant-action-panel">
+          <div className="panel-title">
+            <ApiOutlined />
+            <h2>商家操作入口</h2>
+          </div>
+          <div className="merchant-action-list">
+            <Link className="merchant-action-link" href="/merchant/model-config#merchant-upstreams">
+              <CloudServerOutlined />
+              <span>
+                <strong>接入上游 API</strong>
+                <small>填写上游地址和密钥，保存后可做真实健康检查。</small>
+              </span>
+            </Link>
+            <Link className="merchant-action-link" href="/merchant/model-config#merchant-model-prices">
+              <ApiOutlined />
+              <span>
+                <strong>发布客户模型</strong>
+                <small>设置展示给用户的模型名称和价格。</small>
+              </span>
+            </Link>
+            <Link className="merchant-action-link" href="/merchant/model-config#merchant-upstream-models">
+              <DatabaseOutlined />
+              <span>
+                <strong>绑定上游模型</strong>
+                <small>把客户看到的模型绑定到真实上游模型。</small>
+              </span>
+            </Link>
+            <Link className="merchant-action-link" href="/merchant/users">
+              <TeamOutlined />
+              <span>
+                <strong>管理用户</strong>
+                <small>查看客户、余额和状态。</small>
+              </span>
+            </Link>
+          </div>
         </section>
 
         <section className="admin-grid">
@@ -108,7 +146,7 @@ export function MerchantDashboardView({ username, role }: { username: string; ro
                 ['后台账号', formatNumber(summary?.users.admins)],
                 ['今日新增', formatNumber(summary?.users.newToday)],
                 ['禁用/风控', `${summary?.users.disabled ?? 0} / ${summary?.users.riskLocked ?? 0}`],
-                ['累计消费', formatMoney(summary?.wallets.totalSpendCents)]
+                ['累计客户扣费', formatMoney(summary?.wallets.totalSpendCents)]
               ]}
             />
           </section>
@@ -234,7 +272,7 @@ function formatMoney(cents: number | null | undefined) {
     return '-';
   }
 
-  return `${(cents / 100).toFixed(2)} 元`;
+  return `¥${(cents / 100).toFixed(2)}`;
 }
 
 function formatNumber(value: number | null | undefined) {

@@ -13,7 +13,7 @@
 | ORM | Prisma |
 | 主键 | `uuid` |
 | 时间字段 | `created_at`、`updated_at`，使用 UTC |
-| 金额字段 | 整数分 `amount_cents`，不使用浮点 |
+| 金额字段 | 整数最小单位 `amount_cents`，不使用浮点；用户端按美元显示，商家端按人民币显示 |
 | 软删除 | 用户、令牌、上游配置使用 `deleted_at` |
 | 审计 | 管理员调整余额、禁用用户、修改上游配置必须写 `admin_audit_logs`；登录、改密和令牌生命周期必须写 `security_audit_logs` |
 
@@ -340,7 +340,7 @@
 | `id` | uuid | PK | 返利记录 ID |
 | `inviter_user_id` | uuid | FK `users.id`, not null | 邀请人 |
 | `invitee_user_id` | uuid | FK `users.id`, not null | 被邀请人 |
-| `amount_cents` | int | not null, `>= 0` | 返利金额，单位分 |
+| `amount_cents` | int | not null, `>= 0` | 返利金额，单位为整数最小单位 |
 | `status` | enum | not null | `PENDING`、`SETTLED`、`CANCELED` |
 | `source` | text | nullable | 返利来源说明或外部关联标识 |
 | `settled_at` | timestamp | nullable | 结算时间 |
@@ -351,7 +351,7 @@
 
 - 账户中心只聚合当前登录用户作为邀请人的记录，不允许跨用户读取。
 - `PENDING` 计入待使用收益，`SETTLED` 计入总收益，`CANCELED` 不计入用户可见收益。
-- 返利金额使用整数分，禁止前端写死或用模拟收益替代数据库聚合。
+- 返利金额使用整数最小单位，禁止前端写死或用模拟收益替代数据库聚合。
 
 ## 3. 交易边界
 

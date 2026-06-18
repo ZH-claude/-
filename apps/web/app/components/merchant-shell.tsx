@@ -2,13 +2,11 @@
 
 import {
   ApiOutlined,
-  AppstoreOutlined,
   BellOutlined,
   CloudServerOutlined,
   FileTextOutlined,
   GiftOutlined,
   HomeOutlined,
-  KeyOutlined,
   LogoutOutlined,
   PictureOutlined,
   ReloadOutlined,
@@ -27,14 +25,14 @@ type NavigationItem = {
 };
 
 const merchantNavigationItems: NavigationItem[] = [
-  { href: '/merchant', label: '首页', icon: <HomeOutlined />, topbar: true },
-  { href: '/merchant/users', label: '用户', icon: <TeamOutlined />, topbar: true },
+  { href: '/merchant', label: '商家首页', icon: <HomeOutlined />, topbar: true },
+  { href: '/merchant/users', label: '用户管理', icon: <TeamOutlined />, topbar: true },
   { href: '/merchant/recharge-codes', label: '充值码', icon: <GiftOutlined />, topbar: true },
-  { href: '/admin#merchant-groups', label: '分组状态', icon: <AppstoreOutlined /> },
-  { href: '/token', label: '令牌入口', icon: <KeyOutlined /> },
+  { href: '/merchant/model-config#merchant-upstreams', label: '上游 API', icon: <CloudServerOutlined />, topbar: true },
+  { href: '/merchant/model-config#merchant-model-prices', label: '模型发布', icon: <ApiOutlined />, topbar: true },
+  { href: '/merchant/model-config#merchant-upstream-models', label: '模型映射', icon: <ApiOutlined /> },
   { href: '/merchant/request-logs', label: '请求日志', icon: <FileTextOutlined /> },
   { href: '/merchant/drawing-logs', label: '绘图日志', icon: <PictureOutlined /> },
-  { href: '/merchant/model-config', label: '上游/模型', icon: <ApiOutlined />, topbar: true },
   { href: '/merchant/announcements', label: '公告', icon: <BellOutlined />, topbar: true },
   { href: '/merchant/audit', label: '审计', icon: <FileTextOutlined />, topbar: true },
   { href: '/merchant/service-status', label: '服务状态', icon: <CloudServerOutlined />, topbar: true }
@@ -59,18 +57,18 @@ export function MerchantShell({
 }) {
   const router = useRouter();
   const [loadedProfile, setLoadedProfile] = useState<{ username: string; role: string } | null>(null);
-  const [activeHash, setActiveHash] = useState('merchant-dashboard');
+  const [activeHash, setActiveHash] = useState(() => getDefaultActiveHash(activePath));
 
   useEffect(() => {
     function syncHash() {
-      setActiveHash(window.location.hash.replace(/^#/, '') || 'merchant-dashboard');
+      setActiveHash(window.location.hash.replace(/^#/, '') || getDefaultActiveHash(activePath));
     }
 
     syncHash();
     window.addEventListener('hashchange', syncHash);
 
     return () => window.removeEventListener('hashchange', syncHash);
-  }, []);
+  }, [activePath]);
 
   useEffect(() => {
     if (username !== undefined && role !== undefined) {
@@ -124,7 +122,7 @@ export function MerchantShell({
       <header className="merchant-shell-topbar">
         <Link className="merchant-shell-brand" href="/merchant" onClick={() => setActiveHash('merchant-dashboard')}>
           <span className="shell-logo-mark">中</span>
-          <span>中转站控制台</span>
+          <span>商家控制台</span>
         </Link>
         <nav className="merchant-primary-nav" aria-label="商家端主导航">
           {topbarItems.map((item) => (
@@ -198,12 +196,24 @@ function getHrefPath(href: string) {
   return href.split('#')[0] || '/';
 }
 
+function getDefaultActiveHash(activePath: string) {
+  if (activePath === '/merchant/model-config') {
+    return 'merchant-upstreams';
+  }
+
+  return 'merchant-dashboard';
+}
+
 function isActive(activePath: string, activeHash: string, href: string) {
   const itemPath = getHrefPath(href);
   const itemHash = getHrefHash(href);
 
   if (itemPath === '/admin') {
     return activePath === '/admin' && (itemHash ? activeHash === itemHash : activeHash === 'merchant-dashboard');
+  }
+
+  if (itemHash) {
+    return activePath === itemPath && activeHash === itemHash;
   }
 
   if (itemPath === '/merchant') {

@@ -334,5 +334,5 @@ function csvCell(value: string) {
 }
 
 function formatCents(value: number) {
-  return `${(value / 100).toFixed(2)} 元`;
+  return `$${(value / 100).toFixed(2)}`;
 }
