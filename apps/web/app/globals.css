@@ -1949,17 +1949,27 @@ button {
 }
 
 .profile-metrics {
+  background: linear-gradient(180deg, #eefcfa 0%, #f8fafc 100%);
+  border: 1px solid #d8f3ee;
+  border-radius: 8px;
   display: grid;
   gap: 12px;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  padding-bottom: 22px;
-  padding-top: 22px;
+  padding: 14px;
 }
 
 .profile-metric-block {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #e5eaf0;
+  border-radius: 8px;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.05);
   display: grid;
-  gap: 6px;
+  gap: 10px;
+  grid-template-columns: auto minmax(0, 1fr);
+  min-height: 82px;
   min-width: 0;
+  padding: 14px 16px;
 }
 
 .profile-metric-block span,
@@ -1975,9 +1985,9 @@ button {
   align-items: center;
   color: #111827;
   display: inline-flex;
-  font-size: 20px;
+  font-size: 18px;
   font-weight: 700;
-  gap: 6px;
+  gap: 5px;
   line-height: 1.2;
   overflow-wrap: anywhere;
 }
@@ -1990,18 +2000,55 @@ button {
 
 .profile-metric-unit {
   color: #64748b;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
   line-height: 1;
   margin-left: 2px;
 }
 
-.profile-metric-block strong.tone-green {
-  color: #389e0d;
+.profile-metric-icon {
+  align-items: center;
+  border-radius: 10px;
+  display: inline-flex;
+  font-size: 18px;
+  height: 38px;
+  justify-content: center;
+  width: 38px;
 }
 
-.profile-metric-block strong.tone-red {
-  color: #cf1322;
+.profile-metric-block small {
+  display: block;
+  font-size: 12px;
+  line-height: 1.45;
+  margin-top: 2px;
+}
+
+.profile-metric-block.accent-green .profile-metric-icon {
+  background: #dcfce7;
+  color: #16a34a;
+}
+
+.profile-metric-block.accent-green strong {
+  color: #16a34a;
+}
+
+.profile-metric-block.accent-red .profile-metric-icon {
+  background: #ffe4e6;
+  color: #e11d48;
+}
+
+.profile-metric-block.accent-red strong {
+  color: #e11d48;
+}
+
+.profile-metric-block.accent-blue .profile-metric-icon {
+  background: #dbeafe;
+  color: #2563eb;
+}
+
+.profile-metric-block.accent-violet .profile-metric-icon {
+  background: #efe6ff;
+  color: #8b5cf6;
 }
 
 .profile-usage-band {

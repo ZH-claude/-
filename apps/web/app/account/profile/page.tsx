@@ -217,11 +217,39 @@ export default function AccountProfilePage() {
             </div>
           </section>
 
-          <section className="profile-card profile-metrics">
-            <MetricBlock label="Token 余额" value={formatNumber(user?.wallet.balanceCents ?? 0)} unit="token" tone="green" detail="长期有效" />
-            <MetricBlock label="累计消耗" value={formatNumber(user?.wallet.totalSpendCents ?? 0)} unit="token" tone="red" />
-            <MetricBlock label="调用次数" value={`${user?.metrics.totalCallCount ?? 0} 次`} icon={<CheckCircleOutlined />} />
-            <MetricBlock label="邀请用户" value={`${user?.referral.invitedUserCount ?? 0} 人`} icon={<TeamOutlined />} />
+          <section className="profile-metrics">
+            <MetricBlock
+              accent="green"
+              detail="长期有效"
+              icon={<GiftOutlined />}
+              label="Token 余额"
+              unit="token"
+              value={formatNumber(user?.wallet.balanceCents ?? 0)}
+            />
+            <MetricBlock
+              accent="red"
+              detail="累计扣除"
+              icon={<BarChartOutlined />}
+              label="累计 Token"
+              unit="token"
+              value={formatNumber(user?.wallet.totalSpendCents ?? 0)}
+            />
+            <MetricBlock
+              accent="blue"
+              detail="累计成功调用"
+              icon={<CheckCircleOutlined />}
+              label="调用次数"
+              unit="次"
+              value={formatNumber(user?.metrics.totalCallCount ?? 0)}
+            />
+            <MetricBlock
+              accent="violet"
+              detail="邀请成功用户"
+              icon={<TeamOutlined />}
+              label="邀请用户"
+              unit="人"
+              value={formatNumber(user?.referral.invitedUserCount ?? 0)}
+            />
           </section>
 
           <section className="profile-usage-band">
@@ -494,29 +522,33 @@ function UsageTile({
 }
 
 function MetricBlock({
+  accent,
   label,
   value,
   unit,
   detail,
-  tone,
   icon
 }: {
+  accent: 'green' | 'red' | 'blue' | 'violet';
   label: string;
   value: string;
   unit?: string;
   detail?: string;
-  tone?: 'green' | 'red';
   icon?: ReactNode;
 }) {
   return (
-    <div className="profile-metric-block">
-      <span>{label}</span>
-      <strong className={tone ? `tone-${tone}` : ''}>
+    <div className={`profile-metric-block accent-${accent}`}>
+      <div className="profile-metric-icon" aria-hidden="true">
         {icon}
-        <span className="profile-metric-value">{value}</span>
-        {unit ? <span className="profile-metric-unit">{unit}</span> : null}
-      </strong>
-      {detail ? <small>{detail}</small> : null}
+      </div>
+      <div>
+        <span>{label}</span>
+        <strong>
+          <span className="profile-metric-value">{value}</span>
+          {unit ? <span className="profile-metric-unit">{unit}</span> : null}
+        </strong>
+        {detail ? <small>{detail}</small> : null}
+      </div>
     </div>
   );
 }
