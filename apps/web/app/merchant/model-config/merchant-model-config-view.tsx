@@ -117,6 +117,18 @@ export function MerchantModelConfigView({ username, role }: { username: string; 
     [selectedUpstreamId, upstreamModels]
   );
   const detailUpstream = selectedMappingUpstream ?? selectedUpstream;
+  const existingMappingForSelectedSlot = useMemo(() => {
+    if (editingUpstreamModelId || !upstreamPublicModel) {
+      return null;
+    }
+
+    const priority = Number(upstreamPriority);
+    if (!Number.isInteger(priority)) {
+      return null;
+    }
+
+    return upstreamModels.find((entry) => entry.publicModel === upstreamPublicModel && entry.priority === priority) ?? null;
+  }, [editingUpstreamModelId, upstreamModels, upstreamPriority, upstreamPublicModel]);
 
   async function loadData(page = upstreamModelPagination.page) {
     setIsLoading(true);
@@ -297,11 +309,12 @@ export function MerchantModelConfigView({ username, role }: { username: string; 
         status: upstreamModelStatus,
         supportsStream
       };
-      const created = editingUpstreamModelId
-        ? await updateUpstreamModel(editingUpstreamModelId, payload)
+      const targetMappingId = editingUpstreamModelId ?? existingMappingForSelectedSlot?.id ?? null;
+      const created = targetMappingId
+        ? await updateUpstreamModel(targetMappingId, payload)
         : await createUpstreamModel(payload);
       resetUpstreamModelForm();
-      setMessage(`映射已保存：${created.publicModel} -> ${created.upstreamModel}`);
+      setMessage(`${targetMappingId ? '线路已更新' : '映射已保存'}：${created.publicModel} -> ${created.upstreamModel}`);
       await loadData(1);
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : '映射保存失败');
@@ -855,7 +868,7 @@ export function MerchantModelConfigView({ username, role }: { username: string; 
             <div className="form-actions full-width-field">
               <button className="primary-button" disabled={isMappingSubmitting || !upstreams.length || !models.length} type="submit">
                 <SaveOutlined />
-                {isMappingSubmitting ? '保存中' : editingUpstreamModelId ? '保存修改' : '保存映射'}
+                {isMappingSubmitting ? '保存中' : editingUpstreamModelId || existingMappingForSelectedSlot ? '保存修改' : '保存映射'}
               </button>
               {editingUpstreamModelId ? (
                 <button className="ghost-button" disabled={isMappingSubmitting} onClick={resetUpstreamModelForm} type="button">
@@ -864,6 +877,11 @@ export function MerchantModelConfigView({ username, role }: { username: string; 
                 </button>
               ) : null}
             </div>
+            {existingMappingForSelectedSlot ? (
+              <p className="table-note full-width-field">
+                已存在 {existingMappingForSelectedSlot.publicModel} 的线路 {existingMappingForSelectedSlot.priority}，保存后会更新这条线路，不会新增重复记录。
+              </p>
+            ) : null}
           </form>
 
           <div className="admin-table-wrap">
