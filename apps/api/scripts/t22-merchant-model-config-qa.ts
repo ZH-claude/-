@@ -827,7 +827,7 @@ function assertMerchantModelConfigHtml(text: string) {
 
   const markerGroups: string[][] = [
     ['merchant-shell-page'],
-    ['模型发布与上游线路'],
+    ['模型发布与线路绑定'],
     ['第一步发布客户模型', '第一步：发布客户模型'],
     ['第二步绑定上游线路', '第二步：给客户模型绑定上游线路'],
     ['已发布客户模型']

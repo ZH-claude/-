@@ -296,7 +296,7 @@ function assertIsShellHtml(text: string) {
     'merchant-primary-nav',
     'merchant-sidebar',
     '商家控制台',
-    '上游 API',
+    'DeepSeek 上游',
     '模型发布',
     '充值码',
     '审计',

@@ -342,10 +342,14 @@ export function MerchantModelConfigView({ username, role }: { username: string; 
         </section>
 
         <section className="admin-panel" id="merchant-model-publish">
+          <span className="anchor-compat" id="merchant-model-prices" aria-hidden="true" />
           <div className="panel-title">
             <ApiOutlined />
             <h2>第一步：发布客户模型</h2>
           </div>
+          <p className="form-note">
+            这里先准备用户看到的模型，例如 gpt5.5。DeepSeek 上游和中转站上游只在上游页面维护，不在上游页面发布客户模型。
+          </p>
           {editingModel ? (
             <p className="form-note">
               正在修改 {editingModel.model}
@@ -505,10 +509,14 @@ export function MerchantModelConfigView({ username, role }: { username: string; 
         </section>
 
         <section className="admin-panel" id="merchant-model-routes">
+          <span className="anchor-compat" id="merchant-upstream-models" aria-hidden="true" />
           <div className="panel-title">
             <LinkOutlined />
             <h2>第二步：给客户模型绑定上游线路</h2>
           </div>
+          <p className="form-note">
+            这里给已发布模型选择上游线路。一个客户模型可以绑定 DeepSeek，也可以绑定其它中转站，上游失败时按线路顺序切换。
+          </p>
           <form className="auth-form mapping-form" onSubmit={handleSaveMapping}>
             <label>
               客户模型

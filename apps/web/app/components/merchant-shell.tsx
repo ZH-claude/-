@@ -31,8 +31,8 @@ const merchantNavigationItems: NavigationItem[] = [
   { href: '/merchant/recharge-codes', label: '充值码', icon: <GiftOutlined />, topbar: true },
   { href: '/merchant/upstreams/deepseek', label: 'DeepSeek 上游', icon: <ExperimentOutlined />, topbar: true },
   { href: '/merchant/upstreams/relay', label: '中转站上游', icon: <CloudServerOutlined />, topbar: true },
-  { href: '/merchant/model-config#merchant-model-prices', label: '模型发布', icon: <ApiOutlined />, topbar: true },
-  { href: '/merchant/model-config#merchant-upstream-models', label: '模型映射', icon: <ApiOutlined /> },
+  { href: '/merchant/model-config#merchant-model-publish', label: '模型发布', icon: <ApiOutlined />, topbar: true },
+  { href: '/merchant/model-config#merchant-model-routes', label: '模型映射', icon: <ApiOutlined /> },
   { href: '/merchant/request-logs', label: '请求日志', icon: <FileTextOutlined /> },
   { href: '/merchant/drawing-logs', label: '绘图日志', icon: <PictureOutlined /> },
   { href: '/merchant/announcements', label: '公告', icon: <BellOutlined />, topbar: true },
@@ -200,7 +200,7 @@ function getHrefPath(href: string) {
 
 function getDefaultActiveHash(activePath: string) {
   if (activePath === '/merchant/model-config') {
-    return 'merchant-upstreams';
+    return 'merchant-model-publish';
   }
 
   return 'merchant-dashboard';

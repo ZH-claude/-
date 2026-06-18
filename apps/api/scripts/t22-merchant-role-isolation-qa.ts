@@ -83,7 +83,7 @@ const merchantPages: WebPageCheck[] = [
   { path: '/merchant', markers: ['merchant-shell-page', '商家工作台'] },
   { path: '/merchant/users', markers: ['merchant-shell-page', '用户管理'] },
   { path: '/merchant/recharge-codes', markers: ['merchant-shell-page', '充值码'] },
-  { path: '/merchant/model-config', markers: ['merchant-shell-page', '上游接入与模型发布'] },
+  { path: '/merchant/model-config', markers: ['merchant-shell-page', '模型发布与线路绑定'] },
   { path: '/merchant/announcements', markers: ['merchant-shell-page', '公告'] },
   { path: '/merchant/audit', markers: ['merchant-shell-page', '审计'] },
   { path: '/merchant/service-status', markers: ['merchant-shell-page', '服务状态'] },
@@ -92,7 +92,7 @@ const merchantPages: WebPageCheck[] = [
 ];
 
 const userPages: WebPageCheck[] = [
-  { path: '/account/profile', markers: ['console-shell-page', '客户剩余额度'] },
+  { path: '/account/profile', markers: ['console-shell-page', 'token 余额'] },
   { path: '/account/topup/recharge', markers: ['console-shell-page', '余额充值'] },
   { path: '/token', markers: ['console-shell-page', '令牌'] },
   { path: '/log', markers: ['console-shell-page', '日志'] },

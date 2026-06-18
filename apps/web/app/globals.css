@@ -1015,6 +1015,8 @@ button {
 #merchant-users,
 #merchant-recharge-codes,
 #merchant-models,
+#merchant-model-publish,
+#merchant-model-routes,
 #merchant-model-prices,
 #merchant-upstream-models,
 #merchant-upstreams,
@@ -1022,6 +1024,12 @@ button {
 #merchant-audit,
 #merchant-service-status {
   scroll-margin-top: 84px;
+}
+
+.anchor-compat {
+  display: block;
+  height: 0;
+  overflow: hidden;
 }
 
 .topbar {
