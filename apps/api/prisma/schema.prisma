@@ -494,6 +494,9 @@ model UpstreamModel {
   publicModel    String           @map("public_model")
   modelPrice     ModelPrice       @relation("ModelUpstreamMappings", fields: [publicModel], references: [model], onDelete: Cascade)
   upstreamModel  String           @map("upstream_model")
+  priority       Int              @default(1)
+  timeoutMs      Int              @default(5000) @map("timeout_ms")
+  upstreamPrompt String?          @map("upstream_prompt")
   status         ModelStatus      @default(ACTIVE)
   supportsStream Boolean          @default(true) @map("supports_stream")
   createdAt      DateTime         @default(now()) @map("created_at")
@@ -502,6 +505,7 @@ model UpstreamModel {
   @@unique([providerId, publicModel, upstreamModel], map: "upstream_models_provider_public_upstream_key")
   @@index([providerId], map: "upstream_models_provider_id_idx")
   @@index([publicModel, status], map: "upstream_models_public_status_idx")
+  @@index([publicModel, status, priority], map: "upstream_models_public_status_priority_idx")
   @@map("upstream_models")
 }
 

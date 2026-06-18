@@ -149,6 +149,9 @@ export type AdminModelPrice = {
     providerName: string;
     providerStatus: string;
     upstreamModel: string;
+    priority: number;
+    timeoutMs: number;
+    upstreamPrompt: string | null;
     status: string;
     supportsStream: boolean;
   }>;
@@ -164,6 +167,9 @@ export type UpstreamModelMapping = {
   publicModel: string;
   displayName: string | null;
   upstreamModel: string;
+  priority: number;
+  timeoutMs: number;
+  upstreamPrompt: string | null;
   status: string;
   supportsStream: boolean;
   createdAt: string;
@@ -480,6 +486,9 @@ export async function createUpstreamModel(payload: {
   providerId: string;
   publicModel: string;
   upstreamModel: string;
+  priority: number;
+  timeoutMs: number;
+  upstreamPrompt?: string;
   status: 'active' | 'disabled';
   supportsStream: boolean;
 }) {

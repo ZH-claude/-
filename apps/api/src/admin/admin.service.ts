@@ -82,6 +82,9 @@ type UpstreamModelInput = {
   providerId?: unknown;
   publicModel?: unknown;
   upstreamModel?: unknown;
+  priority?: unknown;
+  timeoutMs?: unknown;
+  upstreamPrompt?: unknown;
   status?: unknown;
   supportsStream?: unknown;
 };
@@ -854,7 +857,7 @@ export class AdminService implements OnModuleInit {
           },
           upstreamModels: {
             include: { provider: true },
-            orderBy: { createdAt: 'desc' }
+            orderBy: [{ priority: 'asc' }, { createdAt: 'desc' }]
           }
         },
         orderBy: { model: 'asc' }
@@ -865,7 +868,7 @@ export class AdminService implements OnModuleInit {
           modelPrice: true
         },
         skip: upstreamModelsSkip,
-        orderBy: { createdAt: 'desc' },
+        orderBy: [{ publicModel: 'asc' }, { priority: 'asc' }, { createdAt: 'desc' }],
         take: upstreamModelsLimit
       }),
       this.prisma.upstreamModel.count()
@@ -1238,6 +1241,9 @@ export class AdminService implements OnModuleInit {
     const providerId = this.requiredUuid(body.providerId, 'providerId');
     const publicModel = this.normalizeModelName(body.publicModel, 'publicModel');
     const upstreamModel = this.normalizeModelName(body.upstreamModel, 'upstreamModel');
+    const priority = this.nonNegativeInt(body.priority, 'priority', 1, 3);
+    const timeoutMs = this.nonNegativeInt(body.timeoutMs, 'timeoutMs', 1000, 30000);
+    const upstreamPrompt = this.optionalText(body.upstreamPrompt, 'upstreamPrompt', 1, 4000) ?? null;
     const status = this.normalizeModelStatus(body.status);
     const supportsStream = this.optionalBoolean(body.supportsStream, true);
 
@@ -1260,11 +1266,35 @@ export class AdminService implements OnModuleInit {
 
     try {
       const upstreamModelRecord = await this.prisma.$transaction(async (tx) => {
+        if (status === ModelStatus.ACTIVE) {
+          const activeMappings = await tx.upstreamModel.findMany({
+            where: {
+              publicModel,
+              status: ModelStatus.ACTIVE
+            },
+            select: {
+              id: true,
+              priority: true
+            }
+          });
+
+          if (activeMappings.length >= 3) {
+            throw new BadRequestException('A public model can have at most 3 active upstream mappings');
+          }
+
+          if (activeMappings.some((mapping) => mapping.priority === priority)) {
+            throw new ConflictException('Active upstream priority already exists for this public model');
+          }
+        }
+
         const createdModel = await tx.upstreamModel.create({
           data: {
             providerId,
             publicModel,
             upstreamModel,
+            priority,
+            timeoutMs,
+            upstreamPrompt,
             status,
             supportsStream
           }
@@ -1282,6 +1312,9 @@ export class AdminService implements OnModuleInit {
               providerId,
               publicModel,
               upstreamModel,
+              priority,
+              timeoutMs,
+              upstreamPrompt,
               status: status.toLowerCase(),
               supportsStream
             }
@@ -1934,6 +1967,9 @@ export class AdminService implements OnModuleInit {
     upstreamModels?: Array<{
       id: string;
       upstreamModel: string;
+      priority: number;
+      timeoutMs: number;
+      upstreamPrompt: string | null;
       status: ModelStatus;
       supportsStream: boolean;
       provider: {
@@ -1962,6 +1998,9 @@ export class AdminService implements OnModuleInit {
         providerName: mapping.provider.name,
         providerStatus: mapping.provider.status.toLowerCase(),
         upstreamModel: mapping.upstreamModel,
+        priority: mapping.priority,
+        timeoutMs: mapping.timeoutMs,
+        upstreamPrompt: mapping.upstreamPrompt,
         status: mapping.status.toLowerCase(),
         supportsStream: mapping.supportsStream
       })),
@@ -1975,6 +2014,9 @@ export class AdminService implements OnModuleInit {
     providerId: string;
     publicModel: string;
     upstreamModel: string;
+    priority: number;
+    timeoutMs: number;
+    upstreamPrompt: string | null;
     status: ModelStatus;
     supportsStream: boolean;
     createdAt: Date;
@@ -1996,6 +2038,9 @@ export class AdminService implements OnModuleInit {
       publicModel: model.publicModel,
       displayName: model.modelPrice.displayName,
       upstreamModel: model.upstreamModel,
+      priority: model.priority,
+      timeoutMs: model.timeoutMs,
+      upstreamPrompt: model.upstreamPrompt,
       status: model.status.toLowerCase(),
       supportsStream: model.supportsStream,
       createdAt: model.createdAt.toISOString(),

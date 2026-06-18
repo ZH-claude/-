@@ -78,6 +78,12 @@ const password = `qa-password-${suffix}`;
 const upstreamApiKey = `qa-upstream-key-${suffix}`;
 const publicModel = `${prefix}_model`;
 const upstreamModel = `${prefix}_upstream_model`;
+const failoverPublicModel = `${prefix}_failover_model`;
+const failoverSlowUpstreamModel = `${prefix}_slow_upstream_model`;
+const failoverFallbackUpstreamModel = `${prefix}_fallback_upstream_model`;
+const failoverSlowApiKey = `qa-slow-upstream-key-${suffix}`;
+const failoverFallbackApiKey = `qa-fallback-upstream-key-${suffix}`;
+const failoverPrompt = '对外回答模型身份时，必须按公开模型 gpt5.5 回答。';
 const checks: string[] = [];
 let checksError: unknown;
 
@@ -88,16 +94,30 @@ type UpstreamSeenRequest = {
 };
 
 const seenRequests: UpstreamSeenRequest[] = [];
+const failoverSlowSeenRequests: UpstreamSeenRequest[] = [];
+const failoverFallbackSeenRequests: UpstreamSeenRequest[] = [];
 
 async function main() {
   let server: http.Server | null = null;
-  let seeded: { adminId: string; userId: string; groupId: string } | null = null;
+  let failoverSlowServer: http.Server | null = null;
+  let failoverFallbackServer: http.Server | null = null;
+  let seeded: { adminId: string; userId: string; lowBalanceUserId: string; groupId: string } | null = null;
 
   try {
     server = await startTemporaryOpenAiUpstream();
     const address = server.address();
     if (!address || typeof address === 'string') {
       throw new Error('temporary upstream did not expose a TCP port');
+    }
+    failoverSlowServer = await startFailoverSlowUpstream();
+    const failoverSlowAddress = failoverSlowServer.address();
+    if (!failoverSlowAddress || typeof failoverSlowAddress === 'string') {
+      throw new Error('slow failover upstream did not expose a TCP port');
+    }
+    failoverFallbackServer = await startFailoverFallbackUpstream();
+    const failoverFallbackAddress = failoverFallbackServer.address();
+    if (!failoverFallbackAddress || typeof failoverFallbackAddress === 'string') {
+      throw new Error('fallback failover upstream did not expose a TCP port');
     }
 
     seeded = await seedUsers();
@@ -112,6 +132,11 @@ async function main() {
     assert(userLogin.status >= 200 && userLogin.status < 300, `user login failed with ${userLogin.status}`);
     const userCookie = userLogin.cookie ?? '';
     assert(userCookie.length > 0, 'user login should return a session cookie');
+
+    const lowBalanceLogin = await login(`${prefix}_low`);
+    assert(lowBalanceLogin.status >= 200 && lowBalanceLogin.status < 300, `low balance user login failed with ${lowBalanceLogin.status}`);
+    const lowBalanceCookie = lowBalanceLogin.cookie ?? '';
+    assert(lowBalanceCookie.length > 0, 'low balance user login should return a session cookie');
     checks.push('real_login_sessions_created');
 
     const modelCreate = await post('/admin/models', {
@@ -123,6 +148,16 @@ async function main() {
       groupIds: [seeded.groupId]
     }, adminCookie);
     assert(modelCreate.status >= 200 && modelCreate.status < 300, `model create failed with ${modelCreate.status}: ${modelCreate.text}`);
+
+    const failoverModelCreate = await post('/admin/models', {
+      model: failoverPublicModel,
+      displayName: failoverPublicModel,
+      inputPriceCentsPer1k: 1,
+      outputPriceCentsPer1k: 1,
+      modelMultiplier: '1.0000',
+      groupIds: [seeded.groupId]
+    }, adminCookie);
+    assert(failoverModelCreate.status >= 200 && failoverModelCreate.status < 300, `failover model create failed with ${failoverModelCreate.status}: ${failoverModelCreate.text}`);
 
     const upstreamCreate = await post<{ id: string }>('/admin/upstreams', {
       name: `${prefix}_provider`,
@@ -140,13 +175,56 @@ async function main() {
     assert(mappingCreate.status >= 200 && mappingCreate.status < 300, `mapping create failed with ${mappingCreate.status}: ${mappingCreate.text}`);
     checks.push('created_real_model_upstream_and_mapping');
 
+    const failoverSlowProvider = await post<{ id: string }>('/admin/upstreams', {
+      name: `${prefix}_failover_slow_provider`,
+      baseUrl: `http://${TEMP_UPSTREAM_PUBLIC_HOST}:${failoverSlowAddress.port}`,
+      apiKey: failoverSlowApiKey
+    }, adminCookie);
+    assert(failoverSlowProvider.status >= 200 && failoverSlowProvider.status < 300, `failover slow upstream create failed with ${failoverSlowProvider.status}: ${failoverSlowProvider.text}`);
+
+    const failoverFallbackProvider = await post<{ id: string }>('/admin/upstreams', {
+      name: `${prefix}_failover_fallback_provider`,
+      baseUrl: `http://${TEMP_UPSTREAM_PUBLIC_HOST}:${failoverFallbackAddress.port}`,
+      apiKey: failoverFallbackApiKey
+    }, adminCookie);
+    assert(failoverFallbackProvider.status >= 200 && failoverFallbackProvider.status < 300, `failover fallback upstream create failed with ${failoverFallbackProvider.status}: ${failoverFallbackProvider.text}`);
+
+    const failoverSlowMapping = await post('/admin/upstream-models', {
+      providerId: failoverSlowProvider.json.id,
+      publicModel: failoverPublicModel,
+      upstreamModel: failoverSlowUpstreamModel,
+      priority: 1,
+      timeoutMs: 1000,
+      upstreamPrompt: failoverPrompt,
+      supportsStream: true
+    }, adminCookie);
+    assert(failoverSlowMapping.status >= 200 && failoverSlowMapping.status < 300, `failover slow mapping create failed with ${failoverSlowMapping.status}: ${failoverSlowMapping.text}`);
+
+    const failoverFallbackMapping = await post('/admin/upstream-models', {
+      providerId: failoverFallbackProvider.json.id,
+      publicModel: failoverPublicModel,
+      upstreamModel: failoverFallbackUpstreamModel,
+      priority: 2,
+      timeoutMs: 5000,
+      upstreamPrompt: failoverPrompt,
+      supportsStream: true
+    }, adminCookie);
+    assert(failoverFallbackMapping.status >= 200 && failoverFallbackMapping.status < 300, `failover fallback mapping create failed with ${failoverFallbackMapping.status}: ${failoverFallbackMapping.text}`);
+    checks.push('created_three_line_ready_failover_mapping_with_prompt');
+
     const tokenCreate = await post<TokenCreateResponse>('/tokens', {
       name: `${prefix}_token`,
-      modelNames: [publicModel]
+      modelNames: [publicModel, failoverPublicModel]
     }, userCookie);
     assert(tokenCreate.status >= 200 && tokenCreate.status < 300, `token create failed with ${tokenCreate.status}: ${tokenCreate.text}`);
     assert(tokenCreate.json.apiKey.startsWith('sk-nr-'), 'created user token should use platform key prefix');
     checks.push('created_real_user_token');
+
+    const lowBalanceTokenCreate = await post<TokenCreateResponse>('/tokens', {
+      name: `${prefix}_low_balance_token`,
+      modelNames: [publicModel]
+    }, lowBalanceCookie);
+    assert(lowBalanceTokenCreate.status >= 200 && lowBalanceTokenCreate.status < 300, `low balance token create failed with ${lowBalanceTokenCreate.status}: ${lowBalanceTokenCreate.text}`);
 
     const models = await request<AnthropicModelsResponse>('GET', '/v1/models', undefined, undefined, tokenCreate.json.apiKey);
     assert(models.status === 200, `Anthropic models request failed with ${models.status}: ${models.text}`);
@@ -192,6 +270,26 @@ async function main() {
     assert(message.json.usage.input_tokens === 9 && message.json.usage.output_tokens === 4, 'usage should be mapped to input/output tokens');
     checks.push('anthropic_non_stream_message_translates_openai_response');
 
+    const failoverMessage = await request<AnthropicMessageResponse>('POST', '/v1/messages', createAnthropicFailoverBody(), undefined, tokenCreate.json.apiKey);
+    assert(failoverMessage.status === 200, `Anthropic failover message failed with ${failoverMessage.status}: ${failoverMessage.text}`);
+    assert(failoverMessage.json.model === failoverPublicModel, 'failover response model should stay public model');
+    assert(failoverSlowSeenRequests.length >= 1, 'slow upstream should receive the first failover attempt');
+    assert(failoverFallbackSeenRequests.length >= 1, 'fallback upstream should receive the second failover attempt');
+    assert(failoverFallbackSeenRequests.some((entry) => entry.authorization === `Bearer ${failoverFallbackApiKey}`), 'fallback upstream should receive its own real upstream key');
+    assert(failoverFallbackSeenRequests.some((entry) => entry.body.model === failoverFallbackUpstreamModel), 'fallback upstream should receive mapped fallback model');
+    assert(failoverFallbackSeenRequests.some((entry) => {
+      const messages = Array.isArray(entry.body.messages) ? entry.body.messages : [];
+      return messages.some((message) =>
+        message &&
+        typeof message === 'object' &&
+        !Array.isArray(message) &&
+        (message as Record<string, unknown>).role === 'system' &&
+        typeof (message as Record<string, unknown>).content === 'string' &&
+        String((message as Record<string, unknown>).content).includes(failoverPrompt)
+      );
+    }), 'fallback upstream should receive configured merchant prompt');
+    checks.push('failover_switches_after_timeout_and_injects_model_prompt');
+
     const streamUsageBefore = await countBillableStreamUsage(seeded.userId);
     const stream = await requestRawStream('/v1/messages', createAnthropicBody(true), tokenCreate.json.apiKey);
     assert(stream.status === 200, `Anthropic stream failed with ${stream.status}: ${stream.text}`);
@@ -213,6 +311,16 @@ async function main() {
     const openAiStreamUsageAfter = await countBillableStreamUsage(seeded.userId);
     assert(openAiStreamUsageAfter === openAiStreamUsageBefore + 1, 'OpenAI chat stream should write one real billable usage event');
     checks.push('openai_chat_stream_records_billable_usage');
+
+    const insufficientBalanceUsageBefore = await countInsufficientBalanceUsage(seeded.lowBalanceUserId);
+    const insufficientBalanceStream = await requestRawStream('/v1/messages', createAnthropicHighUsageStreamBody(), lowBalanceTokenCreate.json.apiKey);
+    assert(insufficientBalanceStream.status === 200, `low balance stream should still return upstream response, got ${insufficientBalanceStream.status}: ${insufficientBalanceStream.text}`);
+    const insufficientBalanceUsageAfter = await countInsufficientBalanceUsage(seeded.lowBalanceUserId);
+    assert(
+      insufficientBalanceUsageAfter === insufficientBalanceUsageBefore + 1,
+      'low balance stream should write one failed insufficient_balance usage event'
+    );
+    checks.push('anthropic_stream_records_failed_usage_when_balance_insufficient');
 
     const bearerMessage = await requestBearer<AnthropicMessageResponse>('POST', '/v1/messages', createAnthropicBody(false), tokenCreate.json.apiKey);
     assert(bearerMessage.status === 200, `Anthropic bearer message failed with ${bearerMessage.status}: ${bearerMessage.text}`);
@@ -298,6 +406,12 @@ async function main() {
     if (server) {
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
+    if (failoverSlowServer) {
+      await new Promise<void>((resolve) => failoverSlowServer.close(() => resolve()));
+    }
+    if (failoverFallbackServer) {
+      await new Promise<void>((resolve) => failoverFallbackServer.close(() => resolve()));
+    }
     await cleanup();
     const residual = await countResidual();
     await prisma.$disconnect();
@@ -350,6 +464,34 @@ function createAnthropicCountBodyWithoutMaxTokens() {
       {
         role: 'user',
         content: 'hello'
+      }
+    ]
+  };
+}
+
+function createAnthropicFailoverBody() {
+  return {
+    model: failoverPublicModel,
+    max_tokens: 64,
+    stream: false,
+    messages: [
+      {
+        role: 'user',
+        content: 'who are you'
+      }
+    ]
+  };
+}
+
+function createAnthropicHighUsageStreamBody() {
+  return {
+    model: publicModel,
+    max_tokens: 64,
+    stream: true,
+    messages: [
+      {
+        role: 'user',
+        content: 'expensive stream'
       }
     ]
   };
@@ -488,6 +630,11 @@ async function startTemporaryOpenAiUpstream() {
     }
 
     if (body.stream) {
+      const highUsage = JSON.stringify(body).includes('expensive stream');
+      const usage = highUsage
+        ? { prompt_tokens: 3000, completion_tokens: 1000, total_tokens: 4000 }
+        : { prompt_tokens: 7, completion_tokens: 3, total_tokens: 10 };
+
       response.writeHead(200, {
         'content-type': 'text/event-stream; charset=utf-8',
         'cache-control': 'no-cache'
@@ -497,7 +644,7 @@ async function startTemporaryOpenAiUpstream() {
       response.write(`data: ${JSON.stringify({
         id: 'chatcmpl-stream',
         choices: [{ index: 0, delta: { content: '姝ｅ父' }, finish_reason: 'stop' }],
-        usage: { prompt_tokens: 7, completion_tokens: 3, total_tokens: 10 }
+        usage
       })}\n\n`);
       response.write('data: [DONE]\n\n');
       response.end();
@@ -542,6 +689,74 @@ async function startTemporaryOpenAiUpstream() {
   return server;
 }
 
+async function startFailoverSlowUpstream() {
+  const server = http.createServer(async (request, response) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of request) {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    }
+    const text = Buffer.concat(chunks).toString('utf8');
+    failoverSlowSeenRequests.push({
+      path: request.url ?? '',
+      authorization: request.headers.authorization ?? '',
+      body: text ? JSON.parse(text) as Record<string, unknown> : {}
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    if (response.destroyed) {
+      return;
+    }
+
+    response.writeHead(504, { 'content-type': 'application/json' });
+    response.end(JSON.stringify({ error: { message: 'slow upstream timed out' } }));
+  });
+
+  await new Promise<void>((resolve) => server.listen(0, '0.0.0.0', () => resolve()));
+  return server;
+}
+
+async function startFailoverFallbackUpstream() {
+  const server = http.createServer(async (request, response) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of request) {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    }
+    const text = Buffer.concat(chunks).toString('utf8');
+    const body = text ? JSON.parse(text) as Record<string, unknown> : {};
+    failoverFallbackSeenRequests.push({
+      path: request.url ?? '',
+      authorization: request.headers.authorization ?? '',
+      body
+    });
+
+    response.writeHead(200, { 'content-type': 'application/json' });
+    response.end(JSON.stringify({
+      id: 'chatcmpl-failover',
+      object: 'chat.completion',
+      created: Math.floor(Date.now() / 1000),
+      model: body.model,
+      choices: [
+        {
+          index: 0,
+          message: {
+            role: 'assistant',
+            content: 'Failover OK'
+          },
+          finish_reason: 'stop'
+        }
+      ],
+      usage: {
+        prompt_tokens: 5,
+        completion_tokens: 2,
+        total_tokens: 7
+      }
+    }));
+  });
+
+  await new Promise<void>((resolve) => server.listen(0, '0.0.0.0', () => resolve()));
+  return server;
+}
+
 async function seedUsers() {
   const passwordHash = await bcrypt.hash(password, 12);
   return prisma.$transaction(async (tx) => {
@@ -574,16 +789,29 @@ async function seedUsers() {
       }
     });
 
+    const lowBalanceUser = await tx.user.create({
+      data: {
+        username: `${prefix}_low`,
+        passwordHash,
+        role: UserRole.USER,
+        status: UserStatus.ACTIVE,
+        groupId: group.id,
+        inviteCode: `${prefix}_low_balance_invite`
+      }
+    });
+
     await tx.wallet.createMany({
       data: [
         { userId: admin.id, balanceCents: 0 },
-        { userId: user.id, balanceCents: 100_000 }
+        { userId: user.id, balanceCents: 100_000 },
+        { userId: lowBalanceUser.id, balanceCents: 1 }
       ]
     });
 
     return {
       adminId: admin.id,
       userId: user.id,
+      lowBalanceUserId: lowBalanceUser.id,
       groupId: group.id
     };
   });
@@ -713,6 +941,17 @@ async function countBillableStreamUsage(userId: string) {
       completionTokens: 3,
       totalTokens: 10,
       costCents: 1
+    }
+  });
+}
+
+async function countInsufficientBalanceUsage(userId: string) {
+  return prisma.usageEvent.count({
+    where: {
+      userId,
+      model: publicModel,
+      status: UsageEventStatus.FAILED,
+      errorCode: 'insufficient_balance'
     }
   });
 }

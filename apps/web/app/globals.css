@@ -728,6 +728,10 @@ button {
   margin-bottom: 18px;
 }
 
+.full-width-field {
+  grid-column: 1 / -1;
+}
+
 .multi-select {
   min-height: 96px;
 }

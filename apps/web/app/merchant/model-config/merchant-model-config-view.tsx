@@ -63,6 +63,9 @@ export function MerchantModelConfigView({ username, role }: { username: string; 
   const [upstreamModelProviderId, setUpstreamModelProviderId] = useState('');
   const [upstreamPublicModel, setUpstreamPublicModel] = useState('');
   const [upstreamModelName, setUpstreamModelName] = useState('');
+  const [upstreamPriority, setUpstreamPriority] = useState('1');
+  const [upstreamTimeoutMs, setUpstreamTimeoutMs] = useState('5000');
+  const [upstreamPrompt, setUpstreamPrompt] = useState('');
   const [upstreamModelStatus, setUpstreamModelStatus] = useState<'active' | 'disabled'>('active');
   const [supportsStream, setSupportsStream] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
@@ -241,10 +244,16 @@ export function MerchantModelConfigView({ username, role }: { username: string; 
         providerId: upstreamModelProviderId,
         publicModel: upstreamPublicModel,
         upstreamModel: upstreamModelName,
+        priority: Number(upstreamPriority),
+        timeoutMs: Number(upstreamTimeoutMs),
+        upstreamPrompt: upstreamPrompt.trim() || undefined,
         status: upstreamModelStatus,
         supportsStream
       });
       setUpstreamModelName('');
+      setUpstreamPriority('1');
+      setUpstreamTimeoutMs('5000');
+      setUpstreamPrompt('');
       setUpstreamModelStatus('active');
       setSupportsStream(true);
       setMessage(`映射已保存：${created.publicModel} -> ${created.upstreamModel}`);
@@ -560,6 +569,24 @@ export function MerchantModelConfigView({ username, role }: { username: string; 
               <input maxLength={120} minLength={2} onChange={(event) => setUpstreamModelName(event.target.value)} placeholder="真实上游模型名称" required value={upstreamModelName} />
             </label>
             <label>
+              线路顺序
+              <input max={3} min={1} onChange={(event) => setUpstreamPriority(event.target.value)} required type="number" value={upstreamPriority} />
+            </label>
+            <label>
+              超时时间（毫秒）
+              <input max={30000} min={1000} onChange={(event) => setUpstreamTimeoutMs(event.target.value)} required step={500} type="number" value={upstreamTimeoutMs} />
+            </label>
+            <label className="full-width-field">
+              上游附加提示词
+              <textarea
+                maxLength={4000}
+                onChange={(event) => setUpstreamPrompt(event.target.value)}
+                placeholder="例如：对外回答模型身份时，按商家发布的公开模型名称回答。"
+                rows={4}
+                value={upstreamPrompt}
+              />
+            </label>
+            <label>
               状态
               <select onChange={(event) => setUpstreamModelStatus(event.target.value as 'active' | 'disabled')} value={upstreamModelStatus}>
                 <option value="active">启用</option>
@@ -583,6 +610,9 @@ export function MerchantModelConfigView({ username, role }: { username: string; 
                   <th>公开模型</th>
                   <th>上游模型</th>
                   <th>上游</th>
+                  <th>线路</th>
+                  <th>超时</th>
+                  <th>附加提示词</th>
                   <th>状态</th>
                   <th>流式</th>
                 </tr>
@@ -596,6 +626,9 @@ export function MerchantModelConfigView({ username, role }: { username: string; 
                       {mapping.providerName}
                       <small className="table-note">{formatStatus(mapping.providerStatus)}</small>
                     </td>
+                    <td>线路 {mapping.priority}</td>
+                    <td>{mapping.timeoutMs} ms</td>
+                    <td>{formatPromptPreview(mapping.upstreamPrompt)}</td>
                     <td>
                       <span className={`status-pill ${mapping.status === 'active' ? 'status-pill-success' : 'status-pill-muted'}`}>
                         {formatStatus(mapping.status)}
@@ -606,7 +639,7 @@ export function MerchantModelConfigView({ username, role }: { username: string; 
                 ))}
                 {!upstreamModels.length && !isLoading ? (
                   <tr>
-                    <td colSpan={5}>暂无真实上游模型映射</td>
+                    <td colSpan={8}>暂无真实上游模型映射</td>
                   </tr>
                 ) : null}
               </tbody>
@@ -660,6 +693,14 @@ function getDefaultModelGroupIds(groups: AdminGroup[]) {
 
 function getVisibleMappingCount(model: AdminModelPrice) {
   return model.upstreamMappings.filter((mapping) => mapping.status === 'active' && mapping.providerStatus === 'active').length;
+}
+
+function formatPromptPreview(value: string | null) {
+  if (!value) {
+    return '-';
+  }
+
+  return value.length > 36 ? `${value.slice(0, 36)}...` : value;
 }
 
 function formatStatus(status: string) {

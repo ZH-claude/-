@@ -109,6 +109,25 @@ type StreamBillingContext = {
   upstream: UpstreamBillingTarget;
 };
 
+type UpstreamMappingCandidate = {
+  id: string;
+  upstreamModel: string;
+  priority: number;
+  timeoutMs: number;
+  upstreamPrompt: string | null;
+  provider: {
+    id: string;
+    baseUrl: string;
+    encryptedApiKey: string;
+  };
+};
+
+type UpstreamAttemptResult = {
+  mapping: UpstreamMappingCandidate;
+  response: Response;
+  latencyMs: number;
+};
+
 export class RelayHttpError extends Error {
   constructor(
     readonly status: number,
@@ -120,7 +139,20 @@ export class RelayHttpError extends Error {
   }
 }
 
+class UpstreamAttemptFailureError extends Error {
+  constructor(
+    readonly causeError: unknown,
+    readonly mapping: UpstreamMappingCandidate,
+    readonly latencyMs: number | null,
+    readonly upstreamStatusCode: number | null,
+    readonly upstreamStatus: string
+  ) {
+    super(causeError instanceof Error ? causeError.message : 'Upstream request failed');
+  }
+}
+
 const UPSTREAM_TIMEOUT_MS = 120_000;
+const DEFAULT_FAILOVER_TIMEOUT_MS = 5000;
 const RETRYABLE_UPSTREAM_STATUS = new Set([502, 503, 504]);
 
 @Injectable()
@@ -434,39 +466,32 @@ export class RelayService {
         clientIp: input.clientIp
       });
 
-      const mapping = await this.findUpstreamMapping(body.model, Boolean(body.stream));
-      upstreamProviderId = mapping.provider.id;
+      const mappings = await this.findUpstreamMappings(body.model, Boolean(body.stream));
       const billingPrincipal = {
         userId: auth.user.id,
         tokenId: auth.token.id
       };
-      const billingTarget = {
-        providerId: mapping.provider.id,
-        upstreamModel: mapping.upstreamModel
-      };
       await this.billingService.assertCanStartUsage(auth.user.id, allowedModel);
       await this.tokensService.activateApiTokenIfNeeded(auth.token);
 
-      const upstreamBody = {
-        ...body,
-        model: mapping.upstreamModel
-      };
-      const upstreamApiKey = decryptUpstreamApiKey(mapping.provider.encryptedApiKey);
-
       if (body.stream) {
-        let upstreamResponse: Response;
-        const upstreamStartedAt = Date.now();
-        let upstreamLatencyMs: number | null = null;
+        let attempt: UpstreamAttemptResult;
 
         try {
-          upstreamResponse = await this.fetchUpstreamChatCompletion(mapping.provider.baseUrl, upstreamApiKey, this.withStreamUsageOptions(upstreamBody), {
+          attempt = await this.fetchFirstAvailableUpstream({
+            mappings,
+            body,
             stream: true,
             acceptHeader: input.acceptHeader
           });
-          upstreamLatencyMs = Date.now() - upstreamStartedAt;
         } catch (error) {
-          upstreamLatencyMs = Date.now() - upstreamStartedAt;
-          const normalizedError = this.normalizeError(error);
+          const failure = this.unwrapUpstreamAttemptFailure(error);
+          const normalizedError = this.normalizeError(failure.causeError);
+          upstreamProviderId = failure.mapping.provider.id;
+          const billingTarget = {
+            providerId: failure.mapping.provider.id,
+            upstreamModel: failure.mapping.upstreamModel
+          };
           await this.billingService.recordFailedChat({
             requestId: input.requestId,
             principal: billingPrincipal,
@@ -478,68 +503,46 @@ export class RelayService {
             requestId: input.requestId,
             userId: auth.user.id,
             tokenId: auth.token.id,
-            upstreamProviderId: mapping.provider.id,
+            upstreamProviderId: failure.mapping.provider.id,
             method: 'POST',
             path: requestPath,
             model: body.model,
             statusCode: normalizedError.status,
             errorCode: normalizedError.code,
             latencyMs: Date.now() - startedAt,
-            upstreamLatencyMs,
-            upstreamStatusCode: null,
-            upstreamStatus: 'failed'
+            upstreamLatencyMs: failure.latencyMs,
+            upstreamStatusCode: failure.upstreamStatusCode,
+            upstreamStatus: failure.upstreamStatus
           });
-          throw error;
+          throw failure.causeError;
         }
 
-        if (!upstreamResponse.ok) {
-          const upstreamError = await this.createUpstreamError(upstreamResponse);
-          await this.billingService.recordFailedChat({
-            requestId: input.requestId,
-            principal: billingPrincipal,
-            model: allowedModel,
-            upstream: billingTarget,
-            errorCode: upstreamError.code
-          });
-          await this.recordRequestLogSafe({
-            requestId: input.requestId,
-            userId: auth.user.id,
-            tokenId: auth.token.id,
-            upstreamProviderId: mapping.provider.id,
-            method: 'POST',
-            path: requestPath,
-            model: body.model,
-            statusCode: upstreamError.status,
-            errorCode: upstreamError.code,
-            latencyMs: Date.now() - startedAt,
-            upstreamLatencyMs,
-            upstreamStatusCode: upstreamResponse.status,
-            upstreamStatus: 'http_error'
-          });
-          throw upstreamError;
-        }
-
+        upstreamProviderId = attempt.mapping.provider.id;
+        const billingTarget = {
+          providerId: attempt.mapping.provider.id,
+          upstreamModel: attempt.mapping.upstreamModel
+        };
         await this.recordRequestLogSafe({
           requestId: input.requestId,
           userId: auth.user.id,
           tokenId: auth.token.id,
-          upstreamProviderId: mapping.provider.id,
+          upstreamProviderId: attempt.mapping.provider.id,
           method: 'POST',
           path: requestPath,
           model: body.model,
-          statusCode: upstreamResponse.status,
+          statusCode: attempt.response.status,
           errorCode: null,
           latencyMs: Date.now() - startedAt,
-          upstreamLatencyMs,
-          upstreamStatusCode: upstreamResponse.status,
+          upstreamLatencyMs: attempt.latencyMs,
+          upstreamStatusCode: attempt.response.status,
           upstreamStatus: 'stream_started'
         });
 
         return {
           stream: true,
-          status: upstreamResponse.status,
-          headers: this.buildStreamHeaders(input.requestId, upstreamResponse),
-          upstreamResponse,
+          status: attempt.response.status,
+          headers: this.buildStreamHeaders(input.requestId, attempt.response),
+          upstreamResponse: attempt.response,
           billing: {
             requestId: input.requestId,
             principal: billingPrincipal,
@@ -549,16 +552,22 @@ export class RelayService {
         };
       }
 
-      let upstreamResponse: Response;
-      const upstreamStartedAt = Date.now();
-      let upstreamLatencyMs: number | null = null;
+      let attempt: UpstreamAttemptResult;
 
       try {
-        upstreamResponse = await this.fetchUpstreamChatCompletionWithRetry(mapping.provider.baseUrl, upstreamApiKey, upstreamBody);
-        upstreamLatencyMs = Date.now() - upstreamStartedAt;
+        attempt = await this.fetchFirstAvailableUpstream({
+          mappings,
+          body,
+          stream: false
+        });
       } catch (error) {
-        upstreamLatencyMs = Date.now() - upstreamStartedAt;
-        const normalizedError = this.normalizeError(error);
+        const failure = this.unwrapUpstreamAttemptFailure(error);
+        const normalizedError = this.normalizeError(failure.causeError);
+        upstreamProviderId = failure.mapping.provider.id;
+        const billingTarget = {
+          providerId: failure.mapping.provider.id,
+          upstreamModel: failure.mapping.upstreamModel
+        };
         await this.billingService.recordFailedChat({
           requestId: input.requestId,
           principal: billingPrincipal,
@@ -570,50 +579,28 @@ export class RelayService {
           requestId: input.requestId,
           userId: auth.user.id,
           tokenId: auth.token.id,
-          upstreamProviderId: mapping.provider.id,
+          upstreamProviderId: failure.mapping.provider.id,
           method: 'POST',
           path: requestPath,
           model: body.model,
           statusCode: normalizedError.status,
           errorCode: normalizedError.code,
           latencyMs: Date.now() - startedAt,
-          upstreamLatencyMs,
-          upstreamStatusCode: null,
-          upstreamStatus: 'failed'
+          upstreamLatencyMs: failure.latencyMs,
+          upstreamStatusCode: failure.upstreamStatusCode,
+          upstreamStatus: failure.upstreamStatus
         });
-        throw error;
+        throw failure.causeError;
       }
 
-      if (!upstreamResponse.ok) {
-        const upstreamError = await this.createUpstreamError(upstreamResponse);
-        await this.billingService.recordFailedChat({
-          requestId: input.requestId,
-          principal: billingPrincipal,
-          model: allowedModel,
-          upstream: billingTarget,
-          errorCode: upstreamError.code
-        });
-        await this.recordRequestLogSafe({
-          requestId: input.requestId,
-          userId: auth.user.id,
-          tokenId: auth.token.id,
-          upstreamProviderId: mapping.provider.id,
-          method: 'POST',
-          path: requestPath,
-          model: body.model,
-          statusCode: upstreamError.status,
-          errorCode: upstreamError.code,
-          latencyMs: Date.now() - startedAt,
-          upstreamLatencyMs,
-          upstreamStatusCode: upstreamResponse.status,
-          upstreamStatus: 'http_error'
-        });
-        throw upstreamError;
-      }
-
+      upstreamProviderId = attempt.mapping.provider.id;
+      const billingTarget = {
+        providerId: attempt.mapping.provider.id,
+        upstreamModel: attempt.mapping.upstreamModel
+      };
       let upstreamBodyJson: unknown;
       try {
-        upstreamBodyJson = await this.readUpstreamJson(upstreamResponse);
+        upstreamBodyJson = await this.readUpstreamJson(attempt.response);
       } catch (error) {
         await this.billingService.recordFailedChat({
           requestId: input.requestId,
@@ -627,15 +614,15 @@ export class RelayService {
           requestId: input.requestId,
           userId: auth.user.id,
           tokenId: auth.token.id,
-          upstreamProviderId: mapping.provider.id,
+          upstreamProviderId: attempt.mapping.provider.id,
           method: 'POST',
           path: requestPath,
           model: body.model,
           statusCode: normalizedError.status,
           errorCode: normalizedError.code,
           latencyMs: Date.now() - startedAt,
-          upstreamLatencyMs,
-          upstreamStatusCode: upstreamResponse.status,
+          upstreamLatencyMs: attempt.latencyMs,
+          upstreamStatusCode: attempt.response.status,
           upstreamStatus: 'malformed_response'
         });
         throw error;
@@ -652,22 +639,22 @@ export class RelayService {
         requestId: input.requestId,
         userId: auth.user.id,
         tokenId: auth.token.id,
-        upstreamProviderId: mapping.provider.id,
+        upstreamProviderId: attempt.mapping.provider.id,
         method: 'POST',
         path: requestPath,
         model: body.model,
-        statusCode: upstreamResponse.status,
+        statusCode: attempt.response.status,
         errorCode: null,
         latencyMs: Date.now() - startedAt,
-        upstreamLatencyMs,
-        upstreamStatusCode: upstreamResponse.status,
+        upstreamLatencyMs: attempt.latencyMs,
+        upstreamStatusCode: attempt.response.status,
         upstreamStatus: 'success'
       });
 
       return {
         stream: false,
-        status: upstreamResponse.status,
-        headers: this.buildJsonHeaders(input.requestId, upstreamResponse, billingRecord.usageEventId),
+        status: attempt.response.status,
+        headers: this.buildJsonHeaders(input.requestId, attempt.response, billingRecord.usageEventId),
         body: upstreamBodyJson
       };
     } catch (error) {
@@ -1154,24 +1141,145 @@ export class RelayService {
     response.end();
   }
 
-  private async fetchUpstreamChatCompletionWithRetry(baseUrl: string, apiKey: string, body: ChatCompletionBody) {
-    let response: Response;
+  private async fetchFirstAvailableUpstream(input: {
+    mappings: UpstreamMappingCandidate[];
+    body: ChatCompletionBody;
+    stream: boolean;
+    acceptHeader?: string;
+  }): Promise<UpstreamAttemptResult> {
+    let lastFailure: UpstreamAttemptFailureError | null = null;
 
-    try {
-      response = await this.fetchUpstreamChatCompletion(baseUrl, apiKey, body, { stream: false });
-    } catch (error) {
-      if (this.isRetryableUpstreamError(error)) {
-        return this.fetchUpstreamChatCompletion(baseUrl, apiKey, body, { stream: false });
+    for (const mapping of input.mappings) {
+      const upstreamBody = this.buildUpstreamBody(input.body, mapping);
+      const body = input.stream ? this.withStreamUsageOptions(upstreamBody) : upstreamBody;
+      const upstreamStartedAt = Date.now();
+
+      try {
+        const response = await this.fetchUpstreamChatCompletion(
+          mapping.provider.baseUrl,
+          decryptUpstreamApiKey(mapping.provider.encryptedApiKey),
+          body,
+          {
+            stream: input.stream,
+            acceptHeader: input.acceptHeader,
+            timeoutMs: this.normalizeUpstreamTimeoutMs(mapping.timeoutMs)
+          }
+        );
+        const latencyMs = Date.now() - upstreamStartedAt;
+
+        if (response.ok) {
+          return {
+            mapping,
+            response,
+            latencyMs
+          };
+        }
+
+        const upstreamError = await this.createUpstreamError(response);
+        const failure = new UpstreamAttemptFailureError(upstreamError, mapping, latencyMs, response.status, 'http_error');
+        lastFailure = failure;
+        if (!this.shouldFailoverUpstreamStatus(response.status)) {
+          throw failure;
+        }
+      } catch (error) {
+        if (error instanceof UpstreamAttemptFailureError) {
+          lastFailure = error;
+          if (!this.shouldFailoverError(error.causeError)) {
+            throw error;
+          }
+          continue;
+        }
+
+        const failure = new UpstreamAttemptFailureError(error, mapping, Date.now() - upstreamStartedAt, null, 'failed');
+        lastFailure = failure;
+        if (!this.shouldFailoverError(error)) {
+          throw failure;
+        }
       }
-
-      throw error;
     }
 
-    if (RETRYABLE_UPSTREAM_STATUS.has(response.status)) {
-      response = await this.fetchUpstreamChatCompletion(baseUrl, apiKey, body, { stream: false });
+    if (lastFailure) {
+      throw lastFailure;
     }
 
-    return response;
+    const firstMapping = input.mappings[0];
+    if (!firstMapping) {
+      throw this.createError(400, 'model_unavailable', 'invalid_request_error', 'Model is unavailable');
+    }
+
+    throw new UpstreamAttemptFailureError(
+      this.createError(400, 'model_unavailable', 'invalid_request_error', 'Model is unavailable'),
+      firstMapping,
+      null,
+      null,
+      'failed'
+    );
+  }
+
+  private buildUpstreamBody(body: ChatCompletionBody, mapping: UpstreamMappingCandidate): ChatCompletionBody {
+    const upstreamBody: ChatCompletionBody = {
+      ...body,
+      model: mapping.upstreamModel,
+      messages: [...body.messages]
+    };
+    const upstreamPrompt = mapping.upstreamPrompt?.trim();
+
+    if (!upstreamPrompt) {
+      return upstreamBody;
+    }
+
+    return {
+      ...upstreamBody,
+      messages: this.injectUpstreamPrompt(upstreamBody.messages, upstreamPrompt)
+    };
+  }
+
+  private injectUpstreamPrompt(messages: unknown[], upstreamPrompt: string): unknown[] {
+    const [firstMessage, ...restMessages] = messages;
+    if (
+      firstMessage &&
+      typeof firstMessage === 'object' &&
+      !Array.isArray(firstMessage) &&
+      ((firstMessage as Record<string, unknown>).role === 'system' || (firstMessage as Record<string, unknown>).role === 'developer') &&
+      typeof (firstMessage as Record<string, unknown>).content === 'string'
+    ) {
+      return [
+        {
+          ...firstMessage,
+          role: 'system',
+          content: `${upstreamPrompt}\n\n${(firstMessage as Record<string, string>).content}`
+        },
+        ...restMessages
+      ];
+    }
+
+    return [{ role: 'system', content: upstreamPrompt }, ...messages];
+  }
+
+  private unwrapUpstreamAttemptFailure(error: unknown) {
+    if (error instanceof UpstreamAttemptFailureError) {
+      return error;
+    }
+
+    throw error;
+  }
+
+  private shouldFailoverUpstreamStatus(status: number) {
+    return RETRYABLE_UPSTREAM_STATUS.has(status) || status === 408;
+  }
+
+  private shouldFailoverError(error: unknown) {
+    if (error instanceof RelayHttpError) {
+      return error.code === 'upstream_error' || error.code === 'upstream_timeout' || this.shouldFailoverUpstreamStatus(error.status);
+    }
+
+    return error instanceof Error && error.name === 'AbortError';
+  }
+
+  private normalizeUpstreamTimeoutMs(timeoutMs: number) {
+    return Number.isInteger(timeoutMs) && timeoutMs >= 1000 && timeoutMs <= 30000
+      ? timeoutMs
+      : DEFAULT_FAILOVER_TIMEOUT_MS;
   }
 
   private normalizeAnthropicMessagesBody(
@@ -1946,10 +2054,10 @@ export class RelayService {
     baseUrl: string,
     apiKey: string,
     body: ChatCompletionBody,
-    options: { stream: boolean; acceptHeader?: string }
+    options: { stream: boolean; acceptHeader?: string; timeoutMs?: number }
   ) {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
+    const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? UPSTREAM_TIMEOUT_MS);
 
     try {
       return await fetch(`${baseUrl.replace(/\/+$/, '')}/v1/chat/completions`, {
@@ -2006,12 +2114,30 @@ export class RelayService {
 
       await this.billingService.recordMeteringUnknownChat(billing);
     } catch (error) {
+      if (this.isInsufficientBalanceError(error)) {
+        await this.billingService.recordFailedChat({
+          ...billing,
+          errorCode: 'insufficient_balance'
+        }).catch((recordError) => {
+          console.warn('stream_billing_failed_record_failed', recordError instanceof Error ? recordError.message : 'unknown error');
+        });
+      }
+
       console.warn('stream_billing_record_failed', error instanceof Error ? error.message : 'unknown error');
     }
   }
 
-  private async findUpstreamMapping(publicModel: string, requiresStream: boolean) {
-    const mapping = await this.prisma.upstreamModel.findFirst({
+  private isInsufficientBalanceError(error: unknown) {
+    if (!(error instanceof ForbiddenException)) {
+      return false;
+    }
+
+    const response = error.getResponse();
+    return Boolean(response && typeof response === 'object' && 'code' in response && response.code === 'insufficient_balance');
+  }
+
+  private async findUpstreamMappings(publicModel: string, requiresStream: boolean) {
+    const mappings = await this.prisma.upstreamModel.findMany({
       where: {
         publicModel,
         status: ModelStatus.ACTIVE,
@@ -2023,10 +2149,11 @@ export class RelayService {
       include: {
         provider: true
       },
-      orderBy: { createdAt: 'asc' }
+      orderBy: [{ priority: 'asc' }, { createdAt: 'asc' }],
+      take: 3
     });
 
-    if (!mapping) {
+    if (mappings.length === 0) {
       throw this.createError(
         400,
         'model_unavailable',
@@ -2035,7 +2162,7 @@ export class RelayService {
       );
     }
 
-    return mapping;
+    return mappings;
   }
 
   private normalizeChatCompletionBody(value: unknown): ChatCompletionBody {
@@ -2135,10 +2262,6 @@ export class RelayService {
     }
 
     return fallback;
-  }
-
-  private isRetryableUpstreamError(error: unknown) {
-    return error instanceof RelayHttpError && error.status === 502 && error.code === 'upstream_error';
   }
 
   private async recordRequestLogSafe(input: RelayRequestLogInput) {
