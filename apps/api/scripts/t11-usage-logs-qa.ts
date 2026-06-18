@@ -2,6 +2,7 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import { randomBytes } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import {
+  ModelPricingMode,
   ModelStatus,
   PrismaClient,
   UpstreamHealthStatus,
@@ -75,7 +76,7 @@ type UsageLogsResponse = {
 const API_BASE_URL = process.env.API_BASE_URL ?? 'http://127.0.0.1:3001';
 const DATABASE_URL = process.env.DATABASE_URL;
 const UPSTREAM_SECRET = process.env.UPSTREAM_KEY_ENCRYPTION_SECRET;
-const TEMP_UPSTREAM_PUBLIC_HOST = process.env.TEMP_UPSTREAM_PUBLIC_HOST ?? 'host.docker.internal';
+const TEMP_UPSTREAM_PUBLIC_HOST = process.env.TEMP_UPSTREAM_PUBLIC_HOST ?? '127.0.0.1';
 
 if (!DATABASE_URL) {
   throw new Error('DATABASE_URL is required to run the T11 usage logs QA script');
@@ -140,6 +141,11 @@ async function main() {
     assert(billableRow.walletTransaction !== null, 'billable row missing wallet transaction');
     assert(billableRow.walletTransaction!.amountCents === -billableRow.costCents, 'billable wallet debit amount mismatch');
     assert(billableRow.id === billable.headers.get('x-usage-event-id'), 'billable usage event id mismatch');
+    assert(
+      billableRow.costCents === 7,
+      `billable row should use upstream route pricing instead of public model pricing, got ${billableRow.costCents}`
+    );
+    checks.push('real_relay_call_uses_route_level_pricing');
 
     const failedRow = requireRow(allLogs.json, failed.headers.get('x-request-id'), 'failed');
     assert(failedRow.walletTransaction === null, 'failed row should not have wallet transaction');
@@ -276,6 +282,10 @@ async function seedModelAndUpstream(users: Array<User & { group: { id: string } 
       providerId: provider.id,
       publicModel,
       upstreamModel,
+      pricingMode: ModelPricingMode.MANUAL,
+      inputPriceCentsPer1k: 17,
+      outputPriceCentsPer1k: 31,
+      modelMultiplier: '2.0000',
       status: ModelStatus.ACTIVE,
       supportsStream: false
     }

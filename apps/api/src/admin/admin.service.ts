@@ -100,6 +100,18 @@ type ModelPriceRecordForPricing = {
   marginPercent: { toString(): string } | null;
 };
 
+type RoutePricingRecordForPricing = {
+  pricingMode: ModelPricingMode | null;
+  inputPriceCentsPer1k: number | null;
+  outputPriceCentsPer1k: number | null;
+  modelMultiplier: { toString(): string } | null;
+  upstreamInputPricePerMillion: { toString(): string } | null;
+  upstreamOutputPricePerMillion: { toString(): string } | null;
+  upstreamCurrency: string | null;
+  upstreamExchangeRate: { toString(): string } | null;
+  marginPercent: { toString(): string } | null;
+};
+
 type ResolvedModelPricing = {
   pricingMode: ModelPricingMode;
   inputPriceCentsPer1k: number;
@@ -110,7 +122,7 @@ type ResolvedModelPricing = {
   upstreamCurrency: TokenPricingCurrency | null;
   upstreamExchangeRate: string | null;
   marginPercent: string | null;
-  auditSnapshot: Record<string, unknown>;
+  auditSnapshot: Prisma.InputJsonObject;
 };
 
 type UpstreamModelInput = {
@@ -120,6 +132,15 @@ type UpstreamModelInput = {
   priority?: unknown;
   timeoutMs?: unknown;
   upstreamPrompt?: unknown;
+  pricingMode?: unknown;
+  inputPriceCentsPer1k?: unknown;
+  outputPriceCentsPer1k?: unknown;
+  modelMultiplier?: unknown;
+  upstreamInputPricePerMillion?: unknown;
+  upstreamOutputPricePerMillion?: unknown;
+  upstreamCurrency?: unknown;
+  upstreamExchangeRate?: unknown;
+  marginPercent?: unknown;
   status?: unknown;
   supportsStream?: unknown;
 };
@@ -1371,6 +1392,7 @@ export class AdminService implements OnModuleInit {
     const priority = this.nonNegativeInt(body.priority, 'priority', 1, 3);
     const timeoutMs = this.nonNegativeInt(body.timeoutMs, 'timeoutMs', 1000, 30000);
     const upstreamPrompt = this.optionalText(body.upstreamPrompt, 'upstreamPrompt', 1, 4000) ?? null;
+    const routePricing = this.resolveRoutePricingForCreate(body);
     const status = this.normalizeModelStatus(body.status);
     const supportsStream = this.optionalBoolean(body.supportsStream, true);
 
@@ -1390,6 +1412,7 @@ export class AdminService implements OnModuleInit {
     if (!modelPrice) {
       throw new BadRequestException('publicModel must exist in model prices first');
     }
+    this.validateRoutePricingForProvider(provider.kind, routePricing?.pricingMode ?? null);
 
     try {
       const upstreamModelRecord = await this.prisma.$transaction(async (tx) => {
@@ -1422,6 +1445,7 @@ export class AdminService implements OnModuleInit {
             priority,
             timeoutMs,
             upstreamPrompt,
+            ...this.routePricingData(routePricing),
             status,
             supportsStream
           }
@@ -1442,6 +1466,7 @@ export class AdminService implements OnModuleInit {
               priority,
               timeoutMs,
               upstreamPrompt,
+              routePricing: routePricing?.auditSnapshot ?? null,
               status: status.toLowerCase(),
               supportsStream
             }
@@ -1487,6 +1512,7 @@ export class AdminService implements OnModuleInit {
     const priority = this.nonNegativeInt(body.priority, 'priority', 1, 3);
     const timeoutMs = this.nonNegativeInt(body.timeoutMs, 'timeoutMs', 1000, 30000);
     const upstreamPrompt = this.optionalText(body.upstreamPrompt, 'upstreamPrompt', 1, 4000) ?? null;
+    const routePricing = this.resolveRoutePricingForUpdate(body, existing);
     const status = this.normalizeModelStatus(body.status);
     const supportsStream = this.optionalBoolean(body.supportsStream, true);
 
@@ -1506,6 +1532,10 @@ export class AdminService implements OnModuleInit {
     if (!modelPrice) {
       throw new BadRequestException('publicModel must exist in model prices first');
     }
+    this.validateRoutePricingForProvider(
+      provider.kind,
+      routePricing === undefined ? existing.pricingMode : routePricing?.pricingMode ?? null
+    );
 
     try {
       const upstreamModelRecord = await this.prisma.$transaction(async (tx) => {
@@ -1540,6 +1570,7 @@ export class AdminService implements OnModuleInit {
             priority,
             timeoutMs,
             upstreamPrompt,
+            ...(routePricing === undefined ? {} : this.routePricingData(routePricing)),
             status,
             supportsStream
           }
@@ -1559,6 +1590,7 @@ export class AdminService implements OnModuleInit {
               priority: existing.priority,
               timeoutMs: existing.timeoutMs,
               upstreamPrompt: existing.upstreamPrompt,
+              routePricing: this.routePricingSnapshot(existing),
               status: existing.status.toLowerCase(),
               supportsStream: existing.supportsStream
             },
@@ -1570,6 +1602,7 @@ export class AdminService implements OnModuleInit {
               priority,
               timeoutMs,
               upstreamPrompt,
+              routePricing: routePricing === undefined ? this.routePricingSnapshot(existing) : routePricing.auditSnapshot,
               status: status.toLowerCase(),
               supportsStream
             }
@@ -1605,7 +1638,75 @@ export class AdminService implements OnModuleInit {
 
   private resolveModelPricingForCreate(body: ModelPriceInput): ResolvedModelPricing {
     const pricingMode = this.normalizePricingMode(body.pricingMode, ModelPricingMode.MANUAL);
+    if (
+      pricingMode === ModelPricingMode.MANUAL &&
+      body.inputPriceCentsPer1k === undefined &&
+      body.outputPriceCentsPer1k === undefined &&
+      body.modelMultiplier === undefined
+    ) {
+      return this.buildResolvedModelPricing({
+        pricingMode,
+        inputPriceCentsPer1k: multiplierToBaseTokensPer1k(1),
+        outputPriceCentsPer1k: multiplierToBaseTokensPer1k(1),
+        modelMultiplier: '1.0000',
+        upstreamInputPricePerMillion: null,
+        upstreamOutputPricePerMillion: null,
+        upstreamCurrency: null,
+        upstreamExchangeRate: null,
+        marginPercent: null
+      });
+    }
+
     return this.resolveModelPricing(pricingMode, body);
+  }
+
+  private resolveRoutePricingForCreate(body: UpstreamModelInput): ResolvedModelPricing | null {
+    if (body.pricingMode === undefined) {
+      return null;
+    }
+
+    const pricingMode = this.normalizePricingMode(body.pricingMode, ModelPricingMode.MANUAL);
+    return this.resolveModelPricing(pricingMode, body);
+  }
+
+  private resolveRoutePricingForUpdate(
+    body: UpstreamModelInput,
+    existing: RoutePricingRecordForPricing
+  ): ResolvedModelPricing | undefined {
+    if (body.pricingMode === undefined) {
+      return undefined;
+    }
+
+    const existingPricing = this.existingRoutePricingOrUndefined(existing);
+    const fallbackMode = existingPricing?.pricingMode ?? ModelPricingMode.MANUAL;
+    const pricingMode = this.normalizePricingMode(body.pricingMode, fallbackMode);
+
+    return this.resolveModelPricing(pricingMode, body, existingPricing);
+  }
+
+  private existingRoutePricingOrUndefined(
+    existing: RoutePricingRecordForPricing
+  ): ModelPriceRecordForPricing | undefined {
+    if (
+      !existing.pricingMode ||
+      existing.inputPriceCentsPer1k === null ||
+      existing.outputPriceCentsPer1k === null ||
+      existing.modelMultiplier === null
+    ) {
+      return undefined;
+    }
+
+    return {
+      pricingMode: existing.pricingMode,
+      inputPriceCentsPer1k: existing.inputPriceCentsPer1k,
+      outputPriceCentsPer1k: existing.outputPriceCentsPer1k,
+      modelMultiplier: existing.modelMultiplier,
+      upstreamInputPricePerMillion: existing.upstreamInputPricePerMillion,
+      upstreamOutputPricePerMillion: existing.upstreamOutputPricePerMillion,
+      upstreamCurrency: existing.upstreamCurrency,
+      upstreamExchangeRate: existing.upstreamExchangeRate,
+      marginPercent: existing.marginPercent
+    };
   }
 
   private resolveModelPricingForUpdate(
@@ -1722,6 +1823,62 @@ export class AdminService implements OnModuleInit {
         upstreamExchangeRate: input.upstreamExchangeRate,
         marginPercent: input.marginPercent
       }
+    };
+  }
+
+  private validateRoutePricingForProvider(kind: UpstreamProviderKind, pricingMode: ModelPricingMode | null) {
+    if (kind === UpstreamProviderKind.DEEPSEEK && pricingMode !== ModelPricingMode.DEEPSEEK_BASE) {
+      throw new BadRequestException('DeepSeek upstream routes must use deepseek_base pricing');
+    }
+
+    if (kind === UpstreamProviderKind.RELAY && pricingMode !== ModelPricingMode.RELAY_PRICE) {
+      throw new BadRequestException('Relay upstream routes must use relay_price pricing');
+    }
+
+    if (kind === UpstreamProviderKind.GENERIC && pricingMode && pricingMode !== ModelPricingMode.MANUAL) {
+      throw new BadRequestException('Generic upstream routes must use manual pricing');
+    }
+  }
+
+  private routePricingData(pricing: ResolvedModelPricing | null) {
+    return {
+      pricingMode: pricing?.pricingMode ?? null,
+      inputPriceCentsPer1k: pricing?.inputPriceCentsPer1k ?? null,
+      outputPriceCentsPer1k: pricing?.outputPriceCentsPer1k ?? null,
+      modelMultiplier: pricing?.modelMultiplier ?? null,
+      upstreamInputPricePerMillion: pricing?.upstreamInputPricePerMillion ?? null,
+      upstreamOutputPricePerMillion: pricing?.upstreamOutputPricePerMillion ?? null,
+      upstreamCurrency: pricing?.upstreamCurrency ?? null,
+      upstreamExchangeRate: pricing?.upstreamExchangeRate ?? null,
+      marginPercent: pricing?.marginPercent ?? null
+    };
+  }
+
+  private routePricingSnapshot(model: {
+    pricingMode: ModelPricingMode | null;
+    inputPriceCentsPer1k: number | null;
+    outputPriceCentsPer1k: number | null;
+    modelMultiplier: { toString(): string } | null;
+    upstreamInputPricePerMillion: { toString(): string } | null;
+    upstreamOutputPricePerMillion: { toString(): string } | null;
+    upstreamCurrency: string | null;
+    upstreamExchangeRate: { toString(): string } | null;
+    marginPercent: { toString(): string } | null;
+  }) {
+    if (!model.pricingMode) {
+      return null;
+    }
+
+    return {
+      pricingMode: model.pricingMode.toLowerCase(),
+      inputPriceCentsPer1k: model.inputPriceCentsPer1k,
+      outputPriceCentsPer1k: model.outputPriceCentsPer1k,
+      modelMultiplier: model.modelMultiplier?.toString() ?? null,
+      upstreamInputPricePerMillion: model.upstreamInputPricePerMillion?.toString() ?? null,
+      upstreamOutputPricePerMillion: model.upstreamOutputPricePerMillion?.toString() ?? null,
+      upstreamCurrency: model.upstreamCurrency,
+      upstreamExchangeRate: model.upstreamExchangeRate?.toString() ?? null,
+      marginPercent: model.marginPercent?.toString() ?? null
     };
   }
 
@@ -2459,8 +2616,18 @@ export class AdminService implements OnModuleInit {
       provider: {
         id: string;
         name: string;
+        kind: UpstreamProviderKind;
         status: UpstreamProviderStatus;
       };
+      pricingMode: ModelPricingMode | null;
+      inputPriceCentsPer1k: number | null;
+      outputPriceCentsPer1k: number | null;
+      modelMultiplier: { toString(): string } | null;
+      upstreamInputPricePerMillion: { toString(): string } | null;
+      upstreamOutputPricePerMillion: { toString(): string } | null;
+      upstreamCurrency: string | null;
+      upstreamExchangeRate: { toString(): string } | null;
+      marginPercent: { toString(): string } | null;
     }>;
   }) {
     return {
@@ -2486,11 +2653,13 @@ export class AdminService implements OnModuleInit {
         id: mapping.id,
         providerId: mapping.provider.id,
         providerName: mapping.provider.name,
+        providerKind: mapping.provider.kind.toLowerCase(),
         providerStatus: mapping.provider.status.toLowerCase(),
         upstreamModel: mapping.upstreamModel,
         priority: mapping.priority,
         timeoutMs: mapping.timeoutMs,
         upstreamPrompt: mapping.upstreamPrompt,
+        routePricing: this.routePricingSnapshot(mapping),
         status: mapping.status.toLowerCase(),
         supportsStream: mapping.supportsStream
       })),
@@ -2514,16 +2683,27 @@ export class AdminService implements OnModuleInit {
     provider: {
       id: string;
       name: string;
+      kind: UpstreamProviderKind;
       status: UpstreamProviderStatus;
     };
     modelPrice: {
       displayName: string | null;
     };
+    pricingMode: ModelPricingMode | null;
+    inputPriceCentsPer1k: number | null;
+    outputPriceCentsPer1k: number | null;
+    modelMultiplier: { toString(): string } | null;
+    upstreamInputPricePerMillion: { toString(): string } | null;
+    upstreamOutputPricePerMillion: { toString(): string } | null;
+    upstreamCurrency: string | null;
+    upstreamExchangeRate: { toString(): string } | null;
+    marginPercent: { toString(): string } | null;
   }) {
     return {
       id: model.id,
       providerId: model.providerId,
       providerName: model.provider.name,
+      providerKind: model.provider.kind.toLowerCase(),
       providerStatus: model.provider.status.toLowerCase(),
       publicModel: model.publicModel,
       displayName: model.modelPrice.displayName,
@@ -2531,6 +2711,7 @@ export class AdminService implements OnModuleInit {
       priority: model.priority,
       timeoutMs: model.timeoutMs,
       upstreamPrompt: model.upstreamPrompt,
+      routePricing: this.routePricingSnapshot(model),
       status: model.status.toLowerCase(),
       supportsStream: model.supportsStream,
       createdAt: model.createdAt.toISOString(),

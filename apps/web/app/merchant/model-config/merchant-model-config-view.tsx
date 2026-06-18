@@ -32,7 +32,6 @@ const DEFAULT_EXCHANGE_RATE = '7.200000';
 const DEFAULT_MARGIN_PERCENT = '10';
 
 type ModelStatus = 'active' | 'disabled';
-type PricingMode = 'manual' | 'deepseek_base' | 'relay_price';
 type ModelConfigMode = 'publish' | 'routes';
 
 export function MerchantModelConfigView({
@@ -52,15 +51,6 @@ export function MerchantModelConfigView({
   const [mappings, setMappings] = useState<UpstreamModelMapping[]>([]);
   const [modelName, setModelName] = useState('');
   const [displayName, setDisplayName] = useState('');
-  const [pricingMode, setPricingMode] = useState<PricingMode>('deepseek_base');
-  const [modelMultiplier, setModelMultiplier] = useState(DEFAULT_MODEL_MULTIPLIER);
-  const [inputTokensPer1k, setInputTokensPer1k] = useState('1000');
-  const [outputTokensPer1k, setOutputTokensPer1k] = useState('1000');
-  const [upstreamInputPricePerMillion, setUpstreamInputPricePerMillion] = useState('');
-  const [upstreamOutputPricePerMillion, setUpstreamOutputPricePerMillion] = useState('');
-  const [upstreamCurrency, setUpstreamCurrency] = useState<'CNY' | 'USD'>('CNY');
-  const [upstreamExchangeRate, setUpstreamExchangeRate] = useState(DEFAULT_EXCHANGE_RATE);
-  const [marginPercent, setMarginPercent] = useState(DEFAULT_MARGIN_PERCENT);
   const [modelStatus, setModelStatus] = useState<ModelStatus>('active');
   const [modelGroupIds, setModelGroupIds] = useState<string[]>([]);
   const [editingModelId, setEditingModelId] = useState<string | null>(null);
@@ -70,6 +60,14 @@ export function MerchantModelConfigView({
   const [mappingPriority, setMappingPriority] = useState('1');
   const [mappingTimeoutMs, setMappingTimeoutMs] = useState('5000');
   const [mappingPrompt, setMappingPrompt] = useState('');
+  const [mappingModelMultiplier, setMappingModelMultiplier] = useState(DEFAULT_MODEL_MULTIPLIER);
+  const [mappingInputTokensPer1k, setMappingInputTokensPer1k] = useState('1000');
+  const [mappingOutputTokensPer1k, setMappingOutputTokensPer1k] = useState('1000');
+  const [mappingUpstreamInputPricePerMillion, setMappingUpstreamInputPricePerMillion] = useState('');
+  const [mappingUpstreamOutputPricePerMillion, setMappingUpstreamOutputPricePerMillion] = useState('');
+  const [mappingUpstreamCurrency, setMappingUpstreamCurrency] = useState<'CNY' | 'USD'>('CNY');
+  const [mappingUpstreamExchangeRate, setMappingUpstreamExchangeRate] = useState(DEFAULT_EXCHANGE_RATE);
+  const [mappingMarginPercent, setMappingMarginPercent] = useState(DEFAULT_MARGIN_PERCENT);
   const [mappingStatus, setMappingStatus] = useState<ModelStatus>('active');
   const [mappingSupportsStream, setMappingSupportsStream] = useState(true);
   const [editingMappingId, setEditingMappingId] = useState<string | null>(null);
@@ -95,6 +93,10 @@ export function MerchantModelConfigView({
   const selectedMapping = useMemo(
     () => mappings.find((mapping) => mapping.id === selectedMappingId) ?? null,
     [mappings, selectedMappingId]
+  );
+  const selectedMappingProvider = useMemo(
+    () => upstreams.find((upstream) => upstream.id === mappingProviderId) ?? null,
+    [mappingProviderId, upstreams]
   );
   const stats = useMemo(
     () => ({
@@ -161,7 +163,7 @@ export function MerchantModelConfigView({
         ? await updateModelPrice(editingModelId, payload)
         : await createModelPrice(payload);
 
-      setMessage(`客户模型 ${saved.model} 已保存。下一步在下方给它绑定 DeepSeek 或中转站上游线路。`);
+      setMessage(`客户模型 ${saved.model} 已保存。下一步到“模型映射”给它绑定 DeepSeek 或中转站上游线路。`);
       resetModelForm();
       await loadData();
     } catch (nextError) {
@@ -172,37 +174,42 @@ export function MerchantModelConfigView({
   }
 
   function buildModelPayload(groupIds: string[]) {
-    const basePayload = {
+    return {
       model: modelName.trim(),
       displayName: displayName.trim() || undefined,
-      pricingMode,
       status: modelStatus,
       groupIds
     };
+  }
 
-    if (pricingMode === 'deepseek_base') {
+  function buildMappingPricingPayload() {
+    if (!selectedMappingProvider) {
+      throw new Error('请先选择上游');
+    }
+
+    if (selectedMappingProvider.kind === 'deepseek') {
       return {
-        ...basePayload,
-        modelMultiplier: modelMultiplier.trim() || DEFAULT_MODEL_MULTIPLIER
+        pricingMode: 'deepseek_base' as const,
+        modelMultiplier: mappingModelMultiplier.trim() || DEFAULT_MODEL_MULTIPLIER
       };
     }
 
-    if (pricingMode === 'relay_price') {
+    if (selectedMappingProvider.kind === 'relay') {
       return {
-        ...basePayload,
-        upstreamInputPricePerMillion: upstreamInputPricePerMillion.trim(),
-        upstreamOutputPricePerMillion: upstreamOutputPricePerMillion.trim(),
-        upstreamCurrency,
-        upstreamExchangeRate: upstreamCurrency === 'USD' ? upstreamExchangeRate.trim() : '1',
-        marginPercent: marginPercent.trim() || DEFAULT_MARGIN_PERCENT
+        pricingMode: 'relay_price' as const,
+        upstreamInputPricePerMillion: mappingUpstreamInputPricePerMillion.trim(),
+        upstreamOutputPricePerMillion: mappingUpstreamOutputPricePerMillion.trim(),
+        upstreamCurrency: mappingUpstreamCurrency,
+        upstreamExchangeRate: mappingUpstreamCurrency === 'USD' ? mappingUpstreamExchangeRate.trim() : '1',
+        marginPercent: mappingMarginPercent.trim() || DEFAULT_MARGIN_PERCENT
       };
     }
 
     return {
-      ...basePayload,
-      inputPriceCentsPer1k: parseWholeNumber(inputTokensPer1k, '输入 token'),
-      outputPriceCentsPer1k: parseWholeNumber(outputTokensPer1k, '输出 token'),
-      modelMultiplier: modelMultiplier.trim() || DEFAULT_MODEL_MULTIPLIER
+      pricingMode: 'manual' as const,
+      inputPriceCentsPer1k: parseWholeNumber(mappingInputTokensPer1k, '输入 token'),
+      outputPriceCentsPer1k: parseWholeNumber(mappingOutputTokensPer1k, '输出 token'),
+      modelMultiplier: mappingModelMultiplier.trim() || DEFAULT_MODEL_MULTIPLIER
     };
   }
 
@@ -225,6 +232,7 @@ export function MerchantModelConfigView({
         priority: parseWholeNumber(mappingPriority, '线路顺序'),
         timeoutMs: parseWholeNumber(mappingTimeoutMs, '超时时间'),
         upstreamPrompt: mappingPrompt.trim() || undefined,
+        ...buildMappingPricingPayload(),
         status: mappingStatus,
         supportsStream: mappingSupportsStream
       };
@@ -253,15 +261,6 @@ export function MerchantModelConfigView({
     setEditingModelId(model.id);
     setModelName(model.model);
     setDisplayName(model.displayName ?? '');
-    setPricingMode(model.pricingMode);
-    setModelMultiplier(model.modelMultiplier);
-    setInputTokensPer1k(String(model.inputPriceCentsPer1k));
-    setOutputTokensPer1k(String(model.outputPriceCentsPer1k));
-    setUpstreamInputPricePerMillion(model.upstreamInputPricePerMillion ?? '');
-    setUpstreamOutputPricePerMillion(model.upstreamOutputPricePerMillion ?? '');
-    setUpstreamCurrency(model.upstreamCurrency ?? 'CNY');
-    setUpstreamExchangeRate(model.upstreamExchangeRate ?? DEFAULT_EXCHANGE_RATE);
-    setMarginPercent(model.marginPercent ?? DEFAULT_MARGIN_PERCENT);
     setModelStatus(model.status === 'disabled' ? 'disabled' : 'active');
     setModelGroupIds(model.groups.length ? model.groups.map((group) => group.id) : activeGroupIds);
     document.getElementById('merchant-model-publish')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -276,6 +275,7 @@ export function MerchantModelConfigView({
     resetMappingForm();
     setMappingPublicModel(model.model);
     setMappingUpstreamModel(model.model);
+    setMappingModelMultiplier(DEFAULT_MODEL_MULTIPLIER);
     document.getElementById('merchant-model-routes')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
@@ -290,6 +290,14 @@ export function MerchantModelConfigView({
     setMappingPriority(String(mapping.priority));
     setMappingTimeoutMs(String(mapping.timeoutMs));
     setMappingPrompt(mapping.upstreamPrompt ?? '');
+    setMappingModelMultiplier(mapping.routePricing?.modelMultiplier ?? DEFAULT_MODEL_MULTIPLIER);
+    setMappingInputTokensPer1k(String(mapping.routePricing?.inputPriceCentsPer1k ?? 1000));
+    setMappingOutputTokensPer1k(String(mapping.routePricing?.outputPriceCentsPer1k ?? 1000));
+    setMappingUpstreamInputPricePerMillion(mapping.routePricing?.upstreamInputPricePerMillion ?? '');
+    setMappingUpstreamOutputPricePerMillion(mapping.routePricing?.upstreamOutputPricePerMillion ?? '');
+    setMappingUpstreamCurrency(mapping.routePricing?.upstreamCurrency ?? 'CNY');
+    setMappingUpstreamExchangeRate(mapping.routePricing?.upstreamExchangeRate ?? DEFAULT_EXCHANGE_RATE);
+    setMappingMarginPercent(mapping.routePricing?.marginPercent ?? DEFAULT_MARGIN_PERCENT);
     setMappingStatus(mapping.status === 'disabled' ? 'disabled' : 'active');
     setMappingSupportsStream(mapping.supportsStream);
     document.getElementById('merchant-model-routes')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -299,15 +307,6 @@ export function MerchantModelConfigView({
     setEditingModelId(null);
     setModelName('');
     setDisplayName('');
-    setPricingMode('deepseek_base');
-    setModelMultiplier(DEFAULT_MODEL_MULTIPLIER);
-    setInputTokensPer1k('1000');
-    setOutputTokensPer1k('1000');
-    setUpstreamInputPricePerMillion('');
-    setUpstreamOutputPricePerMillion('');
-    setUpstreamCurrency('CNY');
-    setUpstreamExchangeRate(DEFAULT_EXCHANGE_RATE);
-    setMarginPercent(DEFAULT_MARGIN_PERCENT);
     setModelStatus('active');
     setModelGroupIds(activeGroupIds);
   }
@@ -321,6 +320,14 @@ export function MerchantModelConfigView({
     setMappingPriority('1');
     setMappingTimeoutMs('5000');
     setMappingPrompt('');
+    setMappingModelMultiplier(DEFAULT_MODEL_MULTIPLIER);
+    setMappingInputTokensPer1k('1000');
+    setMappingOutputTokensPer1k('1000');
+    setMappingUpstreamInputPricePerMillion('');
+    setMappingUpstreamOutputPricePerMillion('');
+    setMappingUpstreamCurrency('CNY');
+    setMappingUpstreamExchangeRate(DEFAULT_EXCHANGE_RATE);
+    setMappingMarginPercent(DEFAULT_MARGIN_PERCENT);
     setMappingStatus('active');
     setMappingSupportsStream(true);
   }
@@ -350,7 +357,7 @@ export function MerchantModelConfigView({
             <small>
               {isRoutesPage
                 ? '把已经发布的客户模型绑定到 DeepSeek 或中转站上游。'
-                : '先准备用户看到的模型名和扣费规则，上游线路在“模型映射”里绑定。'}
+                : '先准备用户看到的模型名；上游、真实模型和扣费规则都在后面单独配置。'}
             </small>
           </div>
           <button className="icon-button" disabled={isLoading} onClick={() => void loadData()} title="刷新模型配置" type="button">
@@ -376,7 +383,7 @@ export function MerchantModelConfigView({
             <h2>第一步：发布客户模型</h2>
           </div>
           <p className="form-note">
-            这里先准备用户看到的模型，例如 gpt5.5。DeepSeek 上游和中转站上游只在上游页面维护，不在上游页面发布客户模型。
+            这里只准备用户看到的模型，例如 gpt5.5。上游地址在上游页面维护，真实模型、线路顺序、超时、提示词和扣费规则在“模型映射”里配置。
           </p>
           {editingModel ? (
             <p className="form-note">
@@ -402,72 +409,12 @@ export function MerchantModelConfigView({
               <input maxLength={120} onChange={(event) => setDisplayName(event.target.value)} placeholder="可不填" value={displayName} />
             </label>
             <label>
-              计费方式
-              <select onChange={(event) => setPricingMode(event.target.value as PricingMode)} value={pricingMode}>
-                <option value="deepseek_base">DeepSeek 倍率</option>
-                <option value="relay_price">按中转站价格换算</option>
-                <option value="manual">手动 token 扣费</option>
-              </select>
-            </label>
-            <label>
               状态
               <select onChange={(event) => setModelStatus(event.target.value as ModelStatus)} value={modelStatus}>
                 <option value="active">启用</option>
                 <option value="disabled">停用</option>
               </select>
             </label>
-
-            {pricingMode === 'deepseek_base' ? (
-              <label>
-                模型倍率
-                <input min="0.0001" onChange={(event) => setModelMultiplier(event.target.value)} required step="0.0001" type="number" value={modelMultiplier} />
-              </label>
-            ) : null}
-
-            {pricingMode === 'relay_price' ? (
-              <>
-                <label>
-                  价格币种
-                  <select onChange={(event) => setUpstreamCurrency(event.target.value as 'CNY' | 'USD')} value={upstreamCurrency}>
-                    <option value="CNY">人民币</option>
-                    <option value="USD">美元</option>
-                  </select>
-                </label>
-                <label>
-                  上游输入价格 / 100万 token
-                  <input min="0" onChange={(event) => setUpstreamInputPricePerMillion(event.target.value)} required step="0.0001" type="number" value={upstreamInputPricePerMillion} />
-                </label>
-                <label>
-                  上游输出价格 / 100万 token
-                  <input min="0" onChange={(event) => setUpstreamOutputPricePerMillion(event.target.value)} required step="0.0001" type="number" value={upstreamOutputPricePerMillion} />
-                </label>
-                <label>
-                  美元汇率
-                  <input disabled={upstreamCurrency === 'CNY'} min="0.000001" onChange={(event) => setUpstreamExchangeRate(event.target.value)} required step="0.000001" type="number" value={upstreamExchangeRate} />
-                </label>
-                <label>
-                  加价百分比
-                  <input min="0" onChange={(event) => setMarginPercent(event.target.value)} required step="0.0001" type="number" value={marginPercent} />
-                </label>
-              </>
-            ) : null}
-
-            {pricingMode === 'manual' ? (
-              <>
-                <label>
-                  输入扣费 token / 1K
-                  <input min="0" onChange={(event) => setInputTokensPer1k(event.target.value)} required step="1" type="number" value={inputTokensPer1k} />
-                </label>
-                <label>
-                  输出扣费 token / 1K
-                  <input min="0" onChange={(event) => setOutputTokensPer1k(event.target.value)} required step="1" type="number" value={outputTokensPer1k} />
-                </label>
-                <label>
-                  模型倍率
-                  <input min="0.0001" onChange={(event) => setModelMultiplier(event.target.value)} required step="0.0001" type="number" value={modelMultiplier} />
-                </label>
-              </>
-            ) : null}
 
             <div className="form-actions full-width-field">
               <button className="primary-button" disabled={isModelSaving || !activeGroupIds.length} type="submit">
@@ -494,8 +441,6 @@ export function MerchantModelConfigView({
               <thead>
                 <tr>
                   <th>客户模型</th>
-                  <th>计费方式</th>
-                  <th>扣费</th>
                   <th>线路</th>
                   <th>状态</th>
                   <th>操作</th>
@@ -508,8 +453,6 @@ export function MerchantModelConfigView({
                       <strong>{model.model}</strong>
                       <small className="table-note">{model.displayName || '-'}</small>
                     </td>
-                    <td>{formatPricingMode(model.pricingMode)}</td>
-                    <td>{formatPricingCost(model)}</td>
                     <td>{formatNumber(model.upstreamMappings.length)}</td>
                     <td>{formatStatus(model.status)}</td>
                     <td>
@@ -528,7 +471,7 @@ export function MerchantModelConfigView({
                 ))}
                 {!models.length && !isLoading ? (
                   <tr>
-                    <td colSpan={6}>暂无客户模型</td>
+                    <td colSpan={4}>暂无客户模型</td>
                   </tr>
                 ) : null}
               </tbody>
@@ -584,6 +527,90 @@ export function MerchantModelConfigView({
               超时时间（毫秒）
               <input max={30000} min={1000} onChange={(event) => setMappingTimeoutMs(event.target.value)} required step={500} type="number" value={mappingTimeoutMs} />
             </label>
+            {selectedMappingProvider?.kind === 'deepseek' ? (
+              <label>
+                这条线路倍率
+                <input
+                  min="0"
+                  onChange={(event) => setMappingModelMultiplier(event.target.value)}
+                  placeholder="例如：gpt5.5 填 5，普通 DeepSeek 填 1"
+                  required
+                  step="0.0001"
+                  type="number"
+                  value={mappingModelMultiplier}
+                />
+              </label>
+            ) : null}
+            {selectedMappingProvider?.kind === 'relay' ? (
+              <>
+                <label>
+                  上游输入价格 / 100万 token
+                  <input
+                    min="0"
+                    onChange={(event) => setMappingUpstreamInputPricePerMillion(event.target.value)}
+                    placeholder="例如：5"
+                    required
+                    step="0.0001"
+                    type="number"
+                    value={mappingUpstreamInputPricePerMillion}
+                  />
+                </label>
+                <label>
+                  上游输出价格 / 100万 token
+                  <input
+                    min="0"
+                    onChange={(event) => setMappingUpstreamOutputPricePerMillion(event.target.value)}
+                    placeholder="例如：30"
+                    required
+                    step="0.0001"
+                    type="number"
+                    value={mappingUpstreamOutputPricePerMillion}
+                  />
+                </label>
+                <label>
+                  上游币种
+                  <select onChange={(event) => setMappingUpstreamCurrency(event.target.value as 'CNY' | 'USD')} value={mappingUpstreamCurrency}>
+                    <option value="CNY">人民币</option>
+                    <option value="USD">美元</option>
+                  </select>
+                </label>
+                <label>
+                  加价比例
+                  <input
+                    min="0"
+                    onChange={(event) => setMappingMarginPercent(event.target.value)}
+                    placeholder="默认 10"
+                    step="0.0001"
+                    type="number"
+                    value={mappingMarginPercent}
+                  />
+                </label>
+                {mappingUpstreamCurrency === 'USD' ? (
+                  <label>
+                    美元转人民币汇率
+                    <input
+                      min="0.000001"
+                      onChange={(event) => setMappingUpstreamExchangeRate(event.target.value)}
+                      step="0.000001"
+                      type="number"
+                      value={mappingUpstreamExchangeRate}
+                    />
+                  </label>
+                ) : null}
+              </>
+            ) : null}
+            {selectedMappingProvider && selectedMappingProvider.kind === 'generic' ? (
+              <>
+                <label>
+                  输入 token / 1K
+                  <input min={0} onChange={(event) => setMappingInputTokensPer1k(event.target.value)} required type="number" value={mappingInputTokensPer1k} />
+                </label>
+                <label>
+                  输出 token / 1K
+                  <input min={0} onChange={(event) => setMappingOutputTokensPer1k(event.target.value)} required type="number" value={mappingOutputTokensPer1k} />
+                </label>
+              </>
+            ) : null}
             <label>
               状态
               <select onChange={(event) => setMappingStatus(event.target.value as ModelStatus)} value={mappingStatus}>
@@ -628,6 +655,7 @@ export function MerchantModelConfigView({
                   <th>真实上游模型</th>
                   <th>线路</th>
                   <th>超时</th>
+                  <th>扣费规则</th>
                   <th>提示词</th>
                   <th>状态</th>
                   <th>操作</th>
@@ -644,6 +672,7 @@ export function MerchantModelConfigView({
                     <td>{mapping.upstreamModel}</td>
                     <td>线路 {mapping.priority}</td>
                     <td>{mapping.timeoutMs} 毫秒</td>
+                    <td>{formatRoutePricing(mapping)}</td>
                     <td>{mapping.upstreamPrompt ? shortText(mapping.upstreamPrompt, 42) : '-'}</td>
                     <td>{formatStatus(mapping.status)}</td>
                     <td>
@@ -661,7 +690,7 @@ export function MerchantModelConfigView({
                 ))}
                 {!mappings.length && !isLoading ? (
                   <tr>
-                    <td colSpan={8}>暂无上游线路</td>
+                    <td colSpan={9}>暂无上游线路</td>
                   </tr>
                 ) : null}
               </tbody>
@@ -697,6 +726,10 @@ export function MerchantModelConfigView({
               <div>
                 <dt>线路顺序</dt>
                 <dd>线路 {selectedMapping.priority}</dd>
+              </div>
+              <div>
+                <dt>扣费规则</dt>
+                <dd>{formatRoutePricing(selectedMapping)}</dd>
               </div>
               <div className="full-width-field">
                 <dt>上游附加提示词</dt>
@@ -745,27 +778,26 @@ function formatNumber(value: number) {
   return new Intl.NumberFormat('zh-CN').format(value);
 }
 
-function formatPricingMode(mode: string) {
-  if (mode === 'deepseek_base') {
-    return 'DeepSeek 倍率';
-  }
-  if (mode === 'relay_price') {
-    return '中转站价格换算';
-  }
-
-  return '手动 token';
+function formatOptionalNumber(value: number | null | undefined) {
+  return typeof value === 'number' ? formatNumber(value) : '-';
 }
 
-function formatPricingCost(model: AdminModelPrice) {
-  if (model.pricingMode === 'deepseek_base') {
-    return `${trimNumber(model.modelMultiplier)} 倍率`;
+function formatRoutePricing(mapping: UpstreamModelMapping) {
+  const pricing = mapping.routePricing;
+
+  if (!pricing?.pricingMode) {
+    return '跟随客户模型';
   }
 
-  if (model.pricingMode === 'relay_price') {
-    return `输入 ${formatNumber(model.inputPriceCentsPer1k)} / 输出 ${formatNumber(model.outputPriceCentsPer1k)} token`;
+  if (pricing.pricingMode === 'deepseek_base') {
+    return `DeepSeek ${trimNumber(pricing.modelMultiplier ?? '1')} 倍`;
   }
 
-  return `输入 ${formatNumber(model.inputPriceCentsPer1k)} / 输出 ${formatNumber(model.outputPriceCentsPer1k)} token`;
+  if (pricing.pricingMode === 'relay_price') {
+    return `中转站：输入 ${formatOptionalNumber(pricing.inputPriceCentsPer1k)} / 输出 ${formatOptionalNumber(pricing.outputPriceCentsPer1k)} token`;
+  }
+
+  return `手动：输入 ${formatOptionalNumber(pricing.inputPriceCentsPer1k)} / 输出 ${formatOptionalNumber(pricing.outputPriceCentsPer1k)} token`;
 }
 
 function formatKind(upstream: UpstreamProvider) {

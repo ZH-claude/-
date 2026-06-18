@@ -119,6 +119,18 @@ export type UpstreamProvider = {
   updatedAt: string;
 };
 
+export type RoutePricing = {
+  pricingMode: 'manual' | 'deepseek_base' | 'relay_price' | null;
+  inputPriceCentsPer1k: number | null;
+  outputPriceCentsPer1k: number | null;
+  modelMultiplier: string | null;
+  upstreamInputPricePerMillion: string | null;
+  upstreamOutputPricePerMillion: string | null;
+  upstreamCurrency: 'CNY' | 'USD' | null;
+  upstreamExchangeRate: string | null;
+  marginPercent: string | null;
+};
+
 export type AdminGroup = {
   id: string;
   code: string;
@@ -154,11 +166,13 @@ export type AdminModelPrice = {
     id: string;
     providerId: string;
     providerName: string;
+    providerKind: 'generic' | 'deepseek' | 'relay';
     providerStatus: string;
     upstreamModel: string;
     priority: number;
     timeoutMs: number;
     upstreamPrompt: string | null;
+    routePricing: RoutePricing | null;
     status: string;
     supportsStream: boolean;
   }>;
@@ -170,6 +184,7 @@ export type UpstreamModelMapping = {
   id: string;
   providerId: string;
   providerName: string;
+  providerKind: 'generic' | 'deepseek' | 'relay';
   providerStatus: string;
   publicModel: string;
   displayName: string | null;
@@ -177,6 +192,7 @@ export type UpstreamModelMapping = {
   priority: number;
   timeoutMs: number;
   upstreamPrompt: string | null;
+  routePricing: RoutePricing | null;
   status: string;
   supportsStream: boolean;
   createdAt: string;
@@ -526,6 +542,15 @@ export async function createUpstreamModel(payload: {
   priority: number;
   timeoutMs: number;
   upstreamPrompt?: string;
+  pricingMode?: 'manual' | 'deepseek_base' | 'relay_price';
+  inputPriceCentsPer1k?: number;
+  outputPriceCentsPer1k?: number;
+  modelMultiplier?: string;
+  upstreamInputPricePerMillion?: string;
+  upstreamOutputPricePerMillion?: string;
+  upstreamCurrency?: 'CNY' | 'USD';
+  upstreamExchangeRate?: string;
+  marginPercent?: string;
   status: 'active' | 'disabled';
   supportsStream: boolean;
 }) {
@@ -542,6 +567,15 @@ export async function updateUpstreamModel(mappingId: string, payload: {
   priority: number;
   timeoutMs: number;
   upstreamPrompt?: string;
+  pricingMode?: 'manual' | 'deepseek_base' | 'relay_price';
+  inputPriceCentsPer1k?: number;
+  outputPriceCentsPer1k?: number;
+  modelMultiplier?: string;
+  upstreamInputPricePerMillion?: string;
+  upstreamOutputPricePerMillion?: string;
+  upstreamCurrency?: 'CNY' | 'USD';
+  upstreamExchangeRate?: string;
+  marginPercent?: string;
   status: 'active' | 'disabled';
   supportsStream: boolean;
 }) {

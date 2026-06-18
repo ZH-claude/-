@@ -111,10 +111,14 @@ type StreamBillingContext = {
 
 type UpstreamMappingCandidate = {
   id: string;
+  publicModel: string;
   upstreamModel: string;
   priority: number;
   timeoutMs: number;
   upstreamPrompt: string | null;
+  inputPriceCentsPer1k: number | null;
+  outputPriceCentsPer1k: number | null;
+  modelMultiplier: { toString(): string } | null;
   provider: {
     id: string;
     baseUrl: string;
@@ -471,7 +475,7 @@ export class RelayService {
         userId: auth.user.id,
         tokenId: auth.token.id
       };
-      await this.billingService.assertCanStartUsage(auth.user.id, allowedModel);
+      await this.billingService.assertCanStartUsage(auth.user.id, this.buildBillableModelForRoute(allowedModel, mappings[0]));
       await this.tokensService.activateApiTokenIfNeeded(auth.token);
 
       if (body.stream) {
@@ -495,7 +499,7 @@ export class RelayService {
           await this.billingService.recordFailedChat({
             requestId: input.requestId,
             principal: billingPrincipal,
-            model: allowedModel,
+            model: this.buildBillableModelForRoute(allowedModel, failure.mapping),
             upstream: billingTarget,
             errorCode: normalizedError.code
           });
@@ -546,7 +550,7 @@ export class RelayService {
           billing: {
             requestId: input.requestId,
             principal: billingPrincipal,
-            model: allowedModel,
+            model: this.buildBillableModelForRoute(allowedModel, attempt.mapping),
             upstream: billingTarget
           }
         };
@@ -571,7 +575,7 @@ export class RelayService {
         await this.billingService.recordFailedChat({
           requestId: input.requestId,
           principal: billingPrincipal,
-          model: allowedModel,
+          model: this.buildBillableModelForRoute(allowedModel, failure.mapping),
           upstream: billingTarget,
           errorCode: normalizedError.code
         });
@@ -605,7 +609,7 @@ export class RelayService {
         await this.billingService.recordFailedChat({
           requestId: input.requestId,
           principal: billingPrincipal,
-          model: allowedModel,
+          model: this.buildBillableModelForRoute(allowedModel, attempt.mapping),
           upstream: billingTarget,
           errorCode: this.normalizeError(error).code
         });
@@ -631,7 +635,7 @@ export class RelayService {
       const billingRecord = await this.billingService.recordCompletedChat({
         requestId: input.requestId,
         principal: billingPrincipal,
-        model: allowedModel,
+        model: this.buildBillableModelForRoute(allowedModel, attempt.mapping),
         upstream: billingTarget,
         responseBody: upstreamBodyJson
       });
@@ -1232,6 +1236,24 @@ export class RelayService {
     return {
       ...upstreamBody,
       messages: this.injectUpstreamPrompt(upstreamBody.messages, upstreamPrompt)
+    };
+  }
+
+  private buildBillableModelForRoute(defaultModel: BillableModel, mapping: UpstreamMappingCandidate | undefined): BillableModel {
+    if (
+      !mapping ||
+      mapping.inputPriceCentsPer1k === null ||
+      mapping.outputPriceCentsPer1k === null ||
+      mapping.modelMultiplier === null
+    ) {
+      return defaultModel;
+    }
+
+    return {
+      ...defaultModel,
+      inputPriceCentsPer1k: mapping.inputPriceCentsPer1k,
+      outputPriceCentsPer1k: mapping.outputPriceCentsPer1k,
+      modelMultiplier: mapping.modelMultiplier.toString()
     };
   }
 

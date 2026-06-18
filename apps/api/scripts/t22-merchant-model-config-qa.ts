@@ -59,11 +59,18 @@ type AdminUpstreamModel = {
   id: string;
   providerId: string;
   providerName: string;
+  providerKind: string;
   publicModel: string;
   upstreamModel: string;
   priority: number;
   timeoutMs: number;
   upstreamPrompt: string | null;
+  routePricing: {
+    pricingMode: string | null;
+    inputPriceCentsPer1k: number | null;
+    outputPriceCentsPer1k: number | null;
+    modelMultiplier: string | null;
+  } | null;
   status: string;
   supportsStream: boolean;
 };
@@ -282,9 +289,7 @@ async function main() {
       '/admin/models',
       {
         model: `${prefix}_forbidden_model`,
-        groupIds: [seededUsers.adminId],
-        inputPriceCentsPer1k: 1,
-        outputPriceCentsPer1k: 1
+        groupIds: [seededUsers.adminId]
       },
       userCookie
     );
@@ -297,9 +302,7 @@ async function main() {
       '/admin/models/00000000-0000-0000-0000-000000000000/update',
       {
         model: `${prefix}_forbidden_model`,
-        groupIds: [seededUsers.adminId],
-        inputPriceCentsPer1k: 1,
-        outputPriceCentsPer1k: 1
+        groupIds: [seededUsers.adminId]
       },
       userCookie
     );
@@ -362,16 +365,13 @@ async function main() {
       {
         model: created.modelName,
         displayName: `${prefix} QA Model`,
-        inputPriceCentsPer1k: 8,
-        outputPriceCentsPer1k: 16,
-        modelMultiplier: '1.2500',
         groupIds: [created.groupId]
       },
       adminCookie
     );
     assert(modelCreate.status >= 200 && modelCreate.status < 300, `admin create model failed with ${modelCreate.status}`);
     assert(modelCreate.json.model === created.modelName, 'created model name mismatch');
-    checks.push('admin_created_model_price_via_api');
+    checks.push('admin_created_customer_model_without_route_pricing_via_api');
 
     const updatedModelName = `${created.modelName}_edited`;
     const modelUpdate = await post<AdminModelPrice>(
@@ -379,9 +379,6 @@ async function main() {
       {
         model: updatedModelName,
         displayName: `${prefix} QA Model Edited`,
-        inputPriceCentsPer1k: 10,
-        outputPriceCentsPer1k: 20,
-        modelMultiplier: '1.5000',
         status: 'active',
         groupIds: [created.groupId]
       },
@@ -389,11 +386,9 @@ async function main() {
     );
     assert(modelUpdate.status >= 200 && modelUpdate.status < 300, `admin update model failed with ${modelUpdate.status}`);
     assert(modelUpdate.json.model === updatedModelName, 'updated model name mismatch');
-    assert(modelUpdate.json.inputPriceCentsPer1k === 10, 'updated input price mismatch');
-    assert(modelUpdate.json.outputPriceCentsPer1k === 20, 'updated output price mismatch');
-    assert(Number(modelUpdate.json.modelMultiplier) === 1.5, 'updated multiplier mismatch');
+    assert(modelUpdate.json.displayName === `${prefix} QA Model Edited`, 'updated model display name mismatch');
     created.modelName = updatedModelName;
-    checks.push('admin_updated_model_price_via_api');
+    checks.push('admin_updated_customer_model_without_route_pricing_via_api');
 
     const upstreamCreate = await post<AdminUpstreamProvider>(
       '/admin/upstreams',
@@ -468,6 +463,10 @@ async function main() {
         priority: 1,
         timeoutMs: 5000,
         upstreamPrompt: 'QA prompt',
+        pricingMode: 'manual',
+        inputPriceCentsPer1k: 17,
+        outputPriceCentsPer1k: 31,
+        modelMultiplier: '1.7500',
         supportsStream: true
       },
       adminCookie
@@ -477,6 +476,10 @@ async function main() {
       `admin create upstream-model failed with ${upstreamModelCreate.status}`
     );
     created.upstreamModelId = upstreamModelCreate.json.id;
+    assert(upstreamModelCreate.json.routePricing?.pricingMode === 'manual', 'created upstream-model route pricing mode mismatch');
+    assert(upstreamModelCreate.json.routePricing.inputPriceCentsPer1k === 17, 'created upstream-model input route pricing mismatch');
+    assert(upstreamModelCreate.json.routePricing.outputPriceCentsPer1k === 31, 'created upstream-model output route pricing mismatch');
+    assert(Number(upstreamModelCreate.json.routePricing.modelMultiplier) === 1.75, 'created upstream-model multiplier mismatch');
     checks.push('admin_created_upstream_model_mapping_via_api');
 
     const upstreamModelUpdate = await post<AdminUpstreamModel>(
@@ -488,6 +491,10 @@ async function main() {
         priority: 1,
         timeoutMs: 7000,
         upstreamPrompt: 'QA prompt edited',
+        pricingMode: 'manual',
+        inputPriceCentsPer1k: 19,
+        outputPriceCentsPer1k: 37,
+        modelMultiplier: '2.0000',
         status: 'active',
         supportsStream: false
       },
@@ -504,6 +511,10 @@ async function main() {
     assert(upstreamModelUpdate.json.timeoutMs === 7000, 'updated upstream-model timeout mismatch');
     assert(upstreamModelUpdate.json.upstreamPrompt === 'QA prompt edited', 'updated upstream-model prompt mismatch');
     assert(upstreamModelUpdate.json.supportsStream === false, 'updated upstream-model stream flag mismatch');
+    assert(upstreamModelUpdate.json.routePricing?.pricingMode === 'manual', 'updated upstream-model route pricing mode mismatch');
+    assert(upstreamModelUpdate.json.routePricing.inputPriceCentsPer1k === 19, 'updated upstream-model route input pricing mismatch');
+    assert(upstreamModelUpdate.json.routePricing.outputPriceCentsPer1k === 37, 'updated upstream-model route output pricing mismatch');
+    assert(Number(upstreamModelUpdate.json.routePricing.modelMultiplier) === 2, 'updated upstream-model route multiplier mismatch');
     checks.push('admin_updated_upstream_model_mapping_via_api');
 
     const createText = JSON.stringify({
@@ -555,6 +566,16 @@ async function main() {
     assert(
       modelConfig.json.upstreamModels.some((mapping) => mapping.publicModel === created.modelName),
       'created mapping missing in /admin/model-config upstreamModels'
+    );
+    assert(
+      modelConfig.json.upstreamModels.some(
+        (mapping) =>
+          mapping.id === created.upstreamModelId &&
+          mapping.routePricing?.pricingMode === 'manual' &&
+          mapping.routePricing.inputPriceCentsPer1k === 19 &&
+          mapping.routePricing.outputPriceCentsPer1k === 37
+      ),
+      'created mapping route pricing missing in /admin/model-config upstreamModels'
     );
     assert(modelConfig.json.groups.some((group) => group.id === created.groupId), 'created group missing in /admin/model-config groups');
     const modelConfigText = JSON.stringify(modelConfig.json);
