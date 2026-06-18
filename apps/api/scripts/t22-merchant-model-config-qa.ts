@@ -276,6 +276,21 @@ async function main() {
       checks.push('admin_can_open_merchant_model_routes_page');
     }
 
+    const adminDeepSeekUpstreamPage = await requestWebPage('/merchant/upstreams/deepseek', adminCookie);
+    assert(
+      adminDeepSeekUpstreamPage.status >= 200 && adminDeepSeekUpstreamPage.status < 300,
+      `merchant /merchant/upstreams/deepseek should be accessible for admin, got ${adminDeepSeekUpstreamPage.status}`
+    );
+    assertMerchantUpstreamHtml(adminDeepSeekUpstreamPage.text, 'deepseek');
+
+    const adminRelayUpstreamPage = await requestWebPage('/merchant/upstreams/relay', adminCookie);
+    assert(
+      adminRelayUpstreamPage.status >= 200 && adminRelayUpstreamPage.status < 300,
+      `merchant /merchant/upstreams/relay should be accessible for admin, got ${adminRelayUpstreamPage.status}`
+    );
+    assertMerchantUpstreamHtml(adminRelayUpstreamPage.text, 'relay');
+    checks.push('merchant_upstream_pages_do_not_publish_or_bind_customer_models');
+
     const adminProfile = await get<AuthMeResponse>('/auth/me', adminCookie);
     assert(adminProfile.status >= 200 && adminProfile.status < 300, '/auth/me for admin should pass');
 
@@ -971,6 +986,42 @@ function assertMerchantModelRoutesHtml(text: string) {
   const forbiddenUserMarkers = ['个人中心', '余额充值', '通知设置', '令牌入口'];
   const leakedMarkers = forbiddenUserMarkers.filter((marker) => text.includes(marker));
   assert(leakedMarkers.length === 0, `merchant model-routes leaked user-site markers: ${leakedMarkers.join(', ')}`);
+}
+
+function assertMerchantUpstreamHtml(text: string, kind: 'deepseek' | 'relay') {
+  const pageMarker = kind === 'deepseek' ? 'data-page="merchant-deepseek-upstream"' : 'data-page="merchant-relay-upstream"';
+  const titleMarker = kind === 'deepseek' ? 'DeepSeek 上游接入' : '中转站上游接入';
+  const formMarker = kind === 'deepseek' ? '新增DeepSeek 上游' : '新增中转站上游';
+  const missingMarkers = ['merchant-upstream-page', pageMarker, titleMarker, formMarker, '当前'].filter(
+    (marker) => !text.includes(marker)
+  );
+  assert(missingMarkers.length === 0, `merchant upstream page missing markers: ${missingMarkers.join(', ')}`);
+
+  const forbiddenModelPublishMarkers = [
+    'id="merchant-model-publish"',
+    '第一步：发布客户模型',
+    '客户看到的模型名',
+    '保存客户模型',
+    'DeepSeek 模型发布',
+    '中转站模型发布',
+    'id="merchant-model-routes"',
+    '第三步：模型映射（上游线路）',
+    '已绑定线路',
+    '真实上游模型',
+    '线路顺序',
+    '上游附加提示词',
+    '保存线路',
+    '保存映射'
+  ];
+  const leakedMarkers = forbiddenModelPublishMarkers.filter((marker) => text.includes(marker));
+  assert(
+    leakedMarkers.length === 0,
+    `merchant upstream page should not publish or bind customer models, leaked: ${leakedMarkers.join(', ')}`
+  );
+
+  const forbiddenUserMarkers = ['个人中心', '余额充值', '通知设置', '令牌入口'];
+  const leakedUserMarkers = forbiddenUserMarkers.filter((marker) => text.includes(marker));
+  assert(leakedUserMarkers.length === 0, `merchant upstream page leaked user-site markers: ${leakedUserMarkers.join(', ')}`);
 }
 
 async function countResidual() {

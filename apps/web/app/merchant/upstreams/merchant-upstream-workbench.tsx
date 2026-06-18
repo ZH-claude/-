@@ -14,10 +14,8 @@ import { MerchantShell } from '../../components/merchant-shell';
 import {
   checkUpstreamHealth,
   createUpstreamProvider,
-  listModelConfiguration,
   listUpstreamProviders,
   updateUpstreamProvider,
-  type UpstreamModelMapping,
   type UpstreamProvider
 } from '../../lib/admin-api';
 
@@ -38,7 +36,6 @@ export function MerchantUpstreamWorkbench({
   const router = useRouter();
   const copy = getWorkbenchCopy(kind);
   const [providers, setProviders] = useState<UpstreamProvider[]>([]);
-  const [mappings, setMappings] = useState<UpstreamModelMapping[]>([]);
   const [providerName, setProviderName] = useState('');
   const [providerBaseUrl, setProviderBaseUrl] = useState('');
   const [providerApiKey, setProviderApiKey] = useState('');
@@ -63,34 +60,18 @@ export function MerchantUpstreamWorkbench({
     () => visibleProviders.find((provider) => provider.id === selectedProviderId) ?? visibleProviders[0] ?? null,
     [selectedProviderId, visibleProviders]
   );
-  const providerMappings = useMemo(() => {
-    if (!selectedProvider) {
-      return [];
-    }
-
-    return mappings.filter((mapping) => mapping.providerId === selectedProvider.id);
-  }, [mappings, selectedProvider]);
   const activeProviderCount = visibleProviders.filter((provider) => provider.status === 'active').length;
+  const checkedProviderCount = visibleProviders.filter((provider) => provider.healthStatus !== 'unknown').length;
   const unhealthyProviderCount = visibleProviders.filter((provider) => provider.healthStatus === 'unhealthy').length;
-  const activeMappingCount = mappings.filter(
-    (mapping) =>
-      visibleProviders.some((provider) => provider.id === mapping.providerId) &&
-      mapping.status === 'active' &&
-      mapping.providerStatus === 'active'
-  ).length;
 
   async function loadData() {
     setIsLoading(true);
     setError('');
 
     try {
-      const [providerResult, configResult] = await Promise.all([
-        listUpstreamProviders(),
-        listModelConfiguration({ upstreamModelsPage: 1, upstreamModelsLimit: 100 })
-      ]);
+      const providerResult = await listUpstreamProviders();
       const nextProviders = providerResult.items;
       setProviders(nextProviders);
-      setMappings(configResult.upstreamModels);
 
       const nextVisibleProviders = nextProviders.filter((provider) => isProviderInKind(provider, kind));
       setSelectedProviderId((current) =>
@@ -197,7 +178,7 @@ export function MerchantUpstreamWorkbench({
         <section className="admin-metrics">
           <MetricPanel label="已接入上游" value={formatNumber(visibleProviders.length)} detail={copy.providerName} />
           <MetricPanel label="启用上游" value={formatNumber(activeProviderCount)} detail="可作为模型线路" />
-          <MetricPanel label="已绑定线路" value={formatNumber(activeMappingCount)} detail="由模型映射页维护" />
+          <MetricPanel label="已检查上游" value={formatNumber(checkedProviderCount)} detail="健康检查记录" />
           <MetricPanel label="异常上游" value={formatNumber(unhealthyProviderCount)} detail="需要检查" />
         </section>
 
@@ -338,38 +319,7 @@ export function MerchantUpstreamWorkbench({
                   <dd>{formatHealth(selectedProvider.healthStatus)}</dd>
                 </div>
               </dl>
-
-              <div className="admin-table-wrap compact-table">
-                <table className="admin-table upstream-workbench-table">
-                  <thead>
-                    <tr>
-                      <th>客户模型</th>
-                      <th>真实上游模型</th>
-                      <th>线路顺序</th>
-                      <th>超时</th>
-                      <th>提示词</th>
-                      <th>状态</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {providerMappings.map((mapping) => (
-                      <tr key={mapping.id}>
-                        <td>{mapping.publicModel}</td>
-                        <td>{mapping.upstreamModel}</td>
-                        <td>线路 {mapping.priority}</td>
-                        <td>{mapping.timeoutMs} 毫秒</td>
-                        <td>{mapping.upstreamPrompt ? shortText(mapping.upstreamPrompt, 42) : '-'}</td>
-                        <td>{formatStatus(mapping.status)}</td>
-                      </tr>
-                    ))}
-                    {!providerMappings.length ? (
-                      <tr>
-                        <td colSpan={6}>这条上游还没有服务任何客户模型。请到“模型映射”里绑定。</td>
-                      </tr>
-                    ) : null}
-                  </tbody>
-                </table>
-              </div>
+              <p className="table-note">这里只检查供应商本身。要把它分配给某个模型，请进入“模型映射”。</p>
             </div>
           ) : (
             <p className="table-note">先保存一个真实上游，然后到“模型映射”绑定客户模型。</p>
@@ -451,8 +401,4 @@ function formatHealth(status: string) {
   }
 
   return '未检查';
-}
-
-function shortText(value: string, maxLength: number) {
-  return value.length > maxLength ? `${value.slice(0, maxLength)}...` : value;
 }
