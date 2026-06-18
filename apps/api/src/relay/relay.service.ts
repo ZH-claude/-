@@ -1125,8 +1125,13 @@ export class RelayService {
         throw this.createError(400, 'bad_request', 'invalid_request_error', 'messages contains invalid item');
       }
       const messageRecord = message as Record<string, unknown>;
-      if (messageRecord.role !== 'user' && messageRecord.role !== 'assistant') {
-        throw this.createError(400, 'bad_request', 'invalid_request_error', 'message role must be user or assistant');
+      if (
+        messageRecord.role !== 'user' &&
+        messageRecord.role !== 'assistant' &&
+        messageRecord.role !== 'system' &&
+        messageRecord.role !== 'developer'
+      ) {
+        throw this.createError(400, 'bad_request', 'invalid_request_error', 'message role must be user, assistant, system, or developer');
       }
       return messageRecord;
     });
@@ -1487,6 +1492,11 @@ export class RelayService {
         messages.push(...this.toOpenAiUserMessages(message.content));
       } else if (role === 'assistant') {
         messages.push(this.toOpenAiAssistantMessage(message.content));
+      } else if (role === 'system' || role === 'developer') {
+        const systemContent = this.extractAnthropicContentText(message.content);
+        if (systemContent) {
+          messages.push({ role: 'system', content: systemContent });
+        }
       }
     }
 

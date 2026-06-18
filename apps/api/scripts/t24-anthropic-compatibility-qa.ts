@@ -193,6 +193,10 @@ async function main() {
     assert(bearerMessage.status === 200, `Anthropic bearer message failed with ${bearerMessage.status}: ${bearerMessage.text}`);
     checks.push('anthropic_message_accepts_bearer_token');
 
+    const mixedRoleMessage = await request<AnthropicMessageResponse>('POST', '/v1/messages', createAnthropicBodyWithMixedRoles(), undefined, tokenCreate.json.apiKey);
+    assert(mixedRoleMessage.status === 200, `Anthropic message with non-user top-level role failed with ${mixedRoleMessage.status}: ${mixedRoleMessage.text}`);
+    checks.push('anthropic_messages_with_non_user_role_should_not_400');
+
     const toolResultMessage = await request<AnthropicMessageResponse>('POST', '/v1/messages', createAnthropicToolResultBody(), undefined, tokenCreate.json.apiKey);
     assert(toolResultMessage.status === 200, `Anthropic tool result message failed with ${toolResultMessage.status}: ${toolResultMessage.text}`);
     checks.push('anthropic_tool_result_messages_translate_to_openai_tool_messages');
@@ -221,6 +225,16 @@ async function main() {
     assert(seenRequests.every((entry) => entry.authorization === `Bearer ${upstreamApiKey}`), 'upstream should receive configured upstream key');
     assert(seenRequests.every((entry) => entry.body.model === upstreamModel), 'upstream should receive mapped upstream model');
     assert(seenRequests.some((entry) => Array.isArray(entry.body.tools)), 'upstream should receive converted tool definitions');
+    assert(seenRequests.some((entry) => {
+      const messages = Array.isArray(entry.body.messages) ? entry.body.messages : [];
+      return messages.some((message) =>
+        message &&
+        typeof message === 'object' &&
+        !Array.isArray(message) &&
+        (message as Record<string, unknown>).role === 'system' &&
+        (message as Record<string, unknown>).content === 'Use strict policy for follow-up answers.'
+      );
+    }), 'upstream should receive converted system role messages');
     assert(seenRequests.some((entry) => {
       const messages = Array.isArray(entry.body.messages) ? entry.body.messages : [];
       return messages.some((message) =>
@@ -330,6 +344,29 @@ function createAnthropicToolResultBody() {
             content: 'lookup finished'
           }
         ]
+      }
+    ]
+  };
+}
+
+function createAnthropicBodyWithMixedRoles() {
+  return {
+    model: publicModel,
+    max_tokens: 64,
+    stream: false,
+    messages: [
+      {
+        role: 'system',
+        content: [
+          {
+            type: 'text',
+            text: 'Use strict policy for follow-up answers.'
+          }
+        ]
+      },
+      {
+        role: 'user',
+        content: 'check role handling'
       }
     ]
   };
