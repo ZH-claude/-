@@ -33,6 +33,7 @@
     "qa:t24:compatibility": "tsx scripts/t24-anthropic-compatibility-qa.ts",
     "qa:t22:merchant-routing": "tsx scripts/t22-merchant-routing-qa.ts",
     "qa:t22:merchant-shell": "tsx scripts/t22-merchant-shell-qa.ts",
+    "qa:t23:route-metering": "tsx scripts/t23-route-metering-qa.ts",
     "seed:merchant-test-accounts": "tsx scripts/seed-merchant-test-accounts.ts",
     "prisma:generate": "prisma generate",
     "db:migrate": "prisma migrate deploy",
