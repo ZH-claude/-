@@ -643,11 +643,11 @@ export function MerchantModelConfigView({
             {selectedMappingProvider && selectedMappingProvider.kind === 'generic' ? (
               <>
                 <label>
-                  输入 token / 1K
+                  输入 token / 1000
                   <input min={0} onChange={(event) => setMappingInputTokensPer1k(event.target.value)} required type="number" value={mappingInputTokensPer1k} />
                 </label>
                 <label>
-                  输出 token / 1K
+                  输出 token / 1000
                   <input min={0} onChange={(event) => setMappingOutputTokensPer1k(event.target.value)} required type="number" value={mappingOutputTokensPer1k} />
                 </label>
               </>
@@ -878,8 +878,8 @@ function buildMappingPricingPreview(input: MappingPricingPreviewInput): MappingP
     return {
       title: '中转站线路扣费预览',
       lines: [
-        `输入扣费：${formatPreviewNumber(inputMultiplier)} 倍，1K 输入约扣 ${formatNumber(Math.ceil(inputMultiplier * 1000))} token。`,
-        `输出扣费：${formatPreviewNumber(outputMultiplier)} 倍，1K 输出约扣 ${formatNumber(Math.ceil(outputMultiplier * 1000))} token。`,
+        `输入扣费：${formatPreviewNumber(inputMultiplier)} 倍，1000 输入约扣 ${formatNumber(Math.ceil(inputMultiplier * 1000))} token。`,
+        `输出扣费：${formatPreviewNumber(outputMultiplier)} 倍，1000 输出约扣 ${formatNumber(Math.ceil(outputMultiplier * 1000))} token。`,
         `换算口径：上游价格 × 汇率 × 加价 ${formatPreviewNumber(marginPercent)}%，再除以 ${BASE_TOKEN_CNY_PER_MILLION} 元 / 100 万 token。`
       ]
     };
@@ -897,8 +897,8 @@ function buildMappingPricingPreview(input: MappingPricingPreviewInput): MappingP
   return {
     title: '手动线路扣费预览',
     lines: [
-      `1K 输入扣 ${formatNumber(Math.ceil(inputTokens))} token。`,
-      `1K 输出扣 ${formatNumber(Math.ceil(outputTokens))} token。`
+      `1000 输入扣 ${formatNumber(Math.ceil(inputTokens))} token。`,
+      `1000 输出扣 ${formatNumber(Math.ceil(outputTokens))} token。`
     ]
   };
 }

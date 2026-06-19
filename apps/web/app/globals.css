@@ -2003,13 +2003,13 @@ button {
 }
 
 .profile-metrics {
-  background: linear-gradient(180deg, #eefcfa 0%, #f8fafc 100%);
-  border: 1px solid #d8f3ee;
+  background: linear-gradient(180deg, #f3fbfa 0%, #f8fafc 100%);
+  border: 1px solid #e2f2ef;
   border-radius: 8px;
   display: grid;
-  gap: 10px;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  padding: 12px;
+  gap: 9px;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  padding: 10px;
 }
 
 .profile-metric-block {
@@ -2017,13 +2017,13 @@ button {
   background: #ffffff;
   border: 1px solid #e5eaf0;
   border-radius: 8px;
-  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.05);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
   display: grid;
-  gap: 10px;
+  gap: 9px;
   grid-template-columns: auto minmax(0, 1fr);
-  min-height: 72px;
+  min-height: 64px;
   min-width: 0;
-  padding: 12px 14px;
+  padding: 10px 12px;
 }
 
 .profile-metric-block span,
@@ -2039,7 +2039,7 @@ button {
   align-items: center;
   color: #111827;
   display: inline-flex;
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 600;
   gap: 5px;
   line-height: 1.2;
@@ -2054,25 +2054,25 @@ button {
 
 .profile-metric-unit {
   color: #64748b;
-  font-size: 11px;
-  font-weight: 700;
+  font-size: 10px;
+  font-weight: 600;
   line-height: 1;
   margin-left: 2px;
 }
 
 .profile-metric-icon {
   align-items: center;
-  border-radius: 10px;
+  border-radius: 9px;
   display: inline-flex;
-  font-size: 17px;
-  height: 34px;
+  font-size: 15px;
+  height: 30px;
   justify-content: center;
-  width: 34px;
+  width: 30px;
 }
 
 .profile-metric-block small {
   display: block;
-  font-size: 11px;
+  font-size: 10px;
   line-height: 1.45;
   margin-top: 2px;
 }
@@ -2115,12 +2115,12 @@ button {
 }
 
 .profile-usage-band {
-  background: linear-gradient(180deg, #e9fbf9 0%, #f8fafc 100%);
-  border: 1px solid #d8f3ee;
+  background: linear-gradient(180deg, #f3fbfa 0%, #f8fafc 100%);
+  border: 1px solid #e2f2ef;
   border-radius: 8px;
   display: grid;
-  gap: 14px;
-  padding: 16px 18px;
+  gap: 12px;
+  padding: 14px 16px;
 }
 
 .profile-usage-cards {
@@ -2134,23 +2134,23 @@ button {
   background: #ffffff;
   border: 1px solid #e5eaf0;
   border-radius: 8px;
-  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.05);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
   display: grid;
-  gap: 10px;
+  gap: 9px;
   grid-template-columns: auto minmax(0, 1fr);
-  min-height: 74px;
+  min-height: 66px;
   min-width: 0;
-  padding: 12px 14px;
+  padding: 10px 12px;
 }
 
 .profile-usage-icon {
   align-items: center;
-  border-radius: 10px;
+  border-radius: 9px;
   display: inline-flex;
-  font-size: 17px;
-  height: 34px;
+  font-size: 15px;
+  height: 30px;
   justify-content: center;
-  width: 34px;
+  width: 30px;
 }
 
 .profile-usage-tile span,
@@ -2162,14 +2162,14 @@ button {
 .profile-usage-tile strong {
   color: #111827;
   display: block;
-  font-size: 16px;
+  font-size: 15px;
   line-height: 1.2;
   margin: 2px 0;
 }
 
 .profile-usage-tile small {
   display: block;
-  font-size: 11px;
+  font-size: 10px;
   line-height: 1.45;
 }
 
@@ -2201,7 +2201,7 @@ button {
   display: flex;
   gap: 12px;
   justify-content: space-between;
-  padding: 14px 18px;
+  padding: 12px 16px;
 }
 
 .profile-usage-toolbar label {

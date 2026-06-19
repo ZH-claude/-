@@ -252,7 +252,7 @@ export default function AccountProfilePage() {
               accent="green"
               detail="账号可用余额"
               icon={<GiftOutlined />}
-              label="token 余额"
+              label="余额"
               unit="token"
               value={formatNumber(user?.wallet.balanceCents ?? 0)}
             />
@@ -260,7 +260,7 @@ export default function AccountProfilePage() {
               accent="red"
               detail="历史累计"
               icon={<BarChartOutlined />}
-              label="累计消耗 token"
+              label="累计消耗"
               unit="token"
               value={formatNumber(user?.wallet.totalSpendCents ?? 0)}
             />

@@ -107,11 +107,11 @@ export default function PricingPage() {
         <section className="account-panel wide-panel">
           <div className="panel-title">
             <CalculatorOutlined />
-            <h2>计费公式</h2>
+            <h2>扣费口径</h2>
           </div>
           <div className="formula-box">
-            <code>{pricing?.billingFormula.totalCostBaseTokens ?? '加载中'}</code>
-            <small>单位：token / 1K tokens，内部按 token 向上取整。</small>
+            <strong>按输入 token、输出 token 和模型倍率计算，最终扣除 token。</strong>
+            <small>DeepSeek 普通模型按 1 倍；其它模型按商家设置的倍率扣除。</small>
           </div>
         </section>
 
@@ -142,11 +142,11 @@ export default function PricingPage() {
               <thead>
                 <tr>
                   <th>模型</th>
-                  <th>公开输入单价</th>
-                  <th>公开输出单价</th>
+                  <th>输入扣费</th>
+                  <th>输出扣费</th>
                   <th>模型倍率</th>
-                  <th>实际输入单价</th>
-                  <th>实际输出单价</th>
+                  <th>实际输入扣费</th>
+                  <th>实际输出扣费</th>
                   <th>能力</th>
                   <th>操作</th>
                 </tr>
@@ -188,9 +188,9 @@ function PricingRow({ model, onCopy }: { model: PricingModel; onCopy: (model: st
       <td>{formatBaseTokensPer1k(effectiveOutputPrice)}</td>
       <td>
         {model.supportsStream ? (
-          <span className="status-pill status-pill-success">stream</span>
+          <span className="status-pill status-pill-success">支持流式</span>
         ) : (
-          <span className="status-pill status-pill-muted">no stream</span>
+          <span className="status-pill status-pill-muted">普通输出</span>
         )}
       </td>
       <td>
@@ -216,5 +216,5 @@ function formatMultiplier(value: string) {
 }
 
 function formatBaseTokensPer1k(value: number) {
-  return `${new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 4 }).format(value)} token / 1K`;
+  return `${new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 4 }).format(value)} token / 1000`;
 }

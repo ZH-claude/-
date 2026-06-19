@@ -95,7 +95,7 @@ const merchantPages: WebPageCheck[] = [
 ];
 
 const userPages: WebPageCheck[] = [
-  { path: '/account/profile', markers: ['console-shell-page', 'token 余额'] },
+  { path: '/account/profile', markers: ['console-shell-page', '余额'] },
   { path: '/account/topup/recharge', markers: ['console-shell-page', '余额充值'] },
   { path: '/token', markers: ['console-shell-page', '令牌'] },
   { path: '/log', markers: ['console-shell-page', '日志'] },
