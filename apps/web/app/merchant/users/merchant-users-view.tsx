@@ -15,6 +15,7 @@ import {
   type AdminUser
 } from '../../lib/admin-api';
 import { logout } from '../../lib/auth-api';
+import { formatBillingUsd } from '../../lib/billing-format';
 
 const USER_PAGE_LIMIT = 20;
 
@@ -118,7 +119,7 @@ export function MerchantUsersView({ username, role }: { username: string; role: 
                   <th>用户</th>
                   <th>角色</th>
                   <th>状态</th>
-                  <th>客户 token / 累计扣除</th>
+                  <th>客户余额 / 累计扣费</th>
                   <th>上次登录</th>
                 </tr>
               </thead>
@@ -145,8 +146,8 @@ export function MerchantUsersView({ username, role }: { username: string; role: 
                       </span>
                     </td>
                     <td>
-                      {formatTokens(user.wallet.balanceCents)}
-                      <small className="table-note">累计 {formatTokens(user.wallet.totalSpendCents ?? 0)}</small>
+                      {formatBillingUsd(user.wallet.balanceCents)}
+                      <small className="table-note">累计 {formatBillingUsd(user.wallet.totalSpendCents ?? 0)}</small>
                     </td>
                     <td>{formatOptionalDate(user.lastLoginAt)}</td>
                   </tr>
@@ -211,14 +212,6 @@ function getUserStatusClass(status: string) {
   }
 
   return 'status-pill-danger';
-}
-
-function formatTokens(value: number | null | undefined) {
-  if (value === null || value === undefined) {
-    return '-';
-  }
-
-  return `${new Intl.NumberFormat('zh-CN').format(value)} token`;
 }
 
 function formatNumber(value: number | null | undefined) {

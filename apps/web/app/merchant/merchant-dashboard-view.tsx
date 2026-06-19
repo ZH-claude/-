@@ -16,6 +16,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { MerchantShell } from '../components/merchant-shell';
 import { getDashboardSummary, type DashboardSummary } from '../lib/admin-api';
 import { logout } from '../lib/auth-api';
+import { formatBillingUsd } from '../lib/billing-format';
 
 export function MerchantDashboardView({ username, role }: { username: string; role: string }) {
   const router = useRouter();
@@ -91,8 +92,8 @@ export function MerchantDashboardView({ username, role }: { username: string; ro
         {error ? <p className="form-error">{error}</p> : null}
 
         <section className="admin-metrics">
-          <MetricPanel label="客户剩余 token" value={formatTokens(summary?.wallets.totalBalanceCents)} detail="全部客户未用完的 token" tone="green" />
-          <MetricPanel label="今日扣除 token" value={formatTokens(summary?.today.spendCents)} detail={`${summary?.today.callCount ?? 0} 次客户调用`} tone="red" />
+          <MetricPanel label="客户余额" value={formatBillingUsd(summary?.wallets.totalBalanceCents)} detail="全部客户未用完的额度" tone="green" />
+          <MetricPanel label="今日扣费" value={formatBillingUsd(summary?.today.spendCents)} detail={`${summary?.today.callCount ?? 0} 次客户调用`} tone="red" />
           <MetricPanel label="活跃用户" value={formatNumber(summary?.users.active)} detail={`总用户 ${summary?.users.total ?? 0}`} />
           <MetricPanel label="上游状态" value={healthLabel} detail={`${summary?.upstreams.active ?? 0} 个启用上游`} />
         </section>
@@ -128,7 +129,7 @@ export function MerchantDashboardView({ username, role }: { username: string; ro
               <DatabaseOutlined />
               <span>
                 <strong>第三步：模型映射</strong>
-                <small>把已发布模型绑定到 DeepSeek 或中转站上游，并在这里设置 token 扣费。</small>
+                <small>把已发布模型绑定到 DeepSeek 或中转站上游，并在这里设置美元扣费。</small>
               </span>
             </Link>
             <Link className="merchant-action-link" href="/merchant/users">
@@ -153,7 +154,7 @@ export function MerchantDashboardView({ username, role }: { username: string; ro
                 ['后台账号', formatNumber(summary?.users.admins)],
                 ['今日新增', formatNumber(summary?.users.newToday)],
                 ['禁用/风控', `${summary?.users.disabled ?? 0} / ${summary?.users.riskLocked ?? 0}`],
-                ['累计扣除 token', formatTokens(summary?.wallets.totalSpendCents)]
+                ['累计扣费', formatBillingUsd(summary?.wallets.totalSpendCents)]
               ]}
             />
           </section>
@@ -272,14 +273,6 @@ function DashboardRows({ rows }: { rows: Array<[string, string]> }) {
       ))}
     </dl>
   );
-}
-
-function formatTokens(value: number | null | undefined) {
-  if (value === null || value === undefined) {
-    return '-';
-  }
-
-  return `${new Intl.NumberFormat('zh-CN').format(value)} token`;
 }
 
 function formatNumber(value: number | null | undefined) {

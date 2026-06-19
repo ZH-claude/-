@@ -11,6 +11,7 @@ import type { FormEvent } from 'react';
 import { ConsoleShell } from '../../../components/console-shell';
 import { getProfile, logout } from '../../../lib/auth-api';
 import type { PublicUser } from '../../../lib/auth-api';
+import { formatBillingUsd } from '../../../lib/billing-format';
 import {
   listRechargeRecords,
   redeemRechargeCode
@@ -62,7 +63,7 @@ export default function RechargePage() {
     try {
       const result = await redeemRechargeCode({ code });
       setCode('');
-      setMessage(`已到账 ${formatBaseTokens(result.transaction.amountBaseTokens ?? result.transaction.amountCents)} token`);
+      setMessage(`已到账 ${formatBillingUsd(result.transaction.amountCents)}`);
       await loadRechargeData();
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : '兑换码核销失败');
@@ -88,7 +89,7 @@ export default function RechargePage() {
         <div className="account-panel account-summary">
           <div>
             <p className="eyebrow">余额充值</p>
-            <h1>{isLoading ? '加载中' : `${formatBaseTokens(user?.wallet.balanceCents ?? 0)} token`}</h1>
+            <h1>{isLoading ? '加载中' : formatBillingUsd(user?.wallet.balanceCents ?? 0)}</h1>
           </div>
           <button className="icon-button" onClick={() => void loadRechargeData()} title="刷新充值数据" type="button">
             <ReloadOutlined />
@@ -132,8 +133,8 @@ export default function RechargePage() {
                 <tr>
                   <th>时间</th>
                   <th>人民币面值</th>
-                  <th>到账 token</th>
-                  <th>充值后 token</th>
+                  <th>到账额度</th>
+                  <th>充值后余额</th>
                   <th>状态</th>
                   <th>流水</th>
                 </tr>
@@ -143,8 +144,8 @@ export default function RechargePage() {
                   <tr key={record.id}>
                     <td>{new Date(record.createdAt).toLocaleString()}</td>
                     <td>{formatMoney(record.faceValueCnyCents)}</td>
-                    <td>{formatBaseTokens(record.amountBaseTokens ?? record.amountCents)}</td>
-                    <td>{formatBaseTokens(record.balanceAfterBaseTokens ?? record.balanceAfterCents)}</td>
+                    <td>{formatBillingUsd(record.amountCents)}</td>
+                    <td>{formatBillingUsd(record.balanceAfterCents)}</td>
                     <td>{record.status}</td>
                     <td>{record.id}</td>
                   </tr>
@@ -161,10 +162,6 @@ export default function RechargePage() {
       </section>
     </ConsoleShell>
   );
-}
-
-function formatBaseTokens(value: number) {
-  return new Intl.NumberFormat('zh-CN').format(value);
 }
 
 function formatMoney(cents: number | null | undefined) {

@@ -20,6 +20,7 @@ import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from 're
 import { ConsoleShell } from '../../components/console-shell';
 import { changePassword, getProfile, logout, updateTimezone } from '../../lib/auth-api';
 import type { AvailableModel, PublicUser } from '../../lib/auth-api';
+import { formatBillingUsd } from '../../lib/billing-format';
 import { listUsageLogs, type UsageLogEntry, type UsageLogsResponse } from '../../lib/usage-log-api';
 
 const commonTimezones = [
@@ -75,7 +76,7 @@ export default function AccountProfilePage() {
   const modelBreakdown = useMemo(() => getModelBreakdown(successfulUsageRows), [successfulUsageRows]);
   const tokenTrend = useMemo(() => getTokenTrend(successfulUsageRows, rangeDays), [rangeDays, successfulUsageRows]);
   const usageSummary = usageData?.summary;
-  const periodChargedTokens = usageSummary?.totalCostCents ?? 0;
+  const periodChargedUsd = usageSummary?.totalCostCents ?? 0;
   const periodRawTokens = usageSummary?.totalTokens ?? 0;
   const periodCallCount = usageSummary?.total ?? 0;
   const periodSuccessCount = useMemo(() => {
@@ -104,8 +105,8 @@ export default function AccountProfilePage() {
       return 0;
     }
 
-    return Math.round(periodChargedTokens / periodSuccessCount);
-  }, [periodChargedTokens, periodSuccessCount]);
+    return Math.round(periodRawTokens / periodSuccessCount);
+  }, [periodRawTokens, periodSuccessCount]);
 
   async function loadProfile() {
     setIsLoading(true);
@@ -256,24 +257,22 @@ export default function AccountProfilePage() {
               detail="账号可用余额"
               icon={<GiftOutlined />}
               label="余额"
-              unit="token"
-              value={formatNumber(user?.wallet.balanceCents ?? 0)}
+              value={formatBillingUsd(user?.wallet.balanceCents ?? 0)}
             />
             <MetricBlock
               accent="red"
               detail="历史累计"
               icon={<BarChartOutlined />}
               label="累计消耗"
-              unit="token"
-              value={formatNumber(user?.wallet.totalSpendCents ?? 0)}
+              value={formatBillingUsd(user?.wallet.totalSpendCents ?? 0)}
             />
             <MetricBlock
               accent="blue"
-              detail={`上游原始 ${formatNumber(periodRawTokens)} token`}
+              detail={`扣费 ${formatBillingUsd(periodChargedUsd)}`}
               icon={<LineChartOutlined />}
-              label={`近 ${rangeDays} 天扣除`}
+              label={`近 ${rangeDays} 天 token`}
               unit="token"
-              value={formatNumber(periodChargedTokens)}
+              value={formatNumber(periodRawTokens)}
             />
             <MetricBlock
               accent="violet"
@@ -298,8 +297,8 @@ export default function AccountProfilePage() {
                 accent="orange"
                 detail={`上游原始：输入 ${formatNumber(todayUsage.promptTokens)} / 输出 ${formatNumber(todayUsage.completionTokens)}`}
                 icon={<ApiOutlined />}
-                label="今日扣除"
-                value={`${formatNumber(todayUsage.costTokens)} token`}
+                label="今日 token"
+                value={`${formatNumber(todayUsage.totalTokens)} token`}
               />
               <UsageTile
                 accent="blue"
@@ -312,7 +311,7 @@ export default function AccountProfilePage() {
                 accent="violet"
                 detail="按成功请求计算"
                 icon={<LineChartOutlined />}
-                label="平均扣除"
+                label="平均 token"
                 value={formatNumber(periodAvgTokensPerCall)}
               />
               <UsageTile
@@ -364,7 +363,7 @@ export default function AccountProfilePage() {
 
               <section className="profile-usage-panel">
                 <div className="profile-usage-panel-title">
-                  <h2>扣除 token 趋势</h2>
+                  <h2>token 使用趋势</h2>
                   <span>按天</span>
                 </div>
                 {tokenTrend.some((entry) => entry.tokens > 0) ? (
@@ -408,8 +407,8 @@ export default function AccountProfilePage() {
               </button>
             </div>
             <div className="profile-referral-stats">
-              <span>待使用收益：{formatTokens(user?.referral.pendingRewardCents ?? 0)}</span>
-              <span>总收益：{formatTokens(user?.referral.settledRewardCents ?? 0)}</span>
+              <span>待使用收益：{formatBillingUsd(user?.referral.pendingRewardCents ?? 0)}</span>
+              <span>总收益：{formatBillingUsd(user?.referral.settledRewardCents ?? 0)}</span>
               <span>返利记录：{(user?.referral.pendingRewardCount ?? 0) + (user?.referral.settledRewardCount ?? 0)} 条</span>
             </div>
           </section>
@@ -636,16 +635,15 @@ function summarizeTodayUsage(rows: UsageLogEntry[]) {
       summary.promptTokens += row.promptTokens;
       summary.completionTokens += row.completionTokens;
       summary.totalTokens += row.totalTokens;
-      summary.costTokens += row.costCents;
       return summary;
     },
-    { completionTokens: 0, costTokens: 0, promptTokens: 0, requests: 0, totalTokens: 0 }
+    { completionTokens: 0, promptTokens: 0, requests: 0, totalTokens: 0 }
   );
 }
 
 function getModelBreakdown(rows: UsageLogEntry[]) {
   const totals = rows.reduce<Record<string, number>>((nextTotals, row) => {
-    nextTotals[row.model] = (nextTotals[row.model] ?? 0) + row.costCents;
+    nextTotals[row.model] = (nextTotals[row.model] ?? 0) + row.totalTokens;
     return nextTotals;
   }, {});
   const maxTokens = Math.max(1, ...Object.values(totals));
@@ -669,7 +667,7 @@ function getTokenTrend(rows: UsageLogEntry[], rangeDays: number) {
     const rowDate = new Date(row.createdAt);
     rowDate.setHours(0, 0, 0, 0);
     const key = rowDate.toISOString().slice(0, 10);
-    dayTotals.set(key, (dayTotals.get(key) ?? 0) + row.costCents);
+    dayTotals.set(key, (dayTotals.get(key) ?? 0) + row.totalTokens);
   }
 
   const entries = Array.from({ length: rangeDays }, (_, index) => {
@@ -687,10 +685,6 @@ function getTokenTrend(rows: UsageLogEntry[], rangeDays: number) {
     ...entry,
     percent: entry.tokens === 0 ? 4 : Math.max(10, Math.round((entry.tokens / maxTokens) * 100))
   }));
-}
-
-function formatTokens(value: number) {
-  return `${formatNumber(value)} token`;
 }
 
 function formatRate(value: number) {

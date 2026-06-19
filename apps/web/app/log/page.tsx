@@ -9,6 +9,7 @@ import {
 import { useRouter } from 'next/navigation';
 import { type FormEvent, useEffect, useMemo, useState } from 'react';
 import { ConsoleShell } from '../components/console-shell';
+import { formatBillingUsd, formatBillingUsdNumber } from '../lib/billing-format';
 import {
   listUsageLogs,
   type UsageLogEntry,
@@ -129,7 +130,7 @@ export default function UsageLogPage() {
 
         <div className="metric-panel">
           <span>筛选范围扣除</span>
-          <strong>{formatTokens(summary?.totalCostCents ?? 0)}</strong>
+          <strong>{formatBillingUsd(summary?.totalCostCents ?? 0)}</strong>
           <small>成功扣费 {billableCount} 次</small>
         </div>
         <div className="metric-panel">
@@ -250,7 +251,7 @@ export default function UsageLogPage() {
                   <th>模型</th>
                   <th>令牌</th>
                   <th>Token</th>
-                  <th>扣除 token</th>
+                  <th>扣费</th>
                   <th>request_id</th>
                   <th>usage_event</th>
                   <th>wallet_transaction</th>
@@ -267,7 +268,7 @@ export default function UsageLogPage() {
                       <span className="table-note">{entry.token.keyPreview}</span>
                     </td>
                     <td>{entry.totalTokens}</td>
-                    <td>{formatTokens(entry.costCents)}</td>
+                    <td>{formatBillingUsd(entry.costCents)}</td>
                     <td className="request-id-cell">{entry.requestId}</td>
                     <td className="request-id-cell">{entry.id}</td>
                     <td className="request-id-cell">{entry.walletTransaction?.id ?? '-'}</td>
@@ -313,14 +314,14 @@ function toIsoDateTime(value: string) {
 }
 
 function toCsv(rows: UsageLogEntry[]) {
-  const header = ['createdAt', 'status', 'model', 'token', 'totalTokens', 'costTokens', 'requestId', 'usageEventId', 'walletTransactionId'];
+  const header = ['createdAt', 'status', 'model', 'token', 'totalTokens', 'costUsd', 'requestId', 'usageEventId', 'walletTransactionId'];
   const body = rows.map((row) => [
     row.createdAt,
     row.status,
     row.model,
     row.token.name,
     String(row.totalTokens),
-    String(row.costCents),
+    formatBillingUsdNumber(row.costCents),
     row.requestId,
     row.id,
     row.walletTransaction?.id ?? ''
@@ -331,8 +332,4 @@ function toCsv(rows: UsageLogEntry[]) {
 
 function csvCell(value: string) {
   return `"${value.replace(/"/g, '""')}"`;
-}
-
-function formatTokens(value: number) {
-  return `${new Intl.NumberFormat('zh-CN').format(value)} token`;
 }

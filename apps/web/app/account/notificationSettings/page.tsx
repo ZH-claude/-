@@ -10,6 +10,7 @@ import {
 import { useRouter } from 'next/navigation';
 import { type FormEvent, useEffect, useState } from 'react';
 import { ConsoleShell } from '../../components/console-shell';
+import { formatBillingUsd, formatBillingUsdForInput, parseBillingUsdInput } from '../../lib/billing-format';
 import {
   getNotificationSettings,
   testWebhookNotification,
@@ -65,12 +66,9 @@ export default function NotificationSettingsPage() {
     setMessage('');
 
     try {
-      const thresholdCents = thresholdBaseTokens.trim() ? Number(thresholdBaseTokens) : null;
-      if (
-        thresholdBaseTokens.trim() &&
-        (!Number.isInteger(Number(thresholdBaseTokens)) || Number(thresholdBaseTokens) < 0)
-      ) {
-        throw new Error('余额阈值必须是非负 token 整数');
+      const thresholdCents = parseBillingUsdInput(thresholdBaseTokens, '余额阈值');
+      if (thresholdCents instanceof Error) {
+        throw thresholdCents;
       }
 
       const result = await updateNotificationSettings({
@@ -121,7 +119,7 @@ export default function NotificationSettingsPage() {
     setThresholdBaseTokens(
       nextSettings.preference.balanceLowThresholdCents === null
         ? ''
-        : String(nextSettings.preference.balanceLowThresholdCents)
+        : formatBillingUsdForInput(nextSettings.preference.balanceLowThresholdCents)
     );
     setSecurityAlertsEnabled(nextSettings.preference.securityAlertsEnabled);
     setSystemAnnouncementsEnabled(nextSettings.preference.systemAnnouncementsEnabled);
@@ -140,7 +138,7 @@ export default function NotificationSettingsPage() {
         <section className="account-panel account-summary">
           <div>
             <p className="eyebrow">通知设置</p>
-            <h1>{isLoading ? '加载中' : formatBaseTokens(settings?.wallet.balanceCents ?? 0)}</h1>
+            <h1>{isLoading ? '加载中' : formatBillingUsd(settings?.wallet.balanceCents ?? 0)}</h1>
           </div>
           <button className="icon-button" disabled={isLoading} onClick={() => void loadSettings()} title="刷新通知设置" type="button">
             <ReloadOutlined />
@@ -150,7 +148,7 @@ export default function NotificationSettingsPage() {
         <div className="metric-panel">
           <span>余额预警</span>
           <strong>{balanceLowEnabled ? '已启用' : '未启用'}</strong>
-          <small>阈值 {thresholdBaseTokens ? formatBaseTokens(Number(thresholdBaseTokens)) : '-'}</small>
+          <small>阈值 {formatThresholdPreview(thresholdBaseTokens)}</small>
         </div>
         <div className="metric-panel">
           <span>Webhook</span>
@@ -178,13 +176,13 @@ export default function NotificationSettingsPage() {
               余额预警
             </label>
             <label>
-              余额阈值（token）
+              余额阈值（美元）
               <input
                 inputMode="decimal"
                 min="0"
                 onChange={(event) => setThresholdBaseTokens(event.target.value)}
-                placeholder="1000000"
-                step="1"
+                placeholder="10.00"
+                step="0.000001"
                 type="number"
                 value={thresholdBaseTokens}
               />
@@ -369,8 +367,9 @@ function formatDeliveryStatus(status: string | null) {
   return '-';
 }
 
-function formatBaseTokens(value: number) {
-  return `${new Intl.NumberFormat('zh-CN').format(value)} token`;
+function formatThresholdPreview(value: string) {
+  const parsed = parseBillingUsdInput(value);
+  return parsed === null || parsed instanceof Error ? '-' : formatBillingUsd(parsed);
 }
 
 function formatDateTime(value: string | null) {

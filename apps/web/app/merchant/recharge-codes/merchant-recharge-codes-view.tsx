@@ -17,6 +17,7 @@ import {
   type CreatedRechargeCode
 } from '../../lib/admin-api';
 import { logout } from '../../lib/auth-api';
+import { formatBillingUsd } from '../../lib/billing-format';
 
 const RECHARGE_RATE_CNY_CENTS = 800;
 const RECHARGE_RATE_BASE_TOKENS = 1_000_000;
@@ -87,7 +88,7 @@ export function MerchantRechargeCodesView({ username, role }: { username: string
       });
       setCreatedCodes(result.items);
       setCount('1');
-      setMessage(`已生成 ${result.items.length} 张充值码，每张到账 ${formatBaseTokens(result.items[0]?.amountBaseTokens ?? 0)} token`);
+      setMessage(`已生成 ${result.items.length} 张充值码，每张到账 ${formatBillingUsd(result.items[0]?.amountCents ?? 0)}`);
       await loadCodes();
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : '充值码生成失败');
@@ -137,7 +138,7 @@ export function MerchantRechargeCodesView({ username, role }: { username: string
           <div>
             <p className="eyebrow">商家工作台</p>
             <h1>充值码管理</h1>
-            <small>按人民币生成充值码，用户兑换后得到 token；默认 8 元约等于 100 万 token。</small>
+            <small>按人民币生成充值码，用户兑换后得到美元余额；页面上的 token 只用于展示实际用量。</small>
           </div>
           <button className="icon-button" disabled={isLoading} onClick={() => void loadCodes()} title="刷新充值码" type="button">
             <ReloadOutlined />
@@ -149,7 +150,7 @@ export function MerchantRechargeCodesView({ username, role }: { username: string
 
         <section className="admin-metrics">
           <MetricPanel label="充值码总数" value={formatNumber(stats.total)} detail="最近 100 条真实记录" />
-          <MetricPanel label="未使用" value={formatNumber(stats.unused)} detail="可兑换 token" tone="green" />
+          <MetricPanel label="未使用" value={formatNumber(stats.unused)} detail="可兑换余额" tone="green" />
           <MetricPanel label="已使用" value={formatNumber(stats.used)} detail="已完成入账" />
           <MetricPanel label="已禁用" value={formatNumber(stats.disabled)} detail="不可再兑换" tone="red" />
         </section>
@@ -185,7 +186,7 @@ export function MerchantRechargeCodesView({ username, role }: { username: string
               />
             </label>
             <div className="form-help">
-              预计每张到账：<strong>{estimatedBaseTokens ? formatBaseTokens(estimatedBaseTokens) : '-'}</strong> token
+              预计每张到账：<strong>{estimatedBaseTokens ? formatBillingUsd(estimatedBaseTokens) : '-'}</strong>
             </div>
             <button className="primary-button" disabled={isCreating} type="submit">
               <GiftOutlined />
@@ -219,7 +220,7 @@ export function MerchantRechargeCodesView({ username, role }: { username: string
               <thead>
                 <tr>
                   <th>金额</th>
-                  <th>到账 token</th>
+                  <th>到账额度</th>
                   <th>状态</th>
                   <th>创建人</th>
                   <th>使用人</th>
@@ -232,7 +233,7 @@ export function MerchantRechargeCodesView({ username, role }: { username: string
                 {codes.map((entry) => (
                   <tr key={entry.id}>
                     <td>{formatMoney(entry.faceValueCnyCents)}</td>
-                    <td>{formatBaseTokens(entry.amountBaseTokens ?? entry.amountCents)}</td>
+                    <td>{formatBillingUsd(entry.amountCents)}</td>
                     <td>
                       <span className={`status-pill ${getRechargeStatusClass(entry.status)}`}>
                         {entry.status}
@@ -333,14 +334,6 @@ function parseCurrencyToCentsOrNull(value: string) {
 
 function cnyCentsToBaseTokens(cents: number) {
   return Math.round((cents * RECHARGE_RATE_BASE_TOKENS) / RECHARGE_RATE_CNY_CENTS);
-}
-
-function formatBaseTokens(value: number | null | undefined) {
-  if (value === null || value === undefined) {
-    return '-';
-  }
-
-  return new Intl.NumberFormat('zh-CN').format(value);
 }
 
 function formatNumber(value: number | null | undefined) {

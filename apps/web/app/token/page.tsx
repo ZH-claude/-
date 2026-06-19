@@ -17,6 +17,7 @@ import { useRouter } from 'next/navigation';
 import { type FormEvent, useEffect, useMemo, useState } from 'react';
 import { ConsoleShell } from '../components/console-shell';
 import { getProfile, type AvailableModel } from '../lib/auth-api';
+import { formatBillingUsd, formatBillingUsdForInput, parseBillingUsdInput } from '../lib/billing-format';
 import {
   createToken,
   deleteToken,
@@ -166,7 +167,7 @@ export default function TokenPage() {
     setEditingTokenId(token.id);
     setForm({
       name: token.name,
-      quotaBaseTokens: token.quotaCents === null || token.quotaCents === undefined ? '' : String(token.quotaCents),
+      quotaBaseTokens: formatBillingUsdForInput(token.quotaCents),
       expiresAt: token.expiresAt && new Date(token.expiresAt) > new Date() ? toDateTimeLocal(token.expiresAt) : '',
       modelNames: token.modelNames,
       note: token.note ?? ''
@@ -184,7 +185,7 @@ export default function TokenPage() {
     setError('');
     setMessage('');
 
-    const quotaValue = normalizeQuotaBaseTokens(form.quotaBaseTokens);
+    const quotaValue = normalizeQuotaUsd(form.quotaBaseTokens);
     if (quotaValue instanceof Error) {
       setError(quotaValue.message);
       return;
@@ -331,7 +332,7 @@ export default function TokenPage() {
       '按量优先',
       getTokenEffectiveState(token).label,
       formatModelScope(token),
-      formatBaseTokens(token.usedCents),
+      formatBillingUsd(token.usedCents),
       formatRemainingQuota(token),
       formatDate(token.createdAt) ?? '-',
       formatDate(token.lastUsedAt) ?? '-',
@@ -458,8 +459,8 @@ export default function TokenPage() {
                   <th>计费方式</th>
                   <th>状态</th>
                   <th>可用模型</th>
-                  <th>消耗 token</th>
-                  <th>剩余 token</th>
+                  <th>已消费</th>
+                  <th>剩余额度</th>
                   <th>创建时间</th>
                   <th>最后使用时间</th>
                   <th>过期时间</th>
@@ -488,7 +489,7 @@ export default function TokenPage() {
                     </td>
                     <td>{renderTokenState(token)}</td>
                     <td>{renderModelScope(token)}</td>
-                    <td>{formatBaseTokens(token.usedCents)}</td>
+                    <td>{formatBillingUsd(token.usedCents)}</td>
                     <td>{formatRemainingQuota(token)}</td>
                     <td>{formatDate(token.createdAt)}</td>
                     <td>{formatDate(token.lastUsedAt) ?? '-'}</td>
@@ -582,12 +583,12 @@ export default function TokenPage() {
               </label>
               <div className="form-row">
                 <label>
-                  额度（token，可空）
+                  额度（美元，可空）
                   <input
                     min={0}
                     onChange={(event) => setForm((current) => ({ ...current, quotaBaseTokens: event.target.value }))}
                     placeholder="留空表示不限制"
-                    step={1}
+                    step={0.000001}
                     type="number"
                     value={form.quotaBaseTokens}
                   />
@@ -658,17 +659,8 @@ export default function TokenPage() {
   }
 }
 
-function normalizeQuotaBaseTokens(value: string) {
-  if (!value.trim()) {
-    return null;
-  }
-
-  const numericValue = Number(value);
-  if (!Number.isInteger(numericValue) || numericValue < 0) {
-    return new Error('额度必须是大于等于 0 的 token 整数');
-  }
-
-  return numericValue;
+function normalizeQuotaUsd(value: string) {
+  return parseBillingUsdInput(value, '额度');
 }
 
 function renderTokenState(token: ApiToken) {
@@ -730,7 +722,7 @@ function formatRemainingQuota(token: ApiToken) {
     return '无限制';
   }
 
-  return formatBaseTokens(Math.max(0, token.quotaCents - token.usedCents));
+  return formatBillingUsd(Math.max(0, token.quotaCents - token.usedCents));
 }
 
 function formatDate(value?: string | null) {
@@ -749,10 +741,6 @@ function toDateTimeLocal(value: string) {
   const date = new Date(value);
   const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
   return localDate.toISOString().slice(0, 16);
-}
-
-function formatBaseTokens(value: number) {
-  return new Intl.NumberFormat('zh-CN').format(value);
 }
 
 function quoteCsvCell(value: string) {

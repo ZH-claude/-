@@ -25,12 +25,14 @@ import {
   type UpstreamProvider
 } from '../../lib/admin-api';
 import { logout } from '../../lib/auth-api';
+import { formatBillingUsd } from '../../lib/billing-format';
 
 const UPSTREAM_MAPPING_PAGE_LIMIT = 100;
 const DEFAULT_MODEL_MULTIPLIER = '1.0000';
 const DEFAULT_EXCHANGE_RATE = '7.200000';
 const DEFAULT_MARGIN_PERCENT = '10';
 const BASE_TOKEN_CNY_PER_MILLION = 8;
+const CHARGE_UNITS_PER_1K_AT_ONE_X = 1000;
 
 type ModelStatus = 'active' | 'disabled';
 type ModelConfigMode = 'publish' | 'routes';
@@ -248,8 +250,8 @@ export function MerchantModelConfigView({
 
     return {
       pricingMode: 'manual' as const,
-      inputPriceCentsPer1k: parseWholeNumber(mappingInputTokensPer1k, '输入 token'),
-      outputPriceCentsPer1k: parseWholeNumber(mappingOutputTokensPer1k, '输出 token'),
+      inputPriceCentsPer1k: parseWholeNumber(mappingInputTokensPer1k, '输入扣费'),
+      outputPriceCentsPer1k: parseWholeNumber(mappingOutputTokensPer1k, '输出扣费'),
       modelMultiplier: mappingModelMultiplier.trim() || DEFAULT_MODEL_MULTIPLIER
     };
   }
@@ -570,11 +572,11 @@ export function MerchantModelConfigView({
             </label>
             {selectedMappingProvider?.kind === 'deepseek' ? (
               <label>
-                这条线路倍率
+                价格倍率
                 <input
                   min="0"
                   onChange={(event) => setMappingModelMultiplier(event.target.value)}
-                  placeholder="例如：gpt5.5 填 5，普通 DeepSeek 填 1"
+                  placeholder="例如：gpt5.5 按 5 倍价格卖就填 5"
                   required
                   step="0.0001"
                   type="number"
@@ -643,11 +645,11 @@ export function MerchantModelConfigView({
             {selectedMappingProvider && selectedMappingProvider.kind === 'generic' ? (
               <>
                 <label>
-                  输入 token / 1000
+                  输入扣费 / 1K token
                   <input min={0} onChange={(event) => setMappingInputTokensPer1k(event.target.value)} required type="number" value={mappingInputTokensPer1k} />
                 </label>
                 <label>
-                  输出 token / 1000
+                  输出扣费 / 1K token
                   <input min={0} onChange={(event) => setMappingOutputTokensPer1k(event.target.value)} required type="number" value={mappingOutputTokensPer1k} />
                 </label>
               </>
@@ -827,8 +829,8 @@ function formatNumber(value: number) {
   return new Intl.NumberFormat('zh-CN').format(value);
 }
 
-function formatOptionalNumber(value: number | null | undefined) {
-  return typeof value === 'number' ? formatNumber(value) : '-';
+function formatChargePer1k(value: number | null | undefined) {
+  return typeof value === 'number' ? `${formatBillingUsd(value)} / 1K token` : '-';
 }
 
 function buildMappingPricingPreview(input: MappingPricingPreviewInput): MappingPricingPreview | null {
@@ -841,16 +843,17 @@ function buildMappingPricingPreview(input: MappingPricingPreviewInput): MappingP
     if (multiplier === null) {
       return {
         title: 'DeepSeek 线路扣费预览',
-        lines: ['填写倍率后会显示扣费预览。普通 DeepSeek 填 1，gpt5.5 如果按 5 倍卖就填 5。']
+        lines: ['填写价格倍率后会显示扣费预览。普通 DeepSeek 填 1，gpt5.5 如果按 5 倍价格卖就填 5。']
       };
     }
 
+    const chargePer1k = Math.ceil(multiplier * CHARGE_UNITS_PER_1K_AT_ONE_X);
     return {
       title: 'DeepSeek 线路扣费预览',
       lines: [
-        `线路倍率：${formatPreviewNumber(multiplier)} 倍。`,
-        `客户每产生 1,000 个真实 token，约扣 ${formatNumber(Math.ceil(multiplier * 1000))} token。`,
-        '普通 DeepSeek 填 1；其它模型按你要卖给客户的倍率填写。'
+        `价格倍率：${formatPreviewNumber(multiplier)} 倍。`,
+        `客户每产生 1,000 个真实 token，页面仍显示 1,000 token。`,
+        `扣费按 ${formatChargePer1k(chargePer1k)} 计算。`
       ]
     };
   }
@@ -865,8 +868,8 @@ function buildMappingPricingPreview(input: MappingPricingPreviewInput): MappingP
       return {
         title: '中转站线路扣费预览',
         lines: [
-          '填完上游输入价、输出价和汇率后，会自动换算成 token 扣费。',
-          `换算口径：上游价格加价 ${formatPreviewNumber(marginPercent)}%，再按 ${BASE_TOKEN_CNY_PER_MILLION} 元 / 100 万 token 折算。`
+          '填完上游输入价、输出价和汇率后，会自动换算成美元扣费。',
+          `token 仍显示上游返回的真实用量；价格按上游成本加价 ${formatPreviewNumber(marginPercent)}% 计算。`
         ]
       };
     }
@@ -878,9 +881,9 @@ function buildMappingPricingPreview(input: MappingPricingPreviewInput): MappingP
     return {
       title: '中转站线路扣费预览',
       lines: [
-        `输入扣费：${formatPreviewNumber(inputMultiplier)} 倍，1000 输入约扣 ${formatNumber(Math.ceil(inputMultiplier * 1000))} token。`,
-        `输出扣费：${formatPreviewNumber(outputMultiplier)} 倍，1000 输出约扣 ${formatNumber(Math.ceil(outputMultiplier * 1000))} token。`,
-        `换算口径：上游价格 × 汇率 × 加价 ${formatPreviewNumber(marginPercent)}%，再除以 ${BASE_TOKEN_CNY_PER_MILLION} 元 / 100 万 token。`
+        `输入扣费：${formatChargePer1k(Math.ceil(inputMultiplier * CHARGE_UNITS_PER_1K_AT_ONE_X))}。`,
+        `输出扣费：${formatChargePer1k(Math.ceil(outputMultiplier * CHARGE_UNITS_PER_1K_AT_ONE_X))}。`,
+        `token 仍显示真实用量；费用按上游价格 × 汇率 × 加价 ${formatPreviewNumber(marginPercent)}% 计算。`
       ]
     };
   }
@@ -890,15 +893,15 @@ function buildMappingPricingPreview(input: MappingPricingPreviewInput): MappingP
   if (inputTokens === null || outputTokens === null) {
     return {
       title: '手动线路扣费预览',
-      lines: ['填完输入 token 和输出 token 后会显示扣费预览。']
+      lines: ['填完输入扣费和输出扣费后会显示美元扣费预览；token 仍显示真实用量。']
     };
   }
 
   return {
     title: '手动线路扣费预览',
     lines: [
-      `1000 输入扣 ${formatNumber(Math.ceil(inputTokens))} token。`,
-      `1000 输出扣 ${formatNumber(Math.ceil(outputTokens))} token。`
+      `输入扣费：${formatChargePer1k(Math.ceil(inputTokens))}。`,
+      `输出扣费：${formatChargePer1k(Math.ceil(outputTokens))}。`
     ]
   };
 }
@@ -911,14 +914,14 @@ function formatRoutePricing(mapping: UpstreamModelMapping) {
   }
 
   if (pricing.pricingMode === 'deepseek_base') {
-    return `DeepSeek ${trimNumber(pricing.modelMultiplier ?? '1')} 倍`;
+    return `DeepSeek 价格 ${trimNumber(pricing.modelMultiplier ?? '1')} 倍`;
   }
 
   if (pricing.pricingMode === 'relay_price') {
-    return `中转站：输入 ${formatOptionalNumber(pricing.inputPriceCentsPer1k)} / 输出 ${formatOptionalNumber(pricing.outputPriceCentsPer1k)} token`;
+    return `中转站：输入 ${formatChargePer1k(pricing.inputPriceCentsPer1k)} / 输出 ${formatChargePer1k(pricing.outputPriceCentsPer1k)}`;
   }
 
-  return `手动：输入 ${formatOptionalNumber(pricing.inputPriceCentsPer1k)} / 输出 ${formatOptionalNumber(pricing.outputPriceCentsPer1k)} token`;
+  return `手动：输入 ${formatChargePer1k(pricing.inputPriceCentsPer1k)} / 输出 ${formatChargePer1k(pricing.outputPriceCentsPer1k)}`;
 }
 
 function formatKind(upstream: UpstreamProvider) {

@@ -10,6 +10,7 @@ import {
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import { ConsoleShell } from '../components/console-shell';
+import { formatBillingUsd } from '../lib/billing-format';
 import { getModelPricing, type PricingModel, type PricingResponse } from '../lib/pricing-api';
 
 export default function PricingPage() {
@@ -110,8 +111,8 @@ export default function PricingPage() {
             <h2>扣费口径</h2>
           </div>
           <div className="formula-box">
-            <strong>按输入 token、输出 token 和模型倍率计算，最终扣除 token。</strong>
-            <small>DeepSeek 普通模型按 1 倍；其它模型按商家设置的倍率扣除。</small>
+            <strong>token 只记录真实用量；扣费按美元单价和价格倍率计算。</strong>
+            <small>例如模型设置 5 倍时，页面仍显示真实 token，用美元费用体现 5 倍价格。</small>
           </div>
         </section>
 
@@ -144,7 +145,7 @@ export default function PricingPage() {
                   <th>模型</th>
                   <th>输入扣费</th>
                   <th>输出扣费</th>
-                  <th>模型倍率</th>
+                  <th>价格倍率</th>
                   <th>实际输入扣费</th>
                   <th>实际输出扣费</th>
                   <th>能力</th>
@@ -181,11 +182,11 @@ function PricingRow({ model, onCopy }: { model: PricingModel; onCopy: (model: st
         <strong>{model.model}</strong>
         {model.displayName ? <span className="table-note">{model.displayName}</span> : null}
       </td>
-      <td>{formatBaseTokensPer1k(model.inputPriceCentsPer1k)}</td>
-      <td>{formatBaseTokensPer1k(model.outputPriceCentsPer1k)}</td>
+      <td>{formatUsdPer1k(model.inputPriceCentsPer1k)}</td>
+      <td>{formatUsdPer1k(model.outputPriceCentsPer1k)}</td>
       <td>x{formatMultiplier(model.modelMultiplier)}</td>
-      <td>{formatBaseTokensPer1k(effectiveInputPrice)}</td>
-      <td>{formatBaseTokensPer1k(effectiveOutputPrice)}</td>
+      <td>{formatUsdPer1k(effectiveInputPrice)}</td>
+      <td>{formatUsdPer1k(effectiveOutputPrice)}</td>
       <td>
         {model.supportsStream ? (
           <span className="status-pill status-pill-success">支持流式</span>
@@ -215,6 +216,6 @@ function formatMultiplier(value: string) {
   });
 }
 
-function formatBaseTokensPer1k(value: number) {
-  return `${new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 4 }).format(value)} token / 1000`;
+function formatUsdPer1k(value: number) {
+  return `${formatBillingUsd(value)} / 1K token`;
 }
