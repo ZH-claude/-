@@ -14,10 +14,10 @@ export type PricingResponse = {
     name: string;
     multiplier: string;
   };
-  currency: 'BASE_TOKEN' | string;
-  unit: 'base_tokens_per_1k_tokens' | string;
+  currency: 'USD' | string;
+  unit: 'usd_units_per_1k_tokens' | string;
   billingFormula: {
-    totalCostBaseTokens: string;
+    totalCostUsdUnits: string;
     rounding: string;
   };
   models: PricingModel[];
