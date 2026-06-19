@@ -70,10 +70,13 @@ export default function AccountProfilePage() {
   }, [modelQuery, user?.availableModels]);
 
   const usageRows = usageData?.items ?? [];
-  const todayUsage = useMemo(() => summarizeTodayUsage(usageRows), [usageRows]);
-  const modelBreakdown = useMemo(() => getModelBreakdown(usageRows), [usageRows]);
-  const tokenTrend = useMemo(() => getTokenTrend(usageRows, rangeDays), [rangeDays, usageRows]);
+  const successfulUsageRows = useMemo(() => usageRows.filter(isSuccessfulUsage), [usageRows]);
+  const todayUsage = useMemo(() => summarizeTodayUsage(successfulUsageRows), [successfulUsageRows]);
+  const modelBreakdown = useMemo(() => getModelBreakdown(successfulUsageRows), [successfulUsageRows]);
+  const tokenTrend = useMemo(() => getTokenTrend(successfulUsageRows, rangeDays), [rangeDays, successfulUsageRows]);
   const usageSummary = usageData?.summary;
+  const periodChargedTokens = usageSummary?.totalCostCents ?? 0;
+  const periodRawTokens = usageSummary?.totalTokens ?? 0;
   const periodCallCount = usageSummary?.total ?? 0;
   const periodSuccessCount = useMemo(() => {
     if (!usageSummary) {
@@ -101,8 +104,8 @@ export default function AccountProfilePage() {
       return 0;
     }
 
-    return Math.round(usageSummary?.totalTokens ? usageSummary.totalTokens / periodSuccessCount : 0);
-  }, [periodSuccessCount, usageSummary?.totalTokens]);
+    return Math.round(periodChargedTokens / periodSuccessCount);
+  }, [periodChargedTokens, periodSuccessCount]);
 
   async function loadProfile() {
     setIsLoading(true);
@@ -266,15 +269,15 @@ export default function AccountProfilePage() {
             />
             <MetricBlock
               accent="blue"
-              detail={`近 ${rangeDays} 天`}
+              detail={`上游原始 ${formatNumber(periodRawTokens)} token`}
               icon={<LineChartOutlined />}
-              label="累计 token"
+              label={`近 ${rangeDays} 天扣除`}
               unit="token"
-              value={formatNumber(usageSummary?.totalTokens ?? 0)}
+              value={formatNumber(periodChargedTokens)}
             />
             <MetricBlock
               accent="violet"
-              detail={`近 ${rangeDays} 天，总请求 ${formatNumber(periodCallCount)} 次`}
+              detail={`近 ${rangeDays} 天，接口成功`}
               icon={<TeamOutlined />}
               label="成功请求"
               unit="次"
@@ -282,7 +285,7 @@ export default function AccountProfilePage() {
             />
             <MetricBlock
               accent="rose"
-              detail={`成功 ${formatNumber(periodSuccessCount)} 次 · 失败/未知 ${formatNumber(periodFailureCount)} 次`}
+              detail={`异常/未知 ${formatNumber(periodFailureCount)} 次`}
               icon={<CheckCircleOutlined />}
               label="性能指标"
               value={formatRate(periodSuccessRate)}
@@ -293,23 +296,23 @@ export default function AccountProfilePage() {
             <div className="profile-usage-cards">
               <UsageTile
                 accent="orange"
-                detail={`输入 ${formatNumber(todayUsage.promptTokens)} / 输出 ${formatNumber(todayUsage.completionTokens)}`}
+                detail={`上游原始：输入 ${formatNumber(todayUsage.promptTokens)} / 输出 ${formatNumber(todayUsage.completionTokens)}`}
                 icon={<ApiOutlined />}
-                label="今日 token"
-                value={formatNumber(todayUsage.totalTokens)}
+                label="今日扣除"
+                value={`${formatNumber(todayUsage.costTokens)} token`}
               />
               <UsageTile
                 accent="blue"
                 detail={`成功 ${formatNumber(periodSuccessCount)} 次 / 失败或未知 ${formatNumber(periodFailureCount)} 次`}
                 icon={<BarChartOutlined />}
-                label="总请求"
+                label="接口请求"
                 value={formatNumber(periodCallCount)}
               />
               <UsageTile
                 accent="violet"
                 detail="按成功请求计算"
                 icon={<LineChartOutlined />}
-                label="平均每次 token"
+                label="平均扣除"
                 value={formatNumber(periodAvgTokensPerCall)}
               />
               <UsageTile
@@ -361,7 +364,7 @@ export default function AccountProfilePage() {
 
               <section className="profile-usage-panel">
                 <div className="profile-usage-panel-title">
-                  <h2>token 使用趋势</h2>
+                  <h2>扣除 token 趋势</h2>
                   <span>按天</span>
                 </div>
                 {tokenTrend.some((entry) => entry.tokens > 0) ? (
@@ -603,6 +606,10 @@ function ModelChip({ model }: { model: AvailableModel }) {
   );
 }
 
+function isSuccessfulUsage(row: UsageLogEntry) {
+  return row.status === 'billable' || row.status === 'free';
+}
+
 function formatRole(role?: string) {
   if (role === 'admin') {
     return '管理员';
@@ -629,15 +636,16 @@ function summarizeTodayUsage(rows: UsageLogEntry[]) {
       summary.promptTokens += row.promptTokens;
       summary.completionTokens += row.completionTokens;
       summary.totalTokens += row.totalTokens;
+      summary.costTokens += row.costCents;
       return summary;
     },
-    { completionTokens: 0, promptTokens: 0, requests: 0, totalTokens: 0 }
+    { completionTokens: 0, costTokens: 0, promptTokens: 0, requests: 0, totalTokens: 0 }
   );
 }
 
 function getModelBreakdown(rows: UsageLogEntry[]) {
   const totals = rows.reduce<Record<string, number>>((nextTotals, row) => {
-    nextTotals[row.model] = (nextTotals[row.model] ?? 0) + row.totalTokens;
+    nextTotals[row.model] = (nextTotals[row.model] ?? 0) + row.costCents;
     return nextTotals;
   }, {});
   const maxTokens = Math.max(1, ...Object.values(totals));
@@ -661,7 +669,7 @@ function getTokenTrend(rows: UsageLogEntry[], rangeDays: number) {
     const rowDate = new Date(row.createdAt);
     rowDate.setHours(0, 0, 0, 0);
     const key = rowDate.toISOString().slice(0, 10);
-    dayTotals.set(key, (dayTotals.get(key) ?? 0) + row.totalTokens);
+    dayTotals.set(key, (dayTotals.get(key) ?? 0) + row.costCents);
   }
 
   const entries = Array.from({ length: rangeDays }, (_, index) => {
