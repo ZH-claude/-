@@ -2,6 +2,7 @@ import { ForbiddenException, Inject, Injectable } from '@nestjs/common';
 import { Prisma, UsageEventStatus, WalletTransactionType } from '../generated/prisma/client';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma.service';
+import { canStartUsageWithEstimatedCost } from './balance-guard';
 import { BILLING_FORMULA } from './billing.constants';
 
 export type BillableModel = {
@@ -48,7 +49,7 @@ export class BillingService {
     @Inject(NotificationsService) private readonly notificationsService: NotificationsService
   ) {}
 
-  async assertCanStartUsage(userId: string, model: BillableModel) {
+  async assertCanStartUsage(userId: string, model: BillableModel, estimatedCostCents = 1) {
     if (!this.modelCanCostMoney(model)) {
       return;
     }
@@ -58,7 +59,7 @@ export class BillingService {
       select: { balanceCents: true }
     });
 
-    if (!wallet || wallet.balanceCents <= 0) {
+    if (!wallet || !canStartUsageWithEstimatedCost(wallet.balanceCents, estimatedCostCents)) {
       throw this.insufficientBalance('Insufficient balance');
     }
   }

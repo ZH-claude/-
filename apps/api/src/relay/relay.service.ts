@@ -9,6 +9,7 @@ import {
   type BillingPrincipal,
   type UpstreamBillingTarget
 } from '../billing/billing.service';
+import { estimateChatCompletionCostCents } from '../billing/balance-guard';
 import { ModelStatus, UpstreamProviderStatus } from '../generated/prisma/client';
 import { PrismaService } from '../prisma.service';
 import { RequestLogsService } from '../request-logs/request-logs.service';
@@ -475,7 +476,8 @@ export class RelayService {
         userId: auth.user.id,
         tokenId: auth.token.id
       };
-      await this.billingService.assertCanStartUsage(auth.user.id, this.buildBillableModelForRoute(allowedModel, mappings[0]));
+      const billingStartGuard = this.buildBillingStartGuard(body, allowedModel, mappings);
+      await this.billingService.assertCanStartUsage(auth.user.id, billingStartGuard.model, billingStartGuard.estimatedCostCents);
       await this.tokensService.activateApiTokenIfNeeded(auth.token);
 
       if (body.stream) {
@@ -1255,6 +1257,27 @@ export class RelayService {
       outputPriceCentsPer1k: mapping.outputPriceCentsPer1k,
       modelMultiplier: mapping.modelMultiplier.toString()
     };
+  }
+
+  private buildBillingStartGuard(
+    body: ChatCompletionBody,
+    defaultModel: BillableModel,
+    mappings: UpstreamMappingCandidate[]
+  ) {
+    let guardModel = this.buildBillableModelForRoute(defaultModel, mappings[0]);
+    let estimatedCostCents = 1;
+
+    for (const mapping of mappings) {
+      const routeModel = this.buildBillableModelForRoute(defaultModel, mapping);
+      const routeBody = this.buildUpstreamBody(body, mapping);
+      const routeCostCents = estimateChatCompletionCostCents(routeBody, routeModel);
+      if (routeCostCents > estimatedCostCents) {
+        estimatedCostCents = routeCostCents;
+        guardModel = routeModel;
+      }
+    }
+
+    return { model: guardModel, estimatedCostCents };
   }
 
   private injectUpstreamPrompt(messages: unknown[], upstreamPrompt: string): unknown[] {

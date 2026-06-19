@@ -97,12 +97,12 @@ export default function AccountProfilePage() {
     return Math.round((periodSuccessCount / periodCallCount) * 1000) / 10;
   }, [periodCallCount, periodSuccessCount]);
   const periodAvgTokensPerCall = useMemo(() => {
-    if (periodCallCount === 0) {
+    if (periodSuccessCount === 0) {
       return 0;
     }
 
-    return Math.round(usageSummary?.totalTokens ? usageSummary.totalTokens / periodCallCount : 0);
-  }, [periodCallCount, usageSummary?.totalTokens]);
+    return Math.round(usageSummary?.totalTokens ? usageSummary.totalTokens / periodSuccessCount : 0);
+  }, [periodSuccessCount, usageSummary?.totalTokens]);
 
   async function loadProfile() {
     setIsLoading(true);
@@ -274,15 +274,15 @@ export default function AccountProfilePage() {
             />
             <MetricBlock
               accent="violet"
-              detail={`近 ${rangeDays} 天`}
+              detail={`近 ${rangeDays} 天，总请求 ${formatNumber(periodCallCount)} 次`}
               icon={<TeamOutlined />}
-              label="调用次数"
+              label="成功请求"
               unit="次"
-              value={formatNumber(usageSummary?.total ?? 0)}
+              value={formatNumber(periodSuccessCount)}
             />
             <MetricBlock
               accent="rose"
-              detail={`成功 ${formatNumber(periodSuccessCount)} 次 · 失败 ${formatNumber(periodFailureCount)} 次`}
+              detail={`成功 ${formatNumber(periodSuccessCount)} 次 · 失败/未知 ${formatNumber(periodFailureCount)} 次`}
               icon={<CheckCircleOutlined />}
               label="性能指标"
               value={formatRate(periodSuccessRate)}
@@ -300,21 +300,21 @@ export default function AccountProfilePage() {
               />
               <UsageTile
                 accent="blue"
-                detail={`近 ${rangeDays} 天记录`}
+                detail={`成功 ${formatNumber(periodSuccessCount)} 次 / 失败或未知 ${formatNumber(periodFailureCount)} 次`}
                 icon={<BarChartOutlined />}
-                label="累计请求"
+                label="总请求"
                 value={formatNumber(periodCallCount)}
               />
               <UsageTile
                 accent="violet"
-                detail={`平均 ${formatNumber(periodAvgTokensPerCall)} token / 次`}
+                detail="按成功请求计算"
                 icon={<LineChartOutlined />}
                 label="平均每次 token"
                 value={formatNumber(periodAvgTokensPerCall)}
               />
               <UsageTile
                 accent="rose"
-                detail={`失败 ${formatNumber(periodFailureCount)} 次`}
+                detail={`失败或未知 ${formatNumber(periodFailureCount)} 次`}
                 icon={<ReloadOutlined />}
                 label="成功率"
                 value={`${formatRate(periodSuccessRate)} 成功`}
