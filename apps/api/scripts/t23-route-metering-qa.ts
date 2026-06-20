@@ -356,6 +356,11 @@ async function assertBilledRoute(input: {
   assert(usage.promptTokens === promptTokens, 'prompt tokens mismatch');
   assert(usage.completionTokens === completionTokens, 'completion tokens mismatch');
   assert(usage.totalTokens === promptTokens + completionTokens, 'total tokens mismatch');
+  assert(
+    usage.totalTokens !== (promptTokens + completionTokens) * Number(input.expectedMultiplier) ||
+      Number(input.expectedMultiplier) === 1,
+    'raw token count must not be multiplied by the price multiplier'
+  );
   assert(usage.costCents === input.expectedCost, `cost should be ${input.expectedCost}, got ${usage.costCents}`);
   assert(usage.walletTransaction !== null, 'billable usage should create wallet transaction');
   assert(usage.walletTransaction!.amountCents === -input.expectedCost, 'wallet transaction amount mismatch');

@@ -134,10 +134,10 @@ export default function UsageLogPage() {
           <small>成功扣费 {billableCount} 次</small>
         </div>
         <div className="metric-panel">
-          <span>Token 用量</span>
-          <strong>{summary?.totalTokens ?? 0}</strong>
+          <span>上游 token</span>
+          <strong>{formatTokenCount(summary?.totalTokens ?? 0)}</strong>
           <small>
-            输入 {summary?.promptTokens ?? 0} / 输出 {summary?.completionTokens ?? 0}
+            输入 {formatTokenCount(summary?.promptTokens ?? 0)} / 输出 {formatTokenCount(summary?.completionTokens ?? 0)}
           </small>
         </div>
         <div className="metric-panel">
@@ -242,6 +242,9 @@ export default function UsageLogPage() {
             <FileTextOutlined />
             <h2>调用明细</h2>
           </div>
+          <p className="table-note">
+            这里按上游真实返回记录：总量=输入+输出，扣费按美元价格计算。Claude Code 会把会话历史和工具说明一起发给上游，所以屏幕上只看到一句话，也可能产生较高输入 token。
+          </p>
           <div className="admin-table-wrap">
             <table className="admin-table log-table">
               <thead>
@@ -250,7 +253,7 @@ export default function UsageLogPage() {
                   <th>状态</th>
                   <th>模型</th>
                   <th>令牌</th>
-                  <th>Token</th>
+                  <th>上游 token</th>
                   <th>扣费</th>
                   <th>request_id</th>
                   <th>usage_event</th>
@@ -267,8 +270,16 @@ export default function UsageLogPage() {
                       <strong>{entry.token.name}</strong>
                       <span className="table-note">{entry.token.keyPreview}</span>
                     </td>
-                    <td>{entry.totalTokens}</td>
-                    <td>{formatBillingUsd(entry.costCents)}</td>
+                    <td>
+                      <strong>{formatTokenCount(entry.totalTokens)}</strong>
+                      <span className="table-note">
+                        输入 {formatTokenCount(entry.promptTokens)} / 输出 {formatTokenCount(entry.completionTokens)}
+                      </span>
+                    </td>
+                    <td>
+                      <strong>{formatBillingUsd(entry.costCents)}</strong>
+                      <span className="table-note">按价格扣费</span>
+                    </td>
                     <td className="request-id-cell">{entry.requestId}</td>
                     <td className="request-id-cell">{entry.id}</td>
                     <td className="request-id-cell">{entry.walletTransaction?.id ?? '-'}</td>
@@ -314,12 +325,26 @@ function toIsoDateTime(value: string) {
 }
 
 function toCsv(rows: UsageLogEntry[]) {
-  const header = ['createdAt', 'status', 'model', 'token', 'totalTokens', 'costUsd', 'requestId', 'usageEventId', 'walletTransactionId'];
+  const header = [
+    'createdAt',
+    'status',
+    'model',
+    'token',
+    'promptTokens',
+    'completionTokens',
+    'totalTokens',
+    'costUsd',
+    'requestId',
+    'usageEventId',
+    'walletTransactionId'
+  ];
   const body = rows.map((row) => [
     row.createdAt,
     row.status,
     row.model,
     row.token.name,
+    String(row.promptTokens),
+    String(row.completionTokens),
     String(row.totalTokens),
     formatBillingUsdNumber(row.costCents),
     row.requestId,
@@ -328,6 +353,10 @@ function toCsv(rows: UsageLogEntry[]) {
   ]);
 
   return [header, ...body].map((row) => row.map(csvCell).join(',')).join('\n');
+}
+
+function formatTokenCount(value: number) {
+  return new Intl.NumberFormat('en-US').format(value);
 }
 
 function csvCell(value: string) {
