@@ -78,8 +78,12 @@ export default function AccountProfilePage() {
   const usageSummary = usageData?.summary;
   const periodChargedUsd = usageSummary?.totalCostCents ?? 0;
   const periodRawTokens = usageSummary?.totalTokens ?? 0;
-  const periodCallCount = usageSummary?.total ?? 0;
+  const periodAttemptCount = usageSummary?.totalRequests ?? usageSummary?.total ?? 0;
   const periodSuccessCount = useMemo(() => {
+    if (usageSummary?.successfulRequests !== undefined) {
+      return usageSummary.successfulRequests;
+    }
+
     if (!usageSummary) {
       return 0;
     }
@@ -87,6 +91,10 @@ export default function AccountProfilePage() {
     return (usageSummary.statusCounts.billable ?? 0) + (usageSummary.statusCounts.free ?? 0);
   }, [usageSummary]);
   const periodFailureCount = useMemo(() => {
+    if (usageSummary?.failedRequests !== undefined) {
+      return usageSummary.failedRequests;
+    }
+
     if (!usageSummary) {
       return 0;
     }
@@ -94,12 +102,12 @@ export default function AccountProfilePage() {
     return (usageSummary.statusCounts.failed ?? 0) + (usageSummary.statusCounts.metering_unknown ?? 0);
   }, [usageSummary]);
   const periodSuccessRate = useMemo(() => {
-    if (periodCallCount === 0) {
+    if (periodAttemptCount === 0) {
       return 0;
     }
 
-    return Math.round((periodSuccessCount / periodCallCount) * 1000) / 10;
-  }, [periodCallCount, periodSuccessCount]);
+    return Math.round((periodSuccessCount / periodAttemptCount) * 1000) / 10;
+  }, [periodAttemptCount, periodSuccessCount]);
   const periodAvgTokensPerCall = useMemo(() => {
     if (periodSuccessCount === 0) {
       return 0;
@@ -268,7 +276,7 @@ export default function AccountProfilePage() {
             />
             <MetricBlock
               accent="blue"
-              detail={`扣费 ${formatBillingUsd(periodChargedUsd)}`}
+              detail={`原始 token，不乘价格倍率；扣费 ${formatBillingUsd(periodChargedUsd)}`}
               icon={<LineChartOutlined />}
               label={`近 ${rangeDays} 天 token`}
               unit="token"
@@ -276,17 +284,17 @@ export default function AccountProfilePage() {
             />
             <MetricBlock
               accent="violet"
-              detail={`近 ${rangeDays} 天，接口成功`}
+              detail="只统计真正成功返回的请求"
               icon={<TeamOutlined />}
-              label="成功请求"
+              label="扣费成功"
               unit="次"
               value={formatNumber(periodSuccessCount)}
             />
             <MetricBlock
               accent="rose"
-              detail={`异常/未知 ${formatNumber(periodFailureCount)} 次`}
+              detail={`成功 ${formatNumber(periodSuccessCount)} / 总尝试 ${formatNumber(periodAttemptCount)}，失败或未知 ${formatNumber(periodFailureCount)}`}
               icon={<CheckCircleOutlined />}
-              label="性能指标"
+              label="成功率"
               value={formatRate(periodSuccessRate)}
             />
           </section>
@@ -295,33 +303,37 @@ export default function AccountProfilePage() {
             <div className="profile-usage-cards">
               <UsageTile
                 accent="orange"
-                detail={`上游原始：输入 ${formatNumber(todayUsage.promptTokens)} / 输出 ${formatNumber(todayUsage.completionTokens)}`}
+                detail={`原始输入 ${formatNumber(todayUsage.promptTokens)} / 输出 ${formatNumber(todayUsage.completionTokens)}`}
                 icon={<ApiOutlined />}
                 label="今日 token"
                 value={`${formatNumber(todayUsage.totalTokens)} token`}
               />
               <UsageTile
                 accent="blue"
-                detail={`成功 ${formatNumber(periodSuccessCount)} 次 / 失败或未知 ${formatNumber(periodFailureCount)} 次`}
+                detail={`失败或未知 ${formatNumber(periodFailureCount)} 次，不参与 token 和扣费统计`}
                 icon={<BarChartOutlined />}
-                label="接口请求"
-                value={formatNumber(periodCallCount)}
+                label="成功请求"
+                value={formatNumber(periodSuccessCount)}
               />
               <UsageTile
                 accent="violet"
-                detail="按成功请求计算"
+                detail="按成功请求平均；包含客户端随请求发送的上下文"
                 icon={<LineChartOutlined />}
-                label="平均 token"
+                label="平均每次 token"
                 value={formatNumber(periodAvgTokensPerCall)}
               />
               <UsageTile
                 accent="rose"
-                detail={`失败或未知 ${formatNumber(periodFailureCount)} 次`}
+                detail={`成功 ${formatNumber(periodSuccessCount)} / 总尝试 ${formatNumber(periodAttemptCount)}`}
                 icon={<ReloadOutlined />}
                 label="成功率"
                 value={`${formatRate(periodSuccessRate)} 成功`}
               />
             </div>
+            <p className="profile-usage-note">
+              说明：token 显示上游返回的原始输入和输出，不会乘价格倍率；价格倍率只影响扣费金额。Claude Code
+              如果开着长会话，会把历史上下文一起发送，所以屏幕上只看到一句话，也可能产生较高输入 token。新开空会话测试，短问句 token 会明显下降。
+            </p>
 
             <div className="profile-usage-toolbar">
               <label>

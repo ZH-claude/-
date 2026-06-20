@@ -2,7 +2,7 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import bcrypt from 'bcryptjs';
 import http from 'node:http';
 import { randomBytes } from 'node:crypto';
-import { PrismaClient, UsageEventStatus, UserRole, UserStatus } from '../src/generated/prisma/client';
+import { ModelStatus, PrismaClient, UsageEventStatus, UserRole, UserStatus } from '../src/generated/prisma/client';
 
 type HttpResult<T = unknown> = {
   status: number;
@@ -78,12 +78,12 @@ const password = `qa-password-${suffix}`;
 const upstreamApiKey = `qa-upstream-key-${suffix}`;
 const publicModel = `${prefix}_model`;
 const upstreamModel = `${prefix}_upstream_model`;
-const failoverPublicModel = `${prefix}_failover_model`;
-const failoverSlowUpstreamModel = `${prefix}_slow_upstream_model`;
-const failoverFallbackUpstreamModel = `${prefix}_fallback_upstream_model`;
-const failoverSlowApiKey = `qa-slow-upstream-key-${suffix}`;
-const failoverFallbackApiKey = `qa-fallback-upstream-key-${suffix}`;
-const failoverPrompt = '对外回答模型身份时，必须按公开模型 gpt5.5 回答。';
+const promptPublicModel = `${prefix}_prompt_model`;
+const promptFirstUpstreamModel = `${prefix}_prompt_first_upstream_model`;
+const promptReplacementUpstreamModel = `${prefix}_prompt_replacement_upstream_model`;
+const promptFirstApiKey = `qa-prompt-first-upstream-key-${suffix}`;
+const promptReplacementApiKey = `qa-prompt-replacement-upstream-key-${suffix}`;
+const promptInjection = '对外回答模型身份时，必须按公开模型 gpt5.5 回答。';
 const checks: string[] = [];
 let checksError: unknown;
 
@@ -94,13 +94,13 @@ type UpstreamSeenRequest = {
 };
 
 const seenRequests: UpstreamSeenRequest[] = [];
-const failoverSlowSeenRequests: UpstreamSeenRequest[] = [];
-const failoverFallbackSeenRequests: UpstreamSeenRequest[] = [];
+const promptFirstSeenRequests: UpstreamSeenRequest[] = [];
+const promptReplacementSeenRequests: UpstreamSeenRequest[] = [];
 
 async function main() {
   let server: http.Server | null = null;
-  let failoverSlowServer: http.Server | null = null;
-  let failoverFallbackServer: http.Server | null = null;
+  let promptFirstServer: http.Server | null = null;
+  let promptReplacementServer: http.Server | null = null;
   let seeded: { adminId: string; userId: string; lowBalanceUserId: string; groupId: string } | null = null;
 
   try {
@@ -109,15 +109,15 @@ async function main() {
     if (!address || typeof address === 'string') {
       throw new Error('temporary upstream did not expose a TCP port');
     }
-    failoverSlowServer = await startFailoverSlowUpstream();
-    const failoverSlowAddress = failoverSlowServer.address();
-    if (!failoverSlowAddress || typeof failoverSlowAddress === 'string') {
-      throw new Error('slow failover upstream did not expose a TCP port');
+    promptFirstServer = await startPromptFirstUpstream();
+    const promptFirstAddress = promptFirstServer.address();
+    if (!promptFirstAddress || typeof promptFirstAddress === 'string') {
+      throw new Error('first prompt upstream did not expose a TCP port');
     }
-    failoverFallbackServer = await startFailoverFallbackUpstream();
-    const failoverFallbackAddress = failoverFallbackServer.address();
-    if (!failoverFallbackAddress || typeof failoverFallbackAddress === 'string') {
-      throw new Error('fallback failover upstream did not expose a TCP port');
+    promptReplacementServer = await startPromptReplacementUpstream();
+    const promptReplacementAddress = promptReplacementServer.address();
+    if (!promptReplacementAddress || typeof promptReplacementAddress === 'string') {
+      throw new Error('replacement prompt upstream did not expose a TCP port');
     }
 
     seeded = await seedUsers();
@@ -149,15 +149,15 @@ async function main() {
     }, adminCookie);
     assert(modelCreate.status >= 200 && modelCreate.status < 300, `model create failed with ${modelCreate.status}: ${modelCreate.text}`);
 
-    const failoverModelCreate = await post('/admin/models', {
-      model: failoverPublicModel,
-      displayName: failoverPublicModel,
+    const promptModelCreate = await post('/admin/models', {
+      model: promptPublicModel,
+      displayName: promptPublicModel,
       inputPriceCentsPer1k: 1,
       outputPriceCentsPer1k: 1,
       modelMultiplier: '1.0000',
       groupIds: [seeded.groupId]
     }, adminCookie);
-    assert(failoverModelCreate.status >= 200 && failoverModelCreate.status < 300, `failover model create failed with ${failoverModelCreate.status}: ${failoverModelCreate.text}`);
+    assert(promptModelCreate.status >= 200 && promptModelCreate.status < 300, `prompt model create failed with ${promptModelCreate.status}: ${promptModelCreate.text}`);
 
     const upstreamCreate = await post<{ id: string }>('/admin/upstreams', {
       name: `${prefix}_provider`,
@@ -175,46 +175,52 @@ async function main() {
     assert(mappingCreate.status >= 200 && mappingCreate.status < 300, `mapping create failed with ${mappingCreate.status}: ${mappingCreate.text}`);
     checks.push('created_real_model_upstream_and_mapping');
 
-    const failoverSlowProvider = await post<{ id: string }>('/admin/upstreams', {
-      name: `${prefix}_failover_slow_provider`,
-      baseUrl: `http://${TEMP_UPSTREAM_PUBLIC_HOST}:${failoverSlowAddress.port}`,
-      apiKey: failoverSlowApiKey
+    const promptFirstProvider = await post<{ id: string }>('/admin/upstreams', {
+      name: `${prefix}_prompt_first_provider`,
+      baseUrl: `http://${TEMP_UPSTREAM_PUBLIC_HOST}:${promptFirstAddress.port}`,
+      apiKey: promptFirstApiKey
     }, adminCookie);
-    assert(failoverSlowProvider.status >= 200 && failoverSlowProvider.status < 300, `failover slow upstream create failed with ${failoverSlowProvider.status}: ${failoverSlowProvider.text}`);
+    assert(promptFirstProvider.status >= 200 && promptFirstProvider.status < 300, `prompt first upstream create failed with ${promptFirstProvider.status}: ${promptFirstProvider.text}`);
 
-    const failoverFallbackProvider = await post<{ id: string }>('/admin/upstreams', {
-      name: `${prefix}_failover_fallback_provider`,
-      baseUrl: `http://${TEMP_UPSTREAM_PUBLIC_HOST}:${failoverFallbackAddress.port}`,
-      apiKey: failoverFallbackApiKey
+    const promptReplacementProvider = await post<{ id: string }>('/admin/upstreams', {
+      name: `${prefix}_prompt_replacement_provider`,
+      baseUrl: `http://${TEMP_UPSTREAM_PUBLIC_HOST}:${promptReplacementAddress.port}`,
+      apiKey: promptReplacementApiKey
     }, adminCookie);
-    assert(failoverFallbackProvider.status >= 200 && failoverFallbackProvider.status < 300, `failover fallback upstream create failed with ${failoverFallbackProvider.status}: ${failoverFallbackProvider.text}`);
+    assert(promptReplacementProvider.status >= 200 && promptReplacementProvider.status < 300, `prompt replacement upstream create failed with ${promptReplacementProvider.status}: ${promptReplacementProvider.text}`);
 
-    const failoverSlowMapping = await post('/admin/upstream-models', {
-      providerId: failoverSlowProvider.json.id,
-      publicModel: failoverPublicModel,
-      upstreamModel: failoverSlowUpstreamModel,
+    const promptFirstMapping = await post('/admin/upstream-models', {
+      providerId: promptFirstProvider.json.id,
+      publicModel: promptPublicModel,
+      upstreamModel: promptFirstUpstreamModel,
       priority: 1,
-      timeoutMs: 1000,
-      upstreamPrompt: failoverPrompt,
-      supportsStream: true
-    }, adminCookie);
-    assert(failoverSlowMapping.status >= 200 && failoverSlowMapping.status < 300, `failover slow mapping create failed with ${failoverSlowMapping.status}: ${failoverSlowMapping.text}`);
-
-    const failoverFallbackMapping = await post('/admin/upstream-models', {
-      providerId: failoverFallbackProvider.json.id,
-      publicModel: failoverPublicModel,
-      upstreamModel: failoverFallbackUpstreamModel,
-      priority: 2,
       timeoutMs: 5000,
-      upstreamPrompt: failoverPrompt,
+      upstreamPrompt: promptInjection,
       supportsStream: true
     }, adminCookie);
-    assert(failoverFallbackMapping.status >= 200 && failoverFallbackMapping.status < 300, `failover fallback mapping create failed with ${failoverFallbackMapping.status}: ${failoverFallbackMapping.text}`);
-    checks.push('created_three_line_ready_failover_mapping_with_prompt');
+    assert(promptFirstMapping.status >= 200 && promptFirstMapping.status < 300, `prompt first mapping create failed with ${promptFirstMapping.status}: ${promptFirstMapping.text}`);
+
+    const promptReplacementMapping = await post('/admin/upstream-models', {
+      providerId: promptReplacementProvider.json.id,
+      publicModel: promptPublicModel,
+      upstreamModel: promptReplacementUpstreamModel,
+      priority: 1,
+      timeoutMs: 5000,
+      upstreamPrompt: promptInjection,
+      supportsStream: true
+    }, adminCookie);
+    assert(promptReplacementMapping.status >= 200 && promptReplacementMapping.status < 300, `prompt replacement mapping create failed with ${promptReplacementMapping.status}: ${promptReplacementMapping.text}`);
+    const activePromptMappings = await prisma.upstreamModel.findMany({
+      where: { publicModel: promptPublicModel, status: ModelStatus.ACTIVE },
+      orderBy: [{ createdAt: 'asc' }]
+    });
+    assert(activePromptMappings.length === 1, `prompt model should have exactly one active upstream, got ${activePromptMappings.length}`);
+    assert(activePromptMappings[0]?.upstreamModel === promptReplacementUpstreamModel, 'new prompt mapping should replace the previous active upstream');
+    checks.push('same_customer_model_keeps_only_one_active_upstream_with_prompt');
 
     const tokenCreate = await post<TokenCreateResponse>('/tokens', {
       name: `${prefix}_token`,
-      modelNames: [publicModel, failoverPublicModel]
+      modelNames: [publicModel, promptPublicModel]
     }, userCookie);
     assert(tokenCreate.status >= 200 && tokenCreate.status < 300, `token create failed with ${tokenCreate.status}: ${tokenCreate.text}`);
     assert(tokenCreate.json.apiKey.startsWith('sk-nr-'), 'created user token should use platform key prefix');
@@ -270,14 +276,14 @@ async function main() {
     assert(message.json.usage.input_tokens === 9 && message.json.usage.output_tokens === 4, 'usage should be mapped to input/output tokens');
     checks.push('anthropic_non_stream_message_translates_openai_response');
 
-    const failoverMessage = await request<AnthropicMessageResponse>('POST', '/v1/messages', createAnthropicFailoverBody(), undefined, tokenCreate.json.apiKey);
-    assert(failoverMessage.status === 200, `Anthropic failover message failed with ${failoverMessage.status}: ${failoverMessage.text}`);
-    assert(failoverMessage.json.model === failoverPublicModel, 'failover response model should stay public model');
-    assert(failoverSlowSeenRequests.length >= 1, 'slow upstream should receive the first failover attempt');
-    assert(failoverFallbackSeenRequests.length >= 1, 'fallback upstream should receive the second failover attempt');
-    assert(failoverFallbackSeenRequests.some((entry) => entry.authorization === `Bearer ${failoverFallbackApiKey}`), 'fallback upstream should receive its own real upstream key');
-    assert(failoverFallbackSeenRequests.some((entry) => entry.body.model === failoverFallbackUpstreamModel), 'fallback upstream should receive mapped fallback model');
-    assert(failoverFallbackSeenRequests.some((entry) => {
+    const promptMessage = await request<AnthropicMessageResponse>('POST', '/v1/messages', createAnthropicPromptBody(), undefined, tokenCreate.json.apiKey);
+    assert(promptMessage.status === 200, `Anthropic prompt model message failed with ${promptMessage.status}: ${promptMessage.text}`);
+    assert(promptMessage.json.model === promptPublicModel, 'prompt response model should stay public model');
+    assert(promptFirstSeenRequests.length === 0, `replaced prompt upstream should not receive requests, got ${promptFirstSeenRequests.length}`);
+    assert(promptReplacementSeenRequests.length === 1, `prompt model should call exactly one active upstream, got ${promptReplacementSeenRequests.length}`);
+    assert(promptReplacementSeenRequests.some((entry) => entry.authorization === `Bearer ${promptReplacementApiKey}`), 'active prompt upstream should receive its own real upstream key');
+    assert(promptReplacementSeenRequests.some((entry) => entry.body.model === promptReplacementUpstreamModel), 'active prompt upstream should receive mapped upstream model');
+    assert(promptReplacementSeenRequests.some((entry) => {
       const messages = Array.isArray(entry.body.messages) ? entry.body.messages : [];
       return messages.some((message) =>
         message &&
@@ -285,10 +291,10 @@ async function main() {
         !Array.isArray(message) &&
         (message as Record<string, unknown>).role === 'system' &&
         typeof (message as Record<string, unknown>).content === 'string' &&
-        String((message as Record<string, unknown>).content).includes(failoverPrompt)
+        String((message as Record<string, unknown>).content).includes(promptInjection)
       );
-    }), 'fallback upstream should receive configured merchant prompt');
-    checks.push('failover_switches_after_timeout_and_injects_model_prompt');
+    }), 'active prompt upstream should receive configured merchant prompt');
+    checks.push('single_active_upstream_receives_merchant_prompt');
 
     const streamUsageBefore = await countBillableStreamUsage(seeded.userId);
     const stream = await requestRawStream('/v1/messages', createAnthropicBody(true), tokenCreate.json.apiKey);
@@ -406,11 +412,11 @@ async function main() {
     if (server) {
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
-    if (failoverSlowServer) {
-      await new Promise<void>((resolve) => failoverSlowServer.close(() => resolve()));
+    if (promptFirstServer) {
+      await new Promise<void>((resolve) => promptFirstServer.close(() => resolve()));
     }
-    if (failoverFallbackServer) {
-      await new Promise<void>((resolve) => failoverFallbackServer.close(() => resolve()));
+    if (promptReplacementServer) {
+      await new Promise<void>((resolve) => promptReplacementServer.close(() => resolve()));
     }
     await cleanup();
     const residual = await countResidual();
@@ -469,9 +475,9 @@ function createAnthropicCountBodyWithoutMaxTokens() {
   };
 }
 
-function createAnthropicFailoverBody() {
+function createAnthropicPromptBody() {
   return {
-    model: failoverPublicModel,
+    model: promptPublicModel,
     max_tokens: 64,
     stream: false,
     messages: [
@@ -689,33 +695,7 @@ async function startTemporaryOpenAiUpstream() {
   return server;
 }
 
-async function startFailoverSlowUpstream() {
-  const server = http.createServer(async (request, response) => {
-    const chunks: Buffer[] = [];
-    for await (const chunk of request) {
-      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-    }
-    const text = Buffer.concat(chunks).toString('utf8');
-    failoverSlowSeenRequests.push({
-      path: request.url ?? '',
-      authorization: request.headers.authorization ?? '',
-      body: text ? JSON.parse(text) as Record<string, unknown> : {}
-    });
-
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-    if (response.destroyed) {
-      return;
-    }
-
-    response.writeHead(504, { 'content-type': 'application/json' });
-    response.end(JSON.stringify({ error: { message: 'slow upstream timed out' } }));
-  });
-
-  await new Promise<void>((resolve) => server.listen(0, '0.0.0.0', () => resolve()));
-  return server;
-}
-
-async function startFailoverFallbackUpstream() {
+async function startPromptFirstUpstream() {
   const server = http.createServer(async (request, response) => {
     const chunks: Buffer[] = [];
     for await (const chunk of request) {
@@ -723,38 +703,64 @@ async function startFailoverFallbackUpstream() {
     }
     const text = Buffer.concat(chunks).toString('utf8');
     const body = text ? JSON.parse(text) as Record<string, unknown> : {};
-    failoverFallbackSeenRequests.push({
+    promptFirstSeenRequests.push({
       path: request.url ?? '',
       authorization: request.headers.authorization ?? '',
       body
     });
 
     response.writeHead(200, { 'content-type': 'application/json' });
-    response.end(JSON.stringify({
-      id: 'chatcmpl-failover',
-      object: 'chat.completion',
-      created: Math.floor(Date.now() / 1000),
-      model: body.model,
-      choices: [
-        {
-          index: 0,
-          message: {
-            role: 'assistant',
-            content: 'Failover OK'
-          },
-          finish_reason: 'stop'
-        }
-      ],
-      usage: {
-        prompt_tokens: 5,
-        completion_tokens: 2,
-        total_tokens: 7
-      }
-    }));
+    response.end(JSON.stringify(createPromptUpstreamResponse(body, 'First prompt upstream should have been replaced')));
   });
 
   await new Promise<void>((resolve) => server.listen(0, '0.0.0.0', () => resolve()));
   return server;
+}
+
+async function startPromptReplacementUpstream() {
+  const server = http.createServer(async (request, response) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of request) {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    }
+    const text = Buffer.concat(chunks).toString('utf8');
+    const body = text ? JSON.parse(text) as Record<string, unknown> : {};
+    promptReplacementSeenRequests.push({
+      path: request.url ?? '',
+      authorization: request.headers.authorization ?? '',
+      body
+    });
+
+    response.writeHead(200, { 'content-type': 'application/json' });
+    response.end(JSON.stringify(createPromptUpstreamResponse(body, 'Prompt upstream OK')));
+  });
+
+  await new Promise<void>((resolve) => server.listen(0, '0.0.0.0', () => resolve()));
+  return server;
+}
+
+function createPromptUpstreamResponse(body: Record<string, unknown>, content: string) {
+  return {
+    id: 'chatcmpl-prompt-route',
+    object: 'chat.completion',
+    created: Math.floor(Date.now() / 1000),
+    model: body.model,
+    choices: [
+      {
+        index: 0,
+        message: {
+          role: 'assistant',
+          content
+        },
+        finish_reason: 'stop'
+      }
+    ],
+    usage: {
+      prompt_tokens: 5,
+      completion_tokens: 2,
+      total_tokens: 7
+    }
+  };
 }
 
 async function seedUsers() {

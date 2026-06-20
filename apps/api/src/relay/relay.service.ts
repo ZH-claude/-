@@ -10,7 +10,8 @@ import {
   type UpstreamBillingTarget
 } from '../billing/billing.service';
 import { estimateChatCompletionCostCents } from '../billing/balance-guard';
-import { ModelStatus, UpstreamProviderStatus } from '../generated/prisma/client';
+import { ModelPricingMode, ModelStatus, UpstreamProviderKind, UpstreamProviderStatus } from '../generated/prisma/client';
+import { deepSeekBaseUsdUnitsPer1k } from '../billing/token-pricing';
 import { PrismaService } from '../prisma.service';
 import { RequestLogsService } from '../request-logs/request-logs.service';
 import { TokensService } from '../tokens/tokens.service';
@@ -119,11 +120,13 @@ type UpstreamMappingCandidate = {
   upstreamPrompt: string | null;
   inputPriceCentsPer1k: number | null;
   outputPriceCentsPer1k: number | null;
+  pricingMode: ModelPricingMode | null;
   modelMultiplier: { toString(): string } | null;
   provider: {
     id: string;
     baseUrl: string;
     encryptedApiKey: string;
+    kind: UpstreamProviderKind;
   };
 };
 
@@ -157,8 +160,7 @@ class UpstreamAttemptFailureError extends Error {
 }
 
 const UPSTREAM_TIMEOUT_MS = 120_000;
-const DEFAULT_FAILOVER_TIMEOUT_MS = 5000;
-const RETRYABLE_UPSTREAM_STATUS = new Set([502, 503, 504]);
+const DEFAULT_UPSTREAM_ROUTE_TIMEOUT_MS = 5000;
 
 @Injectable()
 export class RelayService {
@@ -484,7 +486,7 @@ export class RelayService {
         let attempt: UpstreamAttemptResult;
 
         try {
-          attempt = await this.fetchFirstAvailableUpstream({
+          attempt = await this.fetchConfiguredUpstream({
             mappings,
             body,
             stream: true,
@@ -561,7 +563,7 @@ export class RelayService {
       let attempt: UpstreamAttemptResult;
 
       try {
-        attempt = await this.fetchFirstAvailableUpstream({
+        attempt = await this.fetchConfiguredUpstream({
           mappings,
           body,
           stream: false
@@ -1147,80 +1149,51 @@ export class RelayService {
     response.end();
   }
 
-  private async fetchFirstAvailableUpstream(input: {
+  private async fetchConfiguredUpstream(input: {
     mappings: UpstreamMappingCandidate[];
     body: ChatCompletionBody;
     stream: boolean;
     acceptHeader?: string;
   }): Promise<UpstreamAttemptResult> {
-    let lastFailure: UpstreamAttemptFailureError | null = null;
-
-    for (const mapping of input.mappings) {
-      const upstreamBody = this.buildUpstreamBody(input.body, mapping);
-      const body = input.stream ? this.withStreamUsageOptions(upstreamBody) : upstreamBody;
-      const upstreamStartedAt = Date.now();
-
-      try {
-        const response = await this.fetchUpstreamChatCompletion(
-          mapping.provider.baseUrl,
-          decryptUpstreamApiKey(mapping.provider.encryptedApiKey),
-          body,
-          {
-            stream: input.stream,
-            acceptHeader: input.acceptHeader,
-            timeoutMs: this.normalizeUpstreamTimeoutMs(mapping.timeoutMs)
-          }
-        );
-        const latencyMs = Date.now() - upstreamStartedAt;
-
-        if (response.ok) {
-          return {
-            mapping,
-            response,
-            latencyMs
-          };
-        }
-
-        const upstreamError = await this.createUpstreamError(response);
-        const failure = new UpstreamAttemptFailureError(upstreamError, mapping, latencyMs, response.status, 'http_error');
-        lastFailure = failure;
-        if (!this.shouldFailoverUpstreamStatus(response.status)) {
-          throw failure;
-        }
-      } catch (error) {
-        if (error instanceof UpstreamAttemptFailureError) {
-          lastFailure = error;
-          if (!this.shouldFailoverError(error.causeError)) {
-            throw error;
-          }
-          continue;
-        }
-
-        const failure = new UpstreamAttemptFailureError(error, mapping, Date.now() - upstreamStartedAt, null, 'failed');
-        lastFailure = failure;
-        if (!this.shouldFailoverError(error)) {
-          throw failure;
-        }
-        continue;
-      }
-    }
-
-    if (lastFailure) {
-      throw lastFailure;
-    }
-
-    const firstMapping = input.mappings[0];
-    if (!firstMapping) {
+    const mapping = input.mappings[0];
+    if (!mapping) {
       throw this.createError(400, 'model_unavailable', 'invalid_request_error', 'Model is unavailable');
     }
 
-    throw new UpstreamAttemptFailureError(
-      this.createError(400, 'model_unavailable', 'invalid_request_error', 'Model is unavailable'),
-      firstMapping,
-      null,
-      null,
-      'failed'
-    );
+    const upstreamBody = this.buildUpstreamBody(input.body, mapping);
+    const body = input.stream ? this.withStreamUsageOptions(upstreamBody) : upstreamBody;
+    const upstreamStartedAt = Date.now();
+
+    try {
+      const response = await this.fetchUpstreamChatCompletion(
+        mapping.provider.baseUrl,
+        decryptUpstreamApiKey(mapping.provider.encryptedApiKey),
+        body,
+        {
+          stream: input.stream,
+          acceptHeader: input.acceptHeader,
+          timeoutMs: this.normalizeUpstreamTimeoutMs(mapping.timeoutMs)
+        }
+      );
+      const latencyMs = Date.now() - upstreamStartedAt;
+
+      if (response.ok) {
+        return {
+          mapping,
+          response,
+          latencyMs
+        };
+      }
+
+      const upstreamError = await this.createUpstreamError(response);
+      throw new UpstreamAttemptFailureError(upstreamError, mapping, latencyMs, response.status, 'http_error');
+    } catch (error) {
+      if (error instanceof UpstreamAttemptFailureError) {
+        throw error;
+      }
+
+      throw new UpstreamAttemptFailureError(error, mapping, Date.now() - upstreamStartedAt, null, 'failed');
+    }
   }
 
   private buildUpstreamBody(body: ChatCompletionBody, mapping: UpstreamMappingCandidate): ChatCompletionBody {
@@ -1251,12 +1224,31 @@ export class RelayService {
       return defaultModel;
     }
 
+    if (this.shouldInheritPublicModelPricingForDeepSeekRoute(mapping)) {
+      return defaultModel;
+    }
+
     return {
       ...defaultModel,
       inputPriceCentsPer1k: mapping.inputPriceCentsPer1k,
       outputPriceCentsPer1k: mapping.outputPriceCentsPer1k,
       modelMultiplier: mapping.modelMultiplier.toString()
     };
+  }
+
+  private shouldInheritPublicModelPricingForDeepSeekRoute(mapping: UpstreamMappingCandidate) {
+    if (mapping.pricingMode !== ModelPricingMode.DEEPSEEK_BASE) {
+      return false;
+    }
+
+    const deepSeekBase = deepSeekBaseUsdUnitsPer1k();
+    return (
+      mapping.provider.kind === UpstreamProviderKind.DEEPSEEK &&
+      mapping.modelMultiplier !== null &&
+      mapping.inputPriceCentsPer1k === deepSeekBase &&
+      mapping.outputPriceCentsPer1k === deepSeekBase &&
+      Number(mapping.modelMultiplier.toString()) === 1
+    );
   }
 
   private buildBillingStartGuard(
@@ -1310,18 +1302,6 @@ export class RelayService {
     throw error;
   }
 
-  private shouldFailoverUpstreamStatus(status: number) {
-    return RETRYABLE_UPSTREAM_STATUS.has(status) || status === 408;
-  }
-
-  private shouldFailoverError(error: unknown) {
-    if (error instanceof RelayHttpError) {
-      return error.code === 'upstream_error' || error.code === 'upstream_timeout' || this.shouldFailoverUpstreamStatus(error.status);
-    }
-
-    return this.isAbortLikeError(error);
-  }
-
   private isAbortLikeError(error: unknown) {
     return typeof error === 'object'
       && error !== null
@@ -1332,7 +1312,7 @@ export class RelayService {
   private normalizeUpstreamTimeoutMs(timeoutMs: number) {
     return Number.isInteger(timeoutMs) && timeoutMs >= 1000 && timeoutMs <= 30000
       ? timeoutMs
-      : DEFAULT_FAILOVER_TIMEOUT_MS;
+      : DEFAULT_UPSTREAM_ROUTE_TIMEOUT_MS;
   }
 
   private normalizeAnthropicMessagesBody(
@@ -2203,7 +2183,7 @@ export class RelayService {
         provider: true
       },
       orderBy: [{ priority: 'asc' }, { createdAt: 'asc' }],
-      take: 3
+      take: 1
     });
 
     if (mappings.length === 0) {

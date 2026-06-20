@@ -61,6 +61,9 @@ type UsageLogsResponse = {
   items: UsageLogEntry[];
   summary: {
     total: number;
+    totalRequests: number;
+    successfulRequests: number;
+    failedRequests: number;
     totalCostCents: number;
     promptTokens: number;
     completionTokens: number;
@@ -155,6 +158,25 @@ async function main() {
     assert(unknownRow.walletTransaction === null, 'metering unknown row should not have wallet transaction');
     assert(unknownRow.costCents === 0, 'metering unknown row should not cost money');
     checks.push('usage_logs_link_request_usage_and_wallet_truthfully');
+
+    assert(allLogs.json.summary.total === 3, `summary should count all three rows, got ${allLogs.json.summary.total}`);
+    assert(allLogs.json.summary.totalRequests === 3, `summary totalRequests should count all three rows, got ${allLogs.json.summary.totalRequests}`);
+    assert(
+      allLogs.json.summary.successfulRequests === 1,
+      `summary successfulRequests should count only billable/free rows, got ${allLogs.json.summary.successfulRequests}`
+    );
+    assert(
+      allLogs.json.summary.failedRequests === 2,
+      `summary failedRequests should count failed and metering unknown rows, got ${allLogs.json.summary.failedRequests}`
+    );
+    assert(allLogs.json.summary.totalCostCents === 7, `summary should only charge billable rows, got ${allLogs.json.summary.totalCostCents}`);
+    assert(allLogs.json.summary.promptTokens === 100, `summary should only include billable prompt tokens, got ${allLogs.json.summary.promptTokens}`);
+    assert(
+      allLogs.json.summary.completionTokens === 50,
+      `summary should only include billable completion tokens, got ${allLogs.json.summary.completionTokens}`
+    );
+    assert(allLogs.json.summary.totalTokens === 150, `summary should only include billable total tokens, got ${allLogs.json.summary.totalTokens}`);
+    checks.push('usage_summary_excludes_failed_and_metering_unknown_consumption');
 
     const filteredByStatus = await get<UsageLogsResponse>(
       `/usage/logs?model=${encodeURIComponent(publicModel)}&status=billable&limit=100`,

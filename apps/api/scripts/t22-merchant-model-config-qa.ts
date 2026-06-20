@@ -1,7 +1,7 @@
 import { PrismaPg } from '@prisma/adapter-pg';
 import bcrypt from 'bcryptjs';
 import { randomBytes } from 'node:crypto';
-import { PrismaClient, UserRole, UserStatus } from '../src/generated/prisma/client';
+import { ModelStatus, PrismaClient, UserRole, UserStatus } from '../src/generated/prisma/client';
 
 type HttpResult<T = unknown> = {
   status: number;
@@ -568,7 +568,7 @@ async function main() {
         providerId: backupUpstream.json.id,
         publicModel: created.modelName,
         upstreamModel: `${created.modelName}-backup`,
-        priority: 2,
+        priority: 1,
         timeoutMs: 6000,
         upstreamPrompt: 'QA backup prompt',
         pricingMode: 'manual',
@@ -579,9 +579,22 @@ async function main() {
       },
       adminCookie
     );
-    assert(backupMapping.status >= 200 && backupMapping.status < 300, `admin create backup mapping failed with ${backupMapping.status}`);
-    assert(backupMapping.json.priority === 2, 'backup mapping priority mismatch');
-    checks.push('admin_can_add_second_upstream_route_for_same_customer_model');
+    assert(backupMapping.status >= 200 && backupMapping.status < 300, `admin create replacement mapping failed with ${backupMapping.status}`);
+    assert(backupMapping.json.priority === 1, 'replacement mapping should be normalized to the only active route');
+    assert(backupMapping.json.status === 'active', 'replacement mapping should be active');
+    const replacedInitialMapping = await prisma.upstreamModel.findUniqueOrThrow({
+      where: { id: created.upstreamModelId },
+      select: { status: true }
+    });
+    assert(replacedInitialMapping.status === 'DISABLED', 'creating a new active mapping should disable the old active mapping');
+    const activeMappingCount = await prisma.upstreamModel.count({
+      where: {
+        publicModel: created.modelName,
+        status: ModelStatus.ACTIVE
+      }
+    });
+    assert(activeMappingCount === 1, `customer model should have exactly one active upstream mapping, got ${activeMappingCount}`);
+    checks.push('admin_replaces_active_upstream_route_for_same_customer_model');
 
     const createText = JSON.stringify({
       group: createdGroup.json,
@@ -674,15 +687,15 @@ async function main() {
     const visiblePricingModel = pricing.json.models.find((model) => model.model === created.modelName);
     assert(visiblePricingModel, 'new model not visible in /pricing/models after group assignment');
     assert(
-      visiblePricingModel.inputPriceCentsPer1k === 19,
+      visiblePricingModel.inputPriceCentsPer1k === 101,
       `/pricing/models should expose active route input pricing, got ${visiblePricingModel.inputPriceCentsPer1k}`
     );
     assert(
-      visiblePricingModel.outputPriceCentsPer1k === 37,
+      visiblePricingModel.outputPriceCentsPer1k === 103,
       `/pricing/models should expose active route output pricing, got ${visiblePricingModel.outputPriceCentsPer1k}`
     );
     assert(
-      Number(visiblePricingModel.modelMultiplier) === 2,
+      Number(visiblePricingModel.modelMultiplier) === 4,
       `/pricing/models should expose active route multiplier, got ${visiblePricingModel.modelMultiplier}`
     );
     assert(pricing.json.group.code === `${prefix}_group`, 'pricing group code should be the created group');
@@ -693,15 +706,15 @@ async function main() {
     const authVisibleModel = authMe.json.user.availableModels.find((model) => model.model === created.modelName);
     assert(authVisibleModel, '/auth/me should include assigned model in availableModels');
     assert(
-      authVisibleModel.inputPriceCentsPer1k === 19,
+      authVisibleModel.inputPriceCentsPer1k === 101,
       `/auth/me should expose active route input pricing, got ${authVisibleModel.inputPriceCentsPer1k}`
     );
     assert(
-      authVisibleModel.outputPriceCentsPer1k === 37,
+      authVisibleModel.outputPriceCentsPer1k === 103,
       `/auth/me should expose active route output pricing, got ${authVisibleModel.outputPriceCentsPer1k}`
     );
     assert(
-      Number(authVisibleModel.modelMultiplier) === 2,
+      Number(authVisibleModel.modelMultiplier) === 4,
       `/auth/me should expose active route multiplier, got ${authVisibleModel.modelMultiplier}`
     );
     checks.push('user_auth_me_shows_real_available_models_with_route_pricing');
@@ -1008,7 +1021,6 @@ function assertMerchantUpstreamHtml(text: string, kind: 'deepseek' | 'relay') {
     '第三步：模型映射（上游线路）',
     '已绑定线路',
     '真实上游模型',
-    '线路顺序',
     '上游附加提示词',
     '保存线路',
     '保存映射'

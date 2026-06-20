@@ -20,7 +20,12 @@ import {
   UserStatus,
   UsageEventStatus
 } from '../generated/prisma/client';
-import { calculateRelayTokenPricing, multiplierToBaseTokensPer1k, type TokenPricingCurrency } from '../billing/token-pricing';
+import {
+  calculateRelayUsdPricing,
+  deepSeekBaseUsdUnitsPer1k,
+  DEFAULT_USD_TO_CNY_RATE,
+  type TokenPricingCurrency
+} from '../billing/token-pricing';
 import { PrismaService } from '../prisma.service';
 import { SecurityAuditService } from '../security-audit/security-audit.service';
 import { decryptUpstreamApiKey, encryptUpstreamApiKey, maskUpstreamApiKey } from './upstream-key-crypto';
@@ -1399,7 +1404,7 @@ export class AdminService implements OnModuleInit {
     const providerId = this.requiredUuid(body.providerId, 'providerId');
     const publicModel = this.normalizeModelName(body.publicModel, 'publicModel');
     const upstreamModel = this.normalizeModelName(body.upstreamModel, 'upstreamModel');
-    const priority = this.nonNegativeInt(body.priority, 'priority', 1, 3);
+    const priority = 1;
     const timeoutMs = this.nonNegativeInt(body.timeoutMs, 'timeoutMs', 1000, 30000);
     const upstreamPrompt = this.optionalText(body.upstreamPrompt, 'upstreamPrompt', 1, 4000) ?? null;
     const routePricing = this.resolveRoutePricingForCreate(body);
@@ -1427,24 +1432,15 @@ export class AdminService implements OnModuleInit {
     try {
       const upstreamModelRecord = await this.prisma.$transaction(async (tx) => {
         if (status === ModelStatus.ACTIVE) {
-          const activeMappings = await tx.upstreamModel.findMany({
+          await tx.upstreamModel.updateMany({
             where: {
               publicModel,
               status: ModelStatus.ACTIVE
             },
-            select: {
-              id: true,
-              priority: true
+            data: {
+              status: ModelStatus.DISABLED
             }
           });
-
-          if (activeMappings.length >= 3) {
-            throw new BadRequestException('A public model can have at most 3 active upstream mappings');
-          }
-
-          if (activeMappings.some((mapping) => mapping.priority === priority)) {
-            throw new ConflictException('Active upstream priority already exists for this public model');
-          }
         }
 
         const createdModel = await tx.upstreamModel.create({
@@ -1519,7 +1515,7 @@ export class AdminService implements OnModuleInit {
     const providerId = this.requiredUuid(body.providerId, 'providerId');
     const publicModel = this.normalizeModelName(body.publicModel, 'publicModel');
     const upstreamModel = this.normalizeModelName(body.upstreamModel, 'upstreamModel');
-    const priority = this.nonNegativeInt(body.priority, 'priority', 1, 3);
+    const priority = 1;
     const timeoutMs = this.nonNegativeInt(body.timeoutMs, 'timeoutMs', 1000, 30000);
     const upstreamPrompt = this.optionalText(body.upstreamPrompt, 'upstreamPrompt', 1, 4000) ?? null;
     const routePricing = this.resolveRoutePricingForUpdate(body, existing);
@@ -1550,25 +1546,16 @@ export class AdminService implements OnModuleInit {
     try {
       const upstreamModelRecord = await this.prisma.$transaction(async (tx) => {
         if (status === ModelStatus.ACTIVE) {
-          const activeMappings = await tx.upstreamModel.findMany({
+          await tx.upstreamModel.updateMany({
             where: {
               publicModel,
               status: ModelStatus.ACTIVE,
               id: { not: id }
             },
-            select: {
-              id: true,
-              priority: true
+            data: {
+              status: ModelStatus.DISABLED
             }
           });
-
-          if (activeMappings.length >= 3) {
-            throw new BadRequestException('A public model can have at most 3 active upstream mappings');
-          }
-
-          if (activeMappings.some((mapping) => mapping.priority === priority)) {
-            throw new ConflictException('Active upstream priority already exists for this public model');
-          }
         }
 
         const updatedModel = await tx.upstreamModel.update({
@@ -1612,7 +1599,7 @@ export class AdminService implements OnModuleInit {
               priority,
               timeoutMs,
               upstreamPrompt,
-              routePricing: routePricing === undefined ? this.routePricingSnapshot(existing) : routePricing.auditSnapshot,
+              routePricing: routePricing === undefined ? this.routePricingSnapshot(existing) : routePricing?.auditSnapshot ?? null,
               status: status.toLowerCase(),
               supportsStream
             }
@@ -1656,8 +1643,8 @@ export class AdminService implements OnModuleInit {
     ) {
       return this.buildResolvedModelPricing({
         pricingMode,
-        inputPriceCentsPer1k: multiplierToBaseTokensPer1k(1),
-        outputPriceCentsPer1k: multiplierToBaseTokensPer1k(1),
+        inputPriceCentsPer1k: deepSeekBaseUsdUnitsPer1k(),
+        outputPriceCentsPer1k: deepSeekBaseUsdUnitsPer1k(),
         modelMultiplier: '1.0000',
         upstreamInputPricePerMillion: null,
         upstreamOutputPricePerMillion: null,
@@ -1739,8 +1726,8 @@ export class AdminService implements OnModuleInit {
         body.modelMultiplier === undefined && existing?.pricingMode === ModelPricingMode.DEEPSEEK_BASE
           ? existing.modelMultiplier.toString()
           : this.normalizeMultiplier(body.modelMultiplier, 'modelMultiplier');
-      const inputPriceCentsPer1k = multiplierToBaseTokensPer1k(1);
-      const outputPriceCentsPer1k = multiplierToBaseTokensPer1k(1);
+      const inputPriceCentsPer1k = deepSeekBaseUsdUnitsPer1k();
+      const outputPriceCentsPer1k = deepSeekBaseUsdUnitsPer1k();
 
       return this.buildResolvedModelPricing({
         pricingMode,
@@ -1767,12 +1754,16 @@ export class AdminService implements OnModuleInit {
         'upstreamOutputPricePerMillion'
       );
       const currency = this.normalizeTokenPricingCurrency(body.upstreamCurrency ?? existing?.upstreamCurrency);
-      const usdToCnyRate =
-        currency === 'USD'
-          ? this.modelPricePositiveNumber(body.upstreamExchangeRate, existing?.upstreamExchangeRate, 'upstreamExchangeRate')
-          : 1;
+      const usdToCnyRate = this.modelPriceNumber(
+        body.upstreamExchangeRate,
+        existing?.upstreamExchangeRate,
+        'upstreamExchangeRate',
+        0.000001,
+        10000,
+        DEFAULT_USD_TO_CNY_RATE
+      );
       const marginPercent = this.modelPriceNumber(body.marginPercent, existing?.marginPercent, 'marginPercent', 0, 1000, 10);
-      const calculated = calculateRelayTokenPricing({
+      const calculated = calculateRelayUsdPricing({
         inputPricePerMillion,
         outputPricePerMillion,
         currency,
@@ -1782,8 +1773,8 @@ export class AdminService implements OnModuleInit {
 
       return this.buildResolvedModelPricing({
         pricingMode,
-        inputPriceCentsPer1k: calculated.inputBaseTokensPer1k,
-        outputPriceCentsPer1k: calculated.outputBaseTokensPer1k,
+        inputPriceCentsPer1k: calculated.inputUsdUnitsPer1k,
+        outputPriceCentsPer1k: calculated.outputUsdUnitsPer1k,
         modelMultiplier: '1.0000',
         upstreamInputPricePerMillion: inputPricePerMillion.toFixed(4),
         upstreamOutputPricePerMillion: outputPricePerMillion.toFixed(4),

@@ -32,7 +32,14 @@ const DEFAULT_MODEL_MULTIPLIER = '1.0000';
 const DEFAULT_EXCHANGE_RATE = '7.200000';
 const DEFAULT_MARGIN_PERCENT = '10';
 const BASE_TOKEN_CNY_PER_MILLION = 8;
-const CHARGE_UNITS_PER_1K_AT_ONE_X = 1000;
+const USD_UNITS_PER_USD = 1_000_000;
+const TOKENS_PER_MILLION = 1_000_000;
+const TOKENS_PER_1K = 1_000;
+const DEEPSEEK_USD_UNITS_PER_1K_AT_ONE_X = Math.ceil(
+  (BASE_TOKEN_CNY_PER_MILLION / Number(DEFAULT_EXCHANGE_RATE)) *
+    (USD_UNITS_PER_USD / TOKENS_PER_MILLION) *
+    TOKENS_PER_1K
+);
 
 type ModelStatus = 'active' | 'disabled';
 type ModelConfigMode = 'publish' | 'routes';
@@ -75,7 +82,6 @@ export function MerchantModelConfigView({
   const [mappingProviderId, setMappingProviderId] = useState('');
   const [mappingPublicModel, setMappingPublicModel] = useState('');
   const [mappingUpstreamModel, setMappingUpstreamModel] = useState('');
-  const [mappingPriority, setMappingPriority] = useState('1');
   const [mappingTimeoutMs, setMappingTimeoutMs] = useState('5000');
   const [mappingPrompt, setMappingPrompt] = useState('');
   const [mappingModelMultiplier, setMappingModelMultiplier] = useState(DEFAULT_MODEL_MULTIPLIER);
@@ -206,7 +212,7 @@ export function MerchantModelConfigView({
         ? await updateModelPrice(editingModelId, payload)
         : await createModelPrice(payload);
 
-      setMessage(`客户模型 ${saved.model} 已保存。下一步到“模型映射”给它绑定 DeepSeek 或中转站上游线路。`);
+      setMessage(`客户模型 ${saved.model} 已保存。下一步到“模型映射”给它绑定唯一上游。不同消耗档请发布成不同客户模型。`);
       resetModelForm();
       await loadData();
     } catch (nextError) {
@@ -243,7 +249,7 @@ export function MerchantModelConfigView({
         upstreamInputPricePerMillion: mappingUpstreamInputPricePerMillion.trim(),
         upstreamOutputPricePerMillion: mappingUpstreamOutputPricePerMillion.trim(),
         upstreamCurrency: mappingUpstreamCurrency,
-        upstreamExchangeRate: mappingUpstreamCurrency === 'USD' ? mappingUpstreamExchangeRate.trim() : '1',
+        upstreamExchangeRate: mappingUpstreamExchangeRate.trim() || DEFAULT_EXCHANGE_RATE,
         marginPercent: mappingMarginPercent.trim() || DEFAULT_MARGIN_PERCENT
       };
     }
@@ -272,7 +278,7 @@ export function MerchantModelConfigView({
         providerId: mappingProviderId,
         publicModel: mappingPublicModel,
         upstreamModel: mappingUpstreamModel.trim(),
-        priority: parseWholeNumber(mappingPriority, '线路顺序'),
+        priority: 1,
         timeoutMs: parseWholeNumber(mappingTimeoutMs, '超时时间'),
         upstreamPrompt: mappingPrompt.trim() || undefined,
         ...buildMappingPricingPayload(),
@@ -288,7 +294,7 @@ export function MerchantModelConfigView({
       const targetId = editingMappingId ?? duplicateMapping?.id ?? null;
       const saved = targetId ? await updateUpstreamModel(targetId, payload) : await createUpstreamModel(payload);
 
-      setMessage(`线路已保存：${saved.publicModel} -> ${saved.providerName} / ${saved.upstreamModel}`);
+      setMessage(`线路已保存：${saved.publicModel} 只会走 ${saved.providerName} / ${saved.upstreamModel}。同名客户模型的其它启用线路已自动停用。`);
       resetMappingForm();
       await loadData();
     } catch (nextError) {
@@ -330,7 +336,6 @@ export function MerchantModelConfigView({
     setMappingProviderId(mapping.providerId);
     setMappingPublicModel(mapping.publicModel);
     setMappingUpstreamModel(mapping.upstreamModel);
-    setMappingPriority(String(mapping.priority));
     setMappingTimeoutMs(String(mapping.timeoutMs));
     setMappingPrompt(mapping.upstreamPrompt ?? '');
     setMappingModelMultiplier(mapping.routePricing?.modelMultiplier ?? DEFAULT_MODEL_MULTIPLIER);
@@ -360,7 +365,6 @@ export function MerchantModelConfigView({
     setMappingPublicModel(models[0]?.model ?? '');
     setMappingProviderId(upstreams[0]?.id ?? '');
     setMappingUpstreamModel('');
-    setMappingPriority('1');
     setMappingTimeoutMs('5000');
     setMappingPrompt('');
     setMappingModelMultiplier(DEFAULT_MODEL_MULTIPLIER);
@@ -426,7 +430,7 @@ export function MerchantModelConfigView({
             <h2>第一步：发布客户模型</h2>
           </div>
           <p className="form-note">
-            这里只准备用户看到的模型，例如 gpt5.5。上游地址在上游页面维护，真实模型、线路顺序、超时、提示词和扣费规则在“模型映射”里配置。
+            这里只准备用户看到的模型，例如“gpt5.5 低消耗”或“gpt5.5 中消耗”。上游地址在上游页面维护，真实模型、超时、提示词和扣费规则在“模型映射”里配置。
           </p>
           {editingModel ? (
             <p className="form-note">
@@ -533,7 +537,7 @@ export function MerchantModelConfigView({
             <h2>第三步：模型映射（上游线路）</h2>
           </div>
           <p className="form-note">
-            这里给已发布客户模型选择上游线路。一个客户模型可以绑定 DeepSeek，也可以绑定其它中转站；扣费规则也在这条线路里设置，上游失败时按线路顺序切换。
+            一个客户模型只能启用一条上游。需要低消耗和中消耗两档时，请发布两个不同客户模型，例如“gpt5.5 低消耗”绑定 DeepSeek，“gpt5.5 中消耗”绑定中转站上游。
           </p>
           <form className="auth-form mapping-form" onSubmit={handleSaveMapping}>
             <label>
@@ -561,10 +565,6 @@ export function MerchantModelConfigView({
             <label>
               真实上游模型名
               <input maxLength={120} minLength={2} onChange={(event) => setMappingUpstreamModel(event.target.value)} placeholder="例如：deepseek-chat / claude-opus-4-8" required value={mappingUpstreamModel} />
-            </label>
-            <label>
-              线路顺序
-              <input max={3} min={1} onChange={(event) => setMappingPriority(event.target.value)} required type="number" value={mappingPriority} />
             </label>
             <label>
               超时时间（毫秒）
@@ -704,7 +704,7 @@ export function MerchantModelConfigView({
                   <th>客户模型</th>
                   <th>上游</th>
                   <th>真实上游模型</th>
-                  <th>线路</th>
+                  <th>绑定方式</th>
                   <th>超时</th>
                   <th>扣费规则</th>
                   <th>提示词</th>
@@ -721,7 +721,7 @@ export function MerchantModelConfigView({
                       <small className="table-note">{formatStatus(mapping.providerStatus)}</small>
                     </td>
                     <td>{mapping.upstreamModel}</td>
-                    <td>线路 {mapping.priority}</td>
+                    <td>{mapping.status === 'active' ? '唯一启用' : '已停用'}</td>
                     <td>{mapping.timeoutMs} 毫秒</td>
                     <td>{formatRoutePricing(mapping)}</td>
                     <td>{mapping.upstreamPrompt ? shortText(mapping.upstreamPrompt, 42) : '-'}</td>
@@ -775,8 +775,8 @@ export function MerchantModelConfigView({
                 <dd>{selectedMapping.upstreamModel}</dd>
               </div>
               <div>
-                <dt>线路顺序</dt>
-                <dd>线路 {selectedMapping.priority}</dd>
+                <dt>绑定方式</dt>
+                <dd>{selectedMapping.status === 'active' ? '唯一启用上游' : '已停用线路'}</dd>
               </div>
               <div>
                 <dt>扣费规则</dt>
@@ -847,7 +847,7 @@ function buildMappingPricingPreview(input: MappingPricingPreviewInput): MappingP
       };
     }
 
-    const chargePer1k = Math.ceil(multiplier * CHARGE_UNITS_PER_1K_AT_ONE_X);
+    const chargePer1k = Math.ceil(multiplier * DEEPSEEK_USD_UNITS_PER_1K_AT_ONE_X);
     return {
       title: 'DeepSeek 线路扣费预览',
       lines: [
@@ -861,7 +861,7 @@ function buildMappingPricingPreview(input: MappingPricingPreviewInput): MappingP
   if (input.kind === 'relay') {
     const inputPrice = parsePreviewNumber(input.upstreamInputPricePerMillion);
     const outputPrice = parsePreviewNumber(input.upstreamOutputPricePerMillion);
-    const exchangeRate = input.upstreamCurrency === 'USD' ? parsePreviewNumber(input.upstreamExchangeRate) : 1;
+    const exchangeRate = parsePreviewNumber(input.upstreamExchangeRate);
     const marginPercent = parsePreviewNumber(input.marginPercent) ?? Number(DEFAULT_MARGIN_PERCENT);
 
     if (inputPrice === null || outputPrice === null || exchangeRate === null) {
@@ -875,15 +875,17 @@ function buildMappingPricingPreview(input: MappingPricingPreviewInput): MappingP
     }
 
     const marginRate = 1 + marginPercent / 100;
-    const inputMultiplier = (inputPrice * exchangeRate * marginRate) / BASE_TOKEN_CNY_PER_MILLION;
-    const outputMultiplier = (outputPrice * exchangeRate * marginRate) / BASE_TOKEN_CNY_PER_MILLION;
+    const inputUsdPerMillion = input.upstreamCurrency === 'CNY' ? inputPrice / exchangeRate : inputPrice;
+    const outputUsdPerMillion = input.upstreamCurrency === 'CNY' ? outputPrice / exchangeRate : outputPrice;
+    const inputChargePer1k = Math.ceil(inputUsdPerMillion * marginRate * (USD_UNITS_PER_USD / TOKENS_PER_MILLION) * TOKENS_PER_1K);
+    const outputChargePer1k = Math.ceil(outputUsdPerMillion * marginRate * (USD_UNITS_PER_USD / TOKENS_PER_MILLION) * TOKENS_PER_1K);
 
     return {
       title: '中转站线路扣费预览',
       lines: [
-        `输入扣费：${formatChargePer1k(Math.ceil(inputMultiplier * CHARGE_UNITS_PER_1K_AT_ONE_X))}。`,
-        `输出扣费：${formatChargePer1k(Math.ceil(outputMultiplier * CHARGE_UNITS_PER_1K_AT_ONE_X))}。`,
-        `token 仍显示真实用量；费用按上游价格 × 汇率 × 加价 ${formatPreviewNumber(marginPercent)}% 计算。`
+        `输入扣费：${formatChargePer1k(inputChargePer1k)}。`,
+        `输出扣费：${formatChargePer1k(outputChargePer1k)}。`,
+        `token 仍显示真实用量；费用按上游价格 × 加价 ${formatPreviewNumber(marginPercent)}% 计算，人民币价格会按汇率换算成美元。`
       ]
     };
   }

@@ -11,7 +11,7 @@ import {
   UsageEventStatus
 } from '../src/generated/prisma/client';
 import { encryptUpstreamApiKey, maskUpstreamApiKey } from '../src/admin/upstream-key-crypto';
-import { calculateRelayTokenPricing, multiplierToBaseTokensPer1k } from '../src/billing/token-pricing';
+import { calculateRelayUsdPricing, deepSeekBaseUsdUnitsPer1k } from '../src/billing/token-pricing';
 
 type HttpResult<T = unknown> = {
   status: number;
@@ -56,7 +56,9 @@ const prisma = new PrismaClient({
 const suffix = `${Date.now().toString(36)}${randomBytes(3).toString('hex')}`;
 const prefix = `qa_t23_${suffix}`;
 const password = `qa-password-${suffix}`;
-const publicModel = `${prefix}-gpt5.5`;
+const deepPublicModel = `${prefix}-gpt5.5-low`;
+const relayPublicModel = `${prefix}-gpt5.5-mid`;
+const publicModels = [deepPublicModel, relayPublicModel];
 const deepProviderName = `${prefix}-deepseek`;
 const relayProviderName = `${prefix}-relay`;
 const deepKey = `qa-t23-deep-${suffix}`;
@@ -65,22 +67,27 @@ const promptTokens = 100;
 const completionTokens = 50;
 const startingBalance = 100_000;
 const deepMultiplier = 5;
-const relayPricing = calculateRelayTokenPricing({
+const deepBasePricePer1k = deepSeekBaseUsdUnitsPer1k();
+const relayPricing = calculateRelayUsdPricing({
   inputPricePerMillion: 5,
   outputPricePerMillion: 30,
   currency: 'USD',
   usdToCnyRate: 7.2,
   marginPercent: 10
 });
-const expectedDeepCost = 750;
-const expectedRelayCost = 1980;
+const expectedDeepCost = calculateExpectedCost(deepBasePricePer1k, deepBasePricePer1k, deepMultiplier);
+const expectedRelayCost = calculateExpectedCost(relayPricing.inputUsdUnitsPer1k, relayPricing.outputUsdUnitsPer1k, 1);
 const checks: string[] = [];
+
+function calculateExpectedCost(inputPricePer1k: number, outputPricePer1k: number, multiplier: number) {
+  return Math.ceil(((promptTokens * inputPricePer1k) / 1000 + (completionTokens * outputPricePer1k) / 1000) * multiplier);
+}
 
 async function main() {
   const deepUpstream = await startTemporaryUpstream({
     expectedKey: deepKey,
     providerLabel: 'deepseek',
-    failWhenContentIncludes: 'force relay'
+    failWhenContentIncludes: 'force deep failure'
   });
   const relayUpstream = await startTemporaryUpstream({
     expectedKey: relayKey,
@@ -91,44 +98,56 @@ async function main() {
   try {
     const cookie = await register(`${prefix}_user`);
     const user = await getUser(`${prefix}_user`);
-    await seedPublicModelWithTwoRoutes(user.id, user.group.id, deepUpstream.baseUrl, relayUpstream.baseUrl);
+    await seedPublicModelsWithSingleRoutes(user.id, user.group.id, deepUpstream.baseUrl, relayUpstream.baseUrl);
     await prisma.wallet.update({
       where: { userId: user.id },
       data: { balanceCents: startingBalance, totalSpendCents: 0 }
     });
     const token = await createToken(cookie, `${prefix}_token`);
 
-    const deepCall = await relayChat(token.apiKey, 'normal deepseek path');
+    const deepCall = await relayChat(token.apiKey, deepPublicModel, 'normal deepseek path');
     assert(deepCall.status === 200, `DeepSeek route call failed with ${deepCall.status}: ${JSON.stringify(deepCall.json)}`);
     const deepRequestId = requireHeader(deepCall, 'x-request-id');
     const deepUsageEventId = requireHeader(deepCall, 'x-usage-event-id');
     await assertBilledRoute({
       requestId: deepRequestId,
       usageEventId: deepUsageEventId,
+      publicModel: deepPublicModel,
       providerName: deepProviderName,
       upstreamModel: 'deepseek-v4-pro',
       expectedCost: expectedDeepCost,
-      expectedInputPricePer1k: multiplierToBaseTokensPer1k(1),
-      expectedOutputPricePer1k: multiplierToBaseTokensPer1k(1),
+      expectedInputPricePer1k: deepBasePricePer1k,
+      expectedOutputPricePer1k: deepBasePricePer1k,
       expectedMultiplier: '5'
     });
-    checks.push('same_public_model_uses_deepseek_route_when_first_route_is_healthy');
+    checks.push('low_cost_model_uses_only_deepseek_route');
+    assert(deepUpstream.getCallCount() === 1, `DeepSeek model should call DeepSeek once, got ${deepUpstream.getCallCount()}`);
+    assert(relayUpstream.getCallCount() === 0, `DeepSeek model should not call relay upstream, got ${relayUpstream.getCallCount()}`);
 
-    const relayCall = await relayChat(token.apiKey, 'force relay after deepseek retryable failure');
+    const relayCall = await relayChat(token.apiKey, relayPublicModel, 'normal relay path');
     assert(relayCall.status === 200, `Relay route call failed with ${relayCall.status}: ${JSON.stringify(relayCall.json)}`);
     const relayRequestId = requireHeader(relayCall, 'x-request-id');
     const relayUsageEventId = requireHeader(relayCall, 'x-usage-event-id');
     await assertBilledRoute({
       requestId: relayRequestId,
       usageEventId: relayUsageEventId,
+      publicModel: relayPublicModel,
       providerName: relayProviderName,
       upstreamModel: 'relay-gpt5.5',
       expectedCost: expectedRelayCost,
-      expectedInputPricePer1k: relayPricing.inputBaseTokensPer1k,
-      expectedOutputPricePer1k: relayPricing.outputBaseTokensPer1k,
+      expectedInputPricePer1k: relayPricing.inputUsdUnitsPer1k,
+      expectedOutputPricePer1k: relayPricing.outputUsdUnitsPer1k,
       expectedMultiplier: '1'
     });
-    checks.push('same_public_model_fails_over_to_relay_route_with_relay_price');
+    checks.push('mid_cost_model_uses_only_relay_route');
+    assert(deepUpstream.getCallCount() === 1, `Relay model should not call DeepSeek, got ${deepUpstream.getCallCount()}`);
+    assert(relayUpstream.getCallCount() === 1, `Relay model should call relay once, got ${relayUpstream.getCallCount()}`);
+
+    const failedDeepCall = await relayChat(token.apiKey, deepPublicModel, 'force deep failure and keep single upstream');
+    assert(failedDeepCall.status >= 400, `DeepSeek failure should not be rescued by another upstream, got ${failedDeepCall.status}`);
+    assert(deepUpstream.getCallCount() === 2, `failed DeepSeek model should call only DeepSeek again, got ${deepUpstream.getCallCount()}`);
+    assert(relayUpstream.getCallCount() === 1, `failed DeepSeek model should not call relay upstream, got ${relayUpstream.getCallCount()}`);
+    checks.push('single_model_failure_does_not_call_other_upstream');
 
     const refreshedWallet = await prisma.wallet.findUniqueOrThrow({
       where: { userId: user.id },
@@ -143,7 +162,7 @@ async function main() {
       select: { usedCents: true }
     });
     assert(refreshedToken.usedCents === totalCost, 'API token used amount did not match both route costs');
-    checks.push('wallet_and_token_used_amount_match_two_route_costs');
+    checks.push('wallet_and_token_used_amount_match_two_distinct_model_costs');
 
     residualBeforeCleanup = await countResidual();
     console.log(
@@ -151,7 +170,7 @@ async function main() {
         {
           ok: true,
           suffix,
-          publicModel,
+          publicModels,
           expectedDeepCost,
           expectedRelayCost,
           relayPricing,
@@ -186,14 +205,26 @@ async function getUser(username: string) {
   });
 }
 
-async function seedPublicModelWithTwoRoutes(userId: string, groupId: string, deepBaseUrl: string, relayBaseUrl: string) {
-  const modelPrice = await prisma.modelPrice.create({
+async function seedPublicModelsWithSingleRoutes(userId: string, groupId: string, deepBaseUrl: string, relayBaseUrl: string) {
+  const deepModelPrice = await prisma.modelPrice.create({
     data: {
-      model: publicModel,
-      displayName: 'QA GPT 5.5',
+      model: deepPublicModel,
+      displayName: 'QA GPT 5.5 low',
       pricingMode: ModelPricingMode.MANUAL,
-      inputPriceCentsPer1k: multiplierToBaseTokensPer1k(1),
-      outputPriceCentsPer1k: multiplierToBaseTokensPer1k(1),
+      inputPriceCentsPer1k: deepBasePricePer1k,
+      outputPriceCentsPer1k: deepBasePricePer1k,
+      modelMultiplier: '1.0000',
+      status: ModelStatus.ACTIVE
+    }
+  });
+
+  const relayModelPrice = await prisma.modelPrice.create({
+    data: {
+      model: relayPublicModel,
+      displayName: 'QA GPT 5.5 mid',
+      pricingMode: ModelPricingMode.MANUAL,
+      inputPriceCentsPer1k: relayPricing.inputUsdUnitsPer1k,
+      outputPriceCentsPer1k: relayPricing.outputUsdUnitsPer1k,
       modelMultiplier: '1.0000',
       status: ModelStatus.ACTIVE
     }
@@ -201,7 +232,14 @@ async function seedPublicModelWithTwoRoutes(userId: string, groupId: string, dee
 
   await prisma.modelGroupAccess.create({
     data: {
-      modelPriceId: modelPrice.id,
+      modelPriceId: deepModelPrice.id,
+      groupId
+    }
+  });
+
+  await prisma.modelGroupAccess.create({
+    data: {
+      modelPriceId: relayModelPrice.id,
       groupId
     }
   });
@@ -235,13 +273,13 @@ async function seedPublicModelWithTwoRoutes(userId: string, groupId: string, dee
   await prisma.upstreamModel.create({
     data: {
       providerId: deepProvider.id,
-      publicModel,
+      publicModel: deepPublicModel,
       upstreamModel: 'deepseek-v4-pro',
       priority: 1,
       timeoutMs: 1000,
       pricingMode: ModelPricingMode.DEEPSEEK_BASE,
-      inputPriceCentsPer1k: multiplierToBaseTokensPer1k(1),
-      outputPriceCentsPer1k: multiplierToBaseTokensPer1k(1),
+      inputPriceCentsPer1k: deepBasePricePer1k,
+      outputPriceCentsPer1k: deepBasePricePer1k,
       modelMultiplier: deepMultiplier.toFixed(4),
       status: ModelStatus.ACTIVE,
       supportsStream: false
@@ -251,13 +289,13 @@ async function seedPublicModelWithTwoRoutes(userId: string, groupId: string, dee
   await prisma.upstreamModel.create({
     data: {
       providerId: relayProvider.id,
-      publicModel,
+      publicModel: relayPublicModel,
       upstreamModel: 'relay-gpt5.5',
-      priority: 2,
+      priority: 1,
       timeoutMs: 1000,
       pricingMode: ModelPricingMode.RELAY_PRICE,
-      inputPriceCentsPer1k: relayPricing.inputBaseTokensPer1k,
-      outputPriceCentsPer1k: relayPricing.outputBaseTokensPer1k,
+      inputPriceCentsPer1k: relayPricing.inputUsdUnitsPer1k,
+      outputPriceCentsPer1k: relayPricing.outputUsdUnitsPer1k,
       modelMultiplier: '1.0000',
       upstreamInputPricePerMillion: '5.0000',
       upstreamOutputPricePerMillion: '30.0000',
@@ -275,7 +313,7 @@ async function createToken(cookie: string, name: string) {
     '/tokens',
     {
       name,
-      modelNames: [publicModel]
+      modelNames: publicModels
     },
     cookie
   );
@@ -284,9 +322,9 @@ async function createToken(cookie: string, name: string) {
   return result.json;
 }
 
-async function relayChat(apiKey: string, content: string) {
+async function relayChat(apiKey: string, model: string, content: string) {
   return request('POST', '/v1/chat/completions', {
-    model: publicModel,
+    model,
     messages: [{ role: 'user', content }]
   }, undefined, apiKey);
 }
@@ -294,6 +332,7 @@ async function relayChat(apiKey: string, content: string) {
 async function assertBilledRoute(input: {
   requestId: string;
   usageEventId: string;
+  publicModel: string;
   providerName: string;
   upstreamModel: string;
   expectedCost: number;
@@ -311,6 +350,7 @@ async function assertBilledRoute(input: {
   });
   assert(usage.id === input.usageEventId, 'usage event id header did not match database row');
   assert(usage.status === UsageEventStatus.BILLABLE, 'usage status should be billable');
+  assert(usage.model === input.publicModel, `usage public model should be ${input.publicModel}`);
   assert(usage.upstreamProviderId === provider.id, `usage provider should be ${input.providerName}`);
   assert(usage.upstreamModel === input.upstreamModel, `usage upstream model should be ${input.upstreamModel}`);
   assert(usage.promptTokens === promptTokens, 'prompt tokens mismatch');
@@ -378,8 +418,12 @@ async function startTemporaryUpstream(input: {
   providerLabel: string;
   failWhenContentIncludes?: string;
 }) {
+  let callCount = 0;
   const server = createServer(async (request, response) => {
     try {
+      if (request.method === 'POST' && request.url === '/v1/chat/completions') {
+        callCount += 1;
+      }
       await handleTemporaryUpstream(request, response, input);
     } catch (error) {
       response.writeHead(500, { 'content-type': 'application/json' });
@@ -396,6 +440,7 @@ async function startTemporaryUpstream(input: {
 
   return {
     baseUrl: `http://${TEMP_UPSTREAM_PUBLIC_HOST}:${address.port}`,
+    getCallCount: () => callCount,
     close: () => server.close()
   };
 }
@@ -481,16 +526,17 @@ async function countResidual() {
           { userId: { in: userIds } },
           { tokenId: { in: tokenIds } },
           { upstreamProviderId: { in: providerIds } },
-          { model: publicModel }
+          { model: { in: publicModels } }
         ]
       },
       select: { id: true }
     })
   ).map((event) => event.id);
-  const modelPrice = await prisma.modelPrice.findUnique({
-    where: { model: publicModel },
+  const modelPrices = await prisma.modelPrice.findMany({
+    where: { model: { in: publicModels } },
     select: { id: true }
   });
+  const modelPriceIds = modelPrices.map((model) => model.id);
 
   return {
     users: users.length,
@@ -498,7 +544,7 @@ async function countResidual() {
     wallets: await prisma.wallet.count({ where: { userId: { in: userIds } } }),
     api_tokens: await prisma.apiToken.count({ where: { id: { in: tokenIds } } }),
     api_token_model_accesses: await prisma.apiTokenModelAccess.count({
-      where: { OR: [{ apiTokenId: { in: tokenIds } }, { model: publicModel }] }
+      where: { OR: [{ apiTokenId: { in: tokenIds } }, { model: { in: publicModels } }] }
     }),
     usage_events: usageIds.length,
     wallet_transactions: await prisma.walletTransaction.count({
@@ -510,17 +556,17 @@ async function countResidual() {
           { userId: { in: userIds } },
           { tokenId: { in: tokenIds } },
           { upstreamProviderId: { in: providerIds } },
-          { model: publicModel }
+          { model: { in: publicModels } }
         ]
       }
     }),
     upstream_providers: providers.length,
     upstream_models: await prisma.upstreamModel.count({
-      where: { OR: [{ providerId: { in: providerIds } }, { publicModel }] }
+      where: { OR: [{ providerId: { in: providerIds } }, { publicModel: { in: publicModels } }] }
     }),
-    model_prices: modelPrice ? 1 : 0,
-    model_group_accesses: modelPrice
-      ? await prisma.modelGroupAccess.count({ where: { modelPriceId: modelPrice.id } })
+    model_prices: modelPrices.length,
+    model_group_accesses: modelPriceIds.length > 0
+      ? await prisma.modelGroupAccess.count({ where: { modelPriceId: { in: modelPriceIds } } })
       : 0
   };
 }
@@ -549,16 +595,17 @@ async function cleanup() {
           { userId: { in: userIds } },
           { tokenId: { in: tokenIds } },
           { upstreamProviderId: { in: providerIds } },
-          { model: publicModel }
+          { model: { in: publicModels } }
         ]
       },
       select: { id: true }
     })
   ).map((event) => event.id);
-  const modelPrice = await prisma.modelPrice.findUnique({
-    where: { model: publicModel },
+  const modelPrices = await prisma.modelPrice.findMany({
+    where: { model: { in: publicModels } },
     select: { id: true }
   });
+  const modelPriceIds = modelPrices.map((model) => model.id);
 
   await prisma.requestLog.deleteMany({
     where: {
@@ -566,7 +613,7 @@ async function cleanup() {
         { userId: { in: userIds } },
         { tokenId: { in: tokenIds } },
         { upstreamProviderId: { in: providerIds } },
-        { model: publicModel }
+          { model: { in: publicModels } }
       ]
     }
   });
@@ -575,16 +622,16 @@ async function cleanup() {
   });
   await prisma.usageEvent.deleteMany({ where: { id: { in: usageIds } } });
   await prisma.apiTokenModelAccess.deleteMany({
-    where: { OR: [{ apiTokenId: { in: tokenIds } }, { model: publicModel }] }
+    where: { OR: [{ apiTokenId: { in: tokenIds } }, { model: { in: publicModels } }] }
   });
   await prisma.apiToken.deleteMany({ where: { id: { in: tokenIds } } });
   await prisma.upstreamModel.deleteMany({
-    where: { OR: [{ providerId: { in: providerIds } }, { publicModel }] }
+    where: { OR: [{ providerId: { in: providerIds } }, { publicModel: { in: publicModels } }] }
   });
-  if (modelPrice) {
-    await prisma.modelGroupAccess.deleteMany({ where: { modelPriceId: modelPrice.id } });
+  if (modelPriceIds.length > 0) {
+    await prisma.modelGroupAccess.deleteMany({ where: { modelPriceId: { in: modelPriceIds } } });
   }
-  await prisma.modelPrice.deleteMany({ where: { model: publicModel } });
+  await prisma.modelPrice.deleteMany({ where: { model: { in: publicModels } } });
   await prisma.upstreamProvider.deleteMany({ where: { id: { in: providerIds } } });
   await prisma.session.deleteMany({ where: { userId: { in: userIds } } });
   await prisma.wallet.deleteMany({ where: { userId: { in: userIds } } });

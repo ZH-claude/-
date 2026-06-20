@@ -26,6 +26,9 @@ export type UsageLogEntry = {
 
 export type UsageLogSummary = {
   total: number;
+  totalRequests: number;
+  successfulRequests: number;
+  failedRequests: number;
   totalCostCents: number;
   promptTokens: number;
   completionTokens: number;

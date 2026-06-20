@@ -32,6 +32,7 @@ export class UsageLogsService {
   async listUsageLogs(user: AuthenticatedUser, query: UsageLogQuery) {
     const filters = this.normalizeFilters(query);
     const where = this.buildWhere(user.id, filters);
+    const successfulUsageWhere = this.buildSuccessfulUsageWhere(where);
 
     const [items, total, totals, statusGroups, modelRows, tokenRows] = await this.prisma.$transaction([
       this.prisma.usageEvent.findMany({
@@ -58,7 +59,7 @@ export class UsageLogsService {
       }),
       this.prisma.usageEvent.count({ where }),
       this.prisma.usageEvent.aggregate({
-        where,
+        where: successfulUsageWhere,
         _sum: {
           costCents: true,
           promptTokens: true,
@@ -96,6 +97,10 @@ export class UsageLogsService {
       })
     ]);
 
+    const statusCounts = this.toStatusCounts(statusGroups);
+    const successfulRequests = statusCounts.billable + statusCounts.free;
+    const failedRequests = statusCounts.failed + statusCounts.metering_unknown;
+
     return {
       items: items.map((item) => ({
         id: item.id,
@@ -124,11 +129,14 @@ export class UsageLogsService {
       })),
       summary: {
         total,
+        totalRequests: total,
+        successfulRequests,
+        failedRequests,
         totalCostCents: totals._sum.costCents ?? 0,
         promptTokens: totals._sum.promptTokens ?? 0,
         completionTokens: totals._sum.completionTokens ?? 0,
         totalTokens: totals._sum.totalTokens ?? 0,
-        statusCounts: this.toStatusCounts(statusGroups)
+        statusCounts
       },
       filters: {
         limit: filters.limit,
@@ -139,6 +147,19 @@ export class UsageLogsService {
           keyPreview: entry.token.keyPreview
         }))
       }
+    };
+  }
+
+  private buildSuccessfulUsageWhere(where: Prisma.UsageEventWhereInput): Prisma.UsageEventWhereInput {
+    return {
+      AND: [
+        where,
+        {
+          status: {
+            in: [UsageEventStatus.BILLABLE, UsageEventStatus.FREE]
+          }
+        }
+      ]
     };
   }
 

@@ -1,15 +1,20 @@
 export const BASE_TOKEN_CNY_CENTS_PER_MILLION = 800;
 export const DEFAULT_RELAY_MARGIN_PERCENT = 10;
-export const BASE_TOKENS_PER_1K_AT_ONE_X = 1000;
+export const DEFAULT_USD_TO_CNY_RATE = 7.2;
+export const USD_UNITS_PER_USD = 1_000_000;
+export const TOKENS_PER_MILLION = 1_000_000;
+export const TOKENS_PER_1K = 1_000;
 
 export type TokenPricingCurrency = 'CNY' | 'USD';
 
-export function multiplierToBaseTokensPer1k(multiplier: number) {
-  assertFinitePositive(multiplier, 'multiplier');
-  return ceilTokenAmount(multiplier * BASE_TOKENS_PER_1K_AT_ONE_X);
+export function deepSeekBaseUsdUnitsPer1k(usdToCnyRate = DEFAULT_USD_TO_CNY_RATE) {
+  assertFinitePositive(usdToCnyRate, 'usdToCnyRate');
+  const baseCnyPerMillion = BASE_TOKEN_CNY_CENTS_PER_MILLION / 100;
+  const baseUsdPerMillion = baseCnyPerMillion / usdToCnyRate;
+  return usdPerMillionToUsdUnitsPer1k(baseUsdPerMillion);
 }
 
-export function calculateRelayTokenPricing(input: {
+export function calculateRelayUsdPricing(input: {
   inputPricePerMillion: number;
   outputPricePerMillion: number;
   currency: TokenPricingCurrency;
@@ -19,30 +24,40 @@ export function calculateRelayTokenPricing(input: {
   assertFiniteNonNegative(input.inputPricePerMillion, 'inputPricePerMillion');
   assertFiniteNonNegative(input.outputPricePerMillion, 'outputPricePerMillion');
 
-  const exchangeRate = input.currency === 'USD' ? normalizeExchangeRate(input.usdToCnyRate) : 1;
+  const exchangeRate = normalizeExchangeRate(input.usdToCnyRate);
   const marginPercent = normalizeMarginPercent(input.marginPercent ?? DEFAULT_RELAY_MARGIN_PERCENT);
   const marginFactor = 1 + marginPercent / 100;
-  const baseCnyPerMillion = BASE_TOKEN_CNY_CENTS_PER_MILLION / 100;
 
-  const inputMultiplier = (input.inputPricePerMillion * exchangeRate * marginFactor) / baseCnyPerMillion;
-  const outputMultiplier = (input.outputPricePerMillion * exchangeRate * marginFactor) / baseCnyPerMillion;
+  const inputUsdPerMillion =
+    input.currency === 'CNY' ? input.inputPricePerMillion / exchangeRate : input.inputPricePerMillion;
+  const outputUsdPerMillion =
+    input.currency === 'CNY' ? input.outputPricePerMillion / exchangeRate : input.outputPricePerMillion;
 
   return {
     currency: input.currency,
     exchangeRate,
     marginPercent,
-    inputMultiplier,
-    outputMultiplier,
-    inputBaseTokensPer1k: multiplierToBaseTokensPer1k(inputMultiplier),
-    outputBaseTokensPer1k: multiplierToBaseTokensPer1k(outputMultiplier)
+    inputUsdPerMillion: inputUsdPerMillion * marginFactor,
+    outputUsdPerMillion: outputUsdPerMillion * marginFactor,
+    inputUsdUnitsPer1k: usdPerMillionToUsdUnitsPer1k(inputUsdPerMillion * marginFactor),
+    outputUsdUnitsPer1k: usdPerMillionToUsdUnitsPer1k(outputUsdPerMillion * marginFactor)
   };
 }
 
-function ceilTokenAmount(value: number) {
+export function usdPerMillionToUsdUnitsPer1k(value: number) {
+  assertFiniteNonNegative(value, 'usdPerMillion');
+  return ceilUsdUnits(value * (USD_UNITS_PER_USD / TOKENS_PER_MILLION) * TOKENS_PER_1K);
+}
+
+function ceilUsdUnits(value: number) {
   return Math.ceil(Number(value.toFixed(8)));
 }
 
 function normalizeExchangeRate(value: number | undefined) {
+  if (value === undefined) {
+    return DEFAULT_USD_TO_CNY_RATE;
+  }
+
   assertFinitePositive(value, 'usdToCnyRate');
   return value;
 }

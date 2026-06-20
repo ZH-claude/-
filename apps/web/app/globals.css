@@ -2193,6 +2193,17 @@ button {
   color: #f43f5e;
 }
 
+.profile-usage-note {
+  background: #ffffff;
+  border: 1px solid #dcefea;
+  border-radius: 8px;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.7;
+  margin: 0;
+  padding: 10px 12px;
+}
+
 .profile-usage-toolbar {
   align-items: center;
   background: #ffffff;
