@@ -212,6 +212,7 @@ model User {
   createdAiRechargeProducts AiRechargeProduct[] @relation("AiRechargeProductCreator")
   aiRechargeOrders       AiRechargeOrder[]
   updatedAiRechargePageConfigs AiRechargePageConfig[] @relation("AiRechargePageConfigUpdater")
+  updatedSiteContentConfigs SiteContentConfig[] @relation("SiteContentConfigUpdater")
 
   @@index([groupId], map: "users_group_id_idx")
   @@index([invitedByUserId], map: "users_invited_by_user_id_idx")
@@ -405,6 +406,29 @@ model AiRechargePageConfig {
 
   @@index([updatedByAdminId], map: "ai_recharge_page_configs_updated_by_admin_idx")
   @@map("ai_recharge_page_configs")
+}
+
+model SiteContentConfig {
+  id                 String   @id @default("default")
+  homeTitle          String?  @map("home_title")
+  homeSubtitle       String?  @map("home_subtitle")
+  homeContent        String?  @map("home_content")
+  homeFontFamily     String   @default("system") @map("home_font_family")
+  homeTextColor      String   @default("#111827") @map("home_text_color")
+  homeAccentColor    String   @default("#2563eb") @map("home_accent_color")
+  popupEnabled       Boolean  @default(false) @map("popup_enabled")
+  popupTitle         String?  @map("popup_title")
+  popupContent       String?  @map("popup_content")
+  popupFontFamily    String   @default("system") @map("popup_font_family")
+  popupTextColor     String   @default("#111827") @map("popup_text_color")
+  popupAccentColor   String   @default("#2563eb") @map("popup_accent_color")
+  updatedByAdminId   String?  @map("updated_by_admin_id") @db.Uuid
+  updatedByAdmin     User?    @relation("SiteContentConfigUpdater", fields: [updatedByAdminId], references: [id], onDelete: SetNull)
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  @@index([updatedByAdminId], map: "site_content_configs_updated_by_admin_idx")
+  @@map("site_content_configs")
 }
 
 model NotificationPreference {

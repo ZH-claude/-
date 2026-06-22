@@ -58,6 +58,11 @@ type ApiCheck = {
   adminExpectedStatus?: number;
 };
 
+type MerchantRedirectCheck = {
+  path: string;
+  merchantExpectedRedirect: string;
+};
+
 const API_BASE_URL = process.env.API_BASE_URL ?? 'http://127.0.0.1:3001';
 const WEB_BASE_URL = process.env.WEB_BASE_URL ?? 'http://127.0.0.1:3000';
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -80,25 +85,28 @@ let residualBefore: ResidualCounts | null = null;
 let residualAfter: ResidualCounts | null = null;
 
 const merchantPages: WebPageCheck[] = [
-  { path: '/merchant', markers: ['merchant-shell-page', '商家工作台'] },
-  { path: '/merchant/users', markers: ['merchant-shell-page', '用户管理'] },
-  { path: '/merchant/recharge-codes', markers: ['merchant-shell-page', '充值码'] },
-  { path: '/merchant/model-config', markers: ['merchant-shell-page', '模型发布'] },
-  { path: '/merchant/upstreams/deepseek', markers: ['merchant-shell-page', 'DeepSeek 上游接入', '上游名称'] },
-  { path: '/merchant/upstreams/relay', markers: ['merchant-shell-page', '中转站上游接入', '上游名称'] },
-  { path: '/merchant/model-routes', markers: ['merchant-shell-page', '模型映射（上游线路）'] },
-  { path: '/merchant/announcements', markers: ['merchant-shell-page', '公告'] },
-  { path: '/merchant/audit', markers: ['merchant-shell-page', '审计'] },
-  { path: '/merchant/request-logs', markers: ['merchant-shell-page', '请求日志'] }
+  { path: '/merchant', markers: ['merchant-shell-page', 'merchant-dashboard'] },
+  { path: '/merchant/users', markers: ['merchant-shell-page', 'merchant-users-page'] },
+  { path: '/merchant/recharge-codes', markers: ['merchant-shell-page', 'merchant-recharge-page'] },
+  { path: '/merchant/model-config', markers: ['merchant-shell-page', 'merchant-model-config-page', 'merchant-model-config'] },
+  { path: '/merchant/model-routes', markers: ['merchant-shell-page', 'merchant-model-config-page', 'merchant-model-routes'] },
+  { path: '/merchant/announcements', markers: ['merchant-shell-page', 'merchant-announcements-page'] },
+  { path: '/merchant/audit', markers: ['merchant-shell-page', 'merchant-audit-page'] }
+];
+
+const merchantRedirectPages: Array<MerchantRedirectCheck> = [
+  { path: '/merchant/upstreams/deepseek', merchantExpectedRedirect: '/merchant/model-routes' },
+  { path: '/merchant/upstreams/relay', merchantExpectedRedirect: '/merchant/model-routes' },
+  { path: '/merchant/request-logs', merchantExpectedRedirect: '/merchant' }
 ];
 
 const userPages: WebPageCheck[] = [
-  { path: '/account/profile', markers: ['console-shell-page', '余额'] },
-  { path: '/account/topup/recharge', markers: ['console-shell-page', '余额充值'] },
-  { path: '/token', markers: ['console-shell-page', '令牌'] },
-  { path: '/log', markers: ['console-shell-page', '日志'] },
-  { path: '/account/pricing', markers: ['console-shell-page', '费用'] },
-  { path: '/account/notificationSettings', markers: ['console-shell-page', '通知'] }
+  { path: '/account/profile', markers: ['relay-console-page', 'profile-card', 'profile-identity'] },
+  { path: '/account/topup/recharge', markers: ['relay-console-page', 'manual-recharge-layout'] },
+  { path: '/token', markers: ['relay-console-page', 'token-management-page'] },
+  { path: '/log', markers: ['relay-console-page', 'console-content-grid'] },
+  { path: '/account/pricing', markers: ['relay-console-page', 'console-content-grid'] },
+  { path: '/account/notificationSettings', markers: ['relay-console-page', 'notification-settings-form'] }
 ];
 
 const merchantApiChecks: ApiCheck[] = [
@@ -181,6 +189,11 @@ async function main() {
       await assertMerchantPageIsolation(page, merchantCookie, userCookie);
     }
     checks.push('all_merchant_pages_render_for_merchant_and_redirect_for_ordinary_user');
+
+    for (const page of merchantRedirectPages) {
+      await assertMerchantRedirectCompatibilityPage(page, merchantCookie, userCookie);
+    }
+    checks.push('all_merchant_redirect_compatibility_pages_render_expected_merchant_redirects');
 
     const merchantUserSiteEntry = await getWebPage('/', merchantCookie);
     assertRedirect(merchantUserSiteEntry, '/merchant', 'merchant / user-site entry redirect');
@@ -391,6 +404,22 @@ async function assertMerchantPageIsolation(page: WebPageCheck, merchantCookie: s
   assert(found >= page.markers.length - 1, `merchant ${page.path} missing expected markers, found ${found}`);
 }
 
+async function assertMerchantRedirectCompatibilityPage(
+  page: MerchantRedirectCheck,
+  merchantCookie: string,
+  userCookie: string
+) {
+  const noSession = await getWebPage(page.path);
+  assertRedirect(noSession, '/login', `unauthenticated ${page.path}`);
+
+  const ordinary = await getWebPage(page.path, userCookie);
+  assertRedirect(ordinary, '/account/profile', `ordinary user ${page.path}`);
+
+  const merchant = await getWebPage(page.path, merchantCookie);
+  assertRedirect(merchant, page.merchantExpectedRedirect, `merchant ${page.path} compatibility redirect`);
+  assert(!merchant.text.includes('500: Internal server error'), `merchant ${page.path} rendered a 500 error`);
+}
+
 async function assertUserPageRenders(page: WebPageCheck, userCookie: string) {
   const response = await getWebPageFollowingSingleRedirect(page.path, userCookie);
   assert(response.status >= 200 && response.status < 300, `ordinary user ${page.path} should render, got ${response.status}`);
@@ -524,3 +553,4 @@ function assert(condition: unknown, message: string): asserts condition {
 }
 
 void main();
+

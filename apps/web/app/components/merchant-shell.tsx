@@ -2,6 +2,7 @@
 
 import {
   ApiOutlined,
+  BellOutlined,
   GiftOutlined,
   HomeOutlined,
   LogoutOutlined,
@@ -26,6 +27,7 @@ const merchantNavigationItems: NavigationItem[] = [
   { href: '/merchant/users', label: '用户统计', icon: <TeamOutlined />, topbar: true },
   { href: '/merchant/recharge-codes', label: '充值码', icon: <GiftOutlined />, topbar: true },
   { href: '/merchant/model-config', label: '模型管理', icon: <ApiOutlined />, topbar: true },
+  { href: '/merchant/announcements', label: '公告/首页', icon: <BellOutlined />, topbar: true },
   { href: '/merchant/ai-recharge', label: 'AI代充', icon: <ShoppingOutlined />, topbar: true }
 ];
 

@@ -438,7 +438,7 @@ async function seedFixture() {
 
 async function captureExpectedSummary() {
   const now = new Date();
-  const todayStart = startOfUtcDay(now);
+  const todayStart = startOfChinaDay(now);
   const userWhere = { deletedAt: null };
 
   const [
@@ -688,8 +688,10 @@ function extractCookieHeader(response: Response) {
     .join('; ');
 }
 
-function startOfUtcDay(date: Date) {
-  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+function startOfChinaDay(date: Date) {
+  const chinaOffsetMs = 8 * 60 * 60 * 1000;
+  const chinaTime = new Date(date.getTime() + chinaOffsetMs);
+  return new Date(Date.UTC(chinaTime.getUTCFullYear(), chinaTime.getUTCMonth(), chinaTime.getUTCDate()) - chinaOffsetMs);
 }
 
 function enumCountMap<T extends string>(

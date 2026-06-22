@@ -36,6 +36,7 @@
     "qa:t25:stream-billing-guard": "tsx scripts/t25-stream-billing-guard-qa.ts",
     "qa:t26:payment-orders": "tsx scripts/t26-payment-orders-qa.ts",
     "qa:t27:model-experience": "tsx scripts/t27-model-experience-qa.ts",
+    "qa:t28:site-content": "tsx scripts/t28-site-content-qa.ts",
     "seed:merchant-test-accounts": "tsx scripts/seed-merchant-test-accounts.ts",
     "prisma:generate": "prisma generate",
     "db:migrate": "prisma migrate deploy",

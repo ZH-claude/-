@@ -30,6 +30,7 @@
     "qa:t22:merchant-shell": "npm --prefix apps/api run qa:t22:merchant-shell",
     "qa:t23:route-metering": "npm --prefix apps/api run qa:t23:route-metering",
     "qa:t24:compatibility": "npm --prefix apps/api run qa:t24:compatibility",
+    "qa:t28:site-content": "npm --prefix apps/api run qa:t28:site-content",
     "seed:merchant-test-accounts": "npm --prefix apps/api run seed:merchant-test-accounts",
     "preflight:t21:prod": "node ops/deploy/preflight.mjs --env-file .env",
     "deploy:t21:prod": "sh ops/deploy/deploy.sh",

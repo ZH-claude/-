@@ -4,6 +4,7 @@ import {
   ApiOutlined,
   AppstoreOutlined,
   BellOutlined,
+  CloseOutlined,
   CreditCardOutlined,
   FileTextOutlined,
   KeyOutlined,
@@ -11,10 +12,11 @@ import {
 } from '@ant-design/icons';
 import { Alert, Card, Col, Empty, List, Row, Space, Spin, Statistic, Typography } from 'antd';
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
+import { type CSSProperties, useEffect, useMemo, useState } from 'react';
 import { ConsoleShell } from './components/console-shell';
 import { listPublishedAnnouncements } from './lib/announcements-api';
 import type { AnnouncementFeedResponse, AnnouncementSection } from './lib/announcements-api';
+import { getSiteContentConfig, type SiteContentConfig } from './lib/site-content-api';
 
 const documentEntries = [
   { title: '模型广场', href: '/pricing', icon: <AppstoreOutlined /> },
@@ -35,27 +37,56 @@ const emptyFeed: AnnouncementFeedResponse = {
   ]
 };
 
+const defaultSiteContent: SiteContentConfig = {
+  id: 'default',
+  home: {
+    title: '蔚蓝星球中转站',
+    subtitle: '智能服务中转后台',
+    content: null,
+    fontFamily: 'system',
+    textColor: '#111827',
+    accentColor: '#2563eb'
+  },
+  popup: {
+    enabled: false,
+    title: null,
+    content: null,
+    fontFamily: 'system',
+    textColor: '#111827',
+    accentColor: '#2563eb'
+  },
+  updatedAt: null
+};
+
 export default function HomePage() {
   const [feed, setFeed] = useState<AnnouncementFeedResponse>(emptyFeed);
+  const [siteContent, setSiteContent] = useState<SiteContentConfig>(defaultSiteContent);
+  const [isPopupOpen, setIsPopupOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
 
   useEffect(() => {
     let cancelled = false;
 
-    async function loadAnnouncements() {
+    async function loadHomeData() {
       setIsLoading(true);
       setError('');
 
       try {
-        const nextFeed = await listPublishedAnnouncements();
+        const [nextFeed, nextSiteContent] = await Promise.all([
+          listPublishedAnnouncements(),
+          getSiteContentConfig()
+        ]);
         if (!cancelled) {
           setFeed(nextFeed);
+          setSiteContent(nextSiteContent);
+          setIsPopupOpen(nextSiteContent.popup.enabled);
         }
       } catch (nextError) {
         if (!cancelled) {
-          setError(nextError instanceof Error ? nextError.message : '公告加载失败');
+          setError(nextError instanceof Error ? nextError.message : '首页内容加载失败');
           setFeed(emptyFeed);
+          setSiteContent(defaultSiteContent);
         }
       } finally {
         if (!cancelled) {
@@ -64,7 +95,7 @@ export default function HomePage() {
       }
     }
 
-    void loadAnnouncements();
+    void loadHomeData();
 
     return () => {
       cancelled = true;
@@ -81,17 +112,27 @@ export default function HomePage() {
     return publishedTimes[0] ? formatDate(publishedTimes[0]) : '暂无';
   }, [feed.sections]);
 
+  const homeStyle = {
+    color: siteContent.home.textColor,
+    fontFamily: resolveFontFamily(siteContent.home.fontFamily)
+  } satisfies CSSProperties;
+
   return (
     <ConsoleShell activePath="/">
-      <section className="profile-card account-summary">
+      <section className="profile-card account-summary site-home-hero" style={homeStyle}>
         <div>
-          <p className="eyebrow">首页</p>
-          <h1>蔚蓝星球中转站</h1>
-          <p className="page-subtitle">
-            <ApiOutlined /> 智能服务中转后台
+          <p className="eyebrow" style={{ color: siteContent.home.accentColor }}>首页</p>
+          <h1 style={{ color: siteContent.home.accentColor }}>{siteContent.home.title}</h1>
+          <p className="page-subtitle" style={{ color: siteContent.home.textColor }}>
+            <ApiOutlined /> {siteContent.home.subtitle}
           </p>
+          {siteContent.home.content ? <p className="site-home-content">{siteContent.home.content}</p> : null}
         </div>
       </section>
+
+      {isPopupOpen && siteContent.popup.enabled ? (
+        <SiteAnnouncementPopup config={siteContent} onClose={() => setIsPopupOpen(false)} />
+      ) : null}
 
       <Space orientation="vertical" size={20} style={{ width: '100%' }}>
         {error ? <Alert message={error} showIcon type="error" /> : null}
@@ -145,6 +186,35 @@ export default function HomePage() {
   );
 }
 
+function SiteAnnouncementPopup({ config, onClose }: { config: SiteContentConfig; onClose: () => void }) {
+  const popupStyle = {
+    color: config.popup.textColor,
+    fontFamily: resolveFontFamily(config.popup.fontFamily)
+  } satisfies CSSProperties;
+
+  return (
+    <div className="site-announcement-backdrop" role="presentation">
+      <section
+        aria-labelledby="site-announcement-title"
+        aria-modal="true"
+        className="site-announcement-modal"
+        role="dialog"
+        style={popupStyle}
+      >
+        <button className="site-announcement-close" onClick={onClose} title="关闭公告" type="button">
+          <CloseOutlined />
+        </button>
+        <p className="eyebrow" style={{ color: config.popup.accentColor }}>公告</p>
+        <h2 id="site-announcement-title" style={{ color: config.popup.accentColor }}>{config.popup.title}</h2>
+        <p>{config.popup.content}</p>
+        <button className="primary-button" onClick={onClose} style={{ background: config.popup.accentColor }} type="button">
+          我知道了
+        </button>
+      </section>
+    </div>
+  );
+}
+
 function AnnouncementSectionCard({ section }: { section: AnnouncementSection }) {
   return (
     <Card title={section.title}>
@@ -174,4 +244,15 @@ function AnnouncementSectionCard({ section }: { section: AnnouncementSection }) 
 
 function formatDate(value: string) {
   return new Date(value).toLocaleString();
+}
+
+function resolveFontFamily(fontFamily: SiteContentConfig['home']['fontFamily']) {
+  const families: Record<SiteContentConfig['home']['fontFamily'], string> = {
+    system: 'Arial, Helvetica, sans-serif',
+    serif: 'Georgia, "Times New Roman", serif',
+    rounded: '"Trebuchet MS", "Microsoft YaHei", sans-serif',
+    mono: 'Consolas, "Liberation Mono", monospace'
+  };
+
+  return families[fontFamily] ?? families.system;
 }

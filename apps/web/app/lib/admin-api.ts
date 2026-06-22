@@ -71,6 +71,44 @@ export type Announcement = {
   updatedAt?: string;
 };
 
+export type SiteFontFamily = 'system' | 'serif' | 'rounded' | 'mono';
+
+export type SiteContentConfig = {
+  id: string;
+  home: {
+    title: string;
+    subtitle: string;
+    content: string | null;
+    fontFamily: SiteFontFamily;
+    textColor: string;
+    accentColor: string;
+  };
+  popup: {
+    enabled: boolean;
+    title: string | null;
+    content: string | null;
+    fontFamily: SiteFontFamily;
+    textColor: string;
+    accentColor: string;
+  };
+  updatedAt: string | null;
+};
+
+export type SiteContentPayload = {
+  homeTitle?: string | null;
+  homeSubtitle?: string | null;
+  homeContent?: string | null;
+  homeFontFamily: SiteFontFamily;
+  homeTextColor: string;
+  homeAccentColor: string;
+  popupEnabled: boolean;
+  popupTitle?: string | null;
+  popupContent?: string | null;
+  popupFontFamily: SiteFontFamily;
+  popupTextColor: string;
+  popupAccentColor: string;
+};
+
 export type DashboardAlert = {
   id: string;
   type: string;
@@ -531,6 +569,17 @@ export async function listAdminUsers(options: { page?: number; limit?: number } 
 
 export async function listAnnouncements() {
   return request<AnnouncementListResponse>('/admin/announcements');
+}
+
+export async function getAdminSiteContentConfig() {
+  return request<SiteContentConfig>('/admin/site-content');
+}
+
+export async function updateAdminSiteContentConfig(payload: SiteContentPayload) {
+  return request<SiteContentConfig>('/admin/site-content', {
+    method: 'POST',
+    body: payload
+  });
 }
 
 export async function createAnnouncement(payload: {

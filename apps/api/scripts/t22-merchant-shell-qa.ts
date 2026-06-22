@@ -99,7 +99,7 @@ async function main() {
     const adminMerchantEntry = await requestMerchantEntry(adminLogin.cookies);
     assert(adminMerchantEntry.status >= 200 && adminMerchantEntry.status < 300, `admin /merchant should render dashboard, got ${adminMerchantEntry.status}`);
     const adminMerchantEntryText = await adminMerchantEntry.text();
-    assertMerchantDashboardHtml(adminMerchantEntryText);
+    assertCurrentMerchantDashboardHtml(adminMerchantEntryText);
     checks.push('admin_merchant_entry_renders_dashboard');
 
     const adminUserSiteEntry = await requestUserSiteEntry(adminLogin.cookies);
@@ -409,6 +409,30 @@ function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
     throw new Error(message);
   }
+}
+
+function assertCurrentMerchantDashboardHtml(text: string) {
+  const markers = [
+    'merchant-shell-page',
+    'merchant-primary-nav',
+    'merchant-sidebar',
+    '蔚蓝星球商家端',
+    '商家首页',
+    '用户统计',
+    '充值码',
+    '模型管理',
+    '公告/首页',
+    'AI代充',
+    '商家工作台',
+    '运营数据',
+    'Token 消耗'
+  ];
+  const foundCount = markers.filter((marker) => text.includes(marker)).length;
+  assert(foundCount >= 11, `merchant dashboard page did not render expected current markers, found only ${foundCount}`);
+  assertOrderedMarkers(text, ['商家首页', '用户统计', '充值码', '模型管理', '公告/首页', 'AI代充'], 'merchant shell navigation order');
+  const forbiddenUserMarkers = ['个人中心', '费用说明', '令牌入口'];
+  const leakedMarkers = forbiddenUserMarkers.filter((marker) => text.includes(marker));
+  assert(leakedMarkers.length === 0, `merchant shell leaked user-site markers: ${leakedMarkers.join(', ')}`);
 }
 
 void main();

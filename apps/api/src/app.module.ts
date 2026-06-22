@@ -13,6 +13,7 @@ import { AnnouncementsModule } from './announcements/announcements.module';
 import { AsyncTasksModule } from './async-tasks/async-tasks.module';
 import { ExperienceModule } from './experience/experience.module';
 import { AiRechargeModule } from './ai-recharge/ai-recharge.module';
+import { SiteContentModule } from './site-content/site-content.module';
 
 @Module({
   imports: [
@@ -28,7 +29,8 @@ import { AiRechargeModule } from './ai-recharge/ai-recharge.module';
     AnnouncementsModule,
     AsyncTasksModule,
     ExperienceModule,
-    AiRechargeModule
+    AiRechargeModule,
+    SiteContentModule
   ],
   controllers: [AppController]
 })

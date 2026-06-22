@@ -68,7 +68,7 @@ async function main() {
     const merchantEntry = await followWebRedirectIfNeeded(await getMerchantEntry(merchantLogin.cookie), merchantLogin.cookie, 'merchant entry');
     assert(merchantEntry.status >= 200 && merchantEntry.status < 300, `merchant entry should render dashboard, got ${merchantEntry.status}`);
     const merchantEntryText = await merchantEntry.text();
-    assertMerchantDashboardHtml(merchantEntryText);
+    assertCurrentMerchantDashboardHtml(merchantEntryText);
     checks.push('merchant_entry_renders_real_dashboard_for_admin');
 
     const merchantUserSiteEntry = await getUserSiteEntry(merchantLogin.cookie);
@@ -288,6 +288,12 @@ function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
     throw new Error(message);
   }
+}
+
+function assertCurrentMerchantDashboardHtml(text: string) {
+  const markers = ['merchant-shell-page', '蔚蓝星球商家端', '商家工作台', '运营数据', '用户统计', 'Token 与扣费', '模型管理', '兑换码'];
+  const found = markers.filter((marker) => text.includes(marker)).length;
+  assert(found >= 7, `merchant dashboard HTML missing expected current markers, found ${found}`);
 }
 
 void main();

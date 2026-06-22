@@ -114,7 +114,8 @@ async function main() {
 
     await assertMerchantPageAccess('/merchant/announcements', merchantCookie, userCookie, [
       'merchant-shell-page',
-      '公告管理',
+      '公告与首页',
+      '首页与弹窗公告',
       '发布公告',
       '公告记录'
     ]);
@@ -170,8 +171,10 @@ async function main() {
 
     const adminAudit = await get<AuditListResponse>('/admin/audit-logs?page=1&limit=100', merchantCookie);
     assert(adminAudit.status === 200, `admin audit logs failed with ${adminAudit.status}`);
-    const adminAuditText = JSON.stringify(adminAudit.json);
-    assert(adminAuditText.includes('announcement_created'), 'admin audit should include announcement_created');
+    const seededAdminAuditItems = pickAdminAuditItems(adminAudit.json.items, seeded.userIds.admin, announcementIds);
+    const adminAuditText = JSON.stringify(seededAdminAuditItems);
+    assert(seededAdminAuditItems.length >= 3, 'admin audit should include seeded announcement audit entries');
+    assert(adminAuditText.includes('announcement_created'), 'seeded admin audit entries should include announcement_created');
     assert(adminAudit.json.total >= 3, 'admin audit total should include created announcements');
     assertNoSensitiveText(adminAuditText, sensitiveMarkers(), 'admin audit response');
 
@@ -310,6 +313,26 @@ function assertPublicFeedVisibility(
   assert(!text.includes(archivedTitle), `${label} leaked archived announcement`);
   assert(!text.includes('"createdByAdminId"'), `${label} leaked createdByAdminId`);
   assert(!text.includes('"createdBy"'), `${label} leaked createdBy`);
+}
+
+function pickAdminAuditItems(items: AuditListResponse['items'], adminUserId: string, announcementIds: string[]) {
+  return items.filter((entry) => {
+    const item = entry as {
+      action?: unknown;
+      targetId?: unknown;
+      admin?: { id?: unknown };
+    };
+
+    if (!item.admin || typeof item.admin.id !== 'string' || item.admin.id !== adminUserId) {
+      return false;
+    }
+
+    if (item.action === 'announcement_created') {
+      return true;
+    }
+
+    return typeof item.targetId === 'string' && announcementIds.includes(item.targetId);
+  });
 }
 
 async function login(username: string) {
