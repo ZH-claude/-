@@ -4,7 +4,14 @@
 
 {$CADDY_WEB_DOMAIN} {
 	encode gzip zstd
-	reverse_proxy web:3000
+	@api path /v1 /v1/*
+	handle @api {
+		reverse_proxy api:3001
+	}
+
+	handle {
+		reverse_proxy web:3000
+	}
 }
 
 {$CADDY_API_DOMAIN} {

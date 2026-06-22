@@ -63,6 +63,8 @@ const emptyTokenForm: TokenFormState = {
 };
 
 const pageSizeOptions = [10, 20, 50];
+const publicAnthropicBaseUrl = 'https://newaicode.com';
+const publicNoProxyHosts = 'newaicode.com,api.newaicode.com,localhost,127.0.0.1,::1';
 
 export default function TokenPage() {
   const router = useRouter();
@@ -313,6 +315,15 @@ export default function TokenPage() {
     }
   }
 
+  async function copyOneTimeClaudeConfig() {
+    if (!oneTimeKey) {
+      return;
+    }
+
+    const token = tokens.find((entry) => entry.id === oneTimeKey.tokenId);
+    await copyClaudeConfig(oneTimeKey.apiKey, token);
+  }
+
   async function copyTokenInfo(token: ApiToken) {
     const fullKey = oneTimeKey?.tokenId === token.id ? oneTimeKey.apiKey : null;
     const text = fullKey ?? (await revealTokenKey(token.id)).apiKey;
@@ -322,6 +333,24 @@ export default function TokenPage() {
       setMessage('完整密钥已复制');
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : '复制失败，请重置令牌后再复制');
+    }
+  }
+
+  async function copyClaudeConfigForToken(token: ApiToken) {
+    const fullKey = oneTimeKey?.tokenId === token.id ? oneTimeKey.apiKey : null;
+    const apiKey = fullKey ?? (await revealTokenKey(token.id)).apiKey;
+    await copyClaudeConfig(apiKey, token);
+  }
+
+  async function copyClaudeConfig(apiKey: string, token?: ApiToken) {
+    const model = getClaudeConfigModel(token, availableModels);
+    const config = buildClaudeCodePowerShellConfig(apiKey, model);
+
+    try {
+      await navigator.clipboard.writeText(config);
+      setMessage('Claude Code 配置已复制');
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : '复制失败');
     }
   }
 
@@ -417,6 +446,10 @@ export default function TokenPage() {
               <CopyOutlined />
               复制完整密钥
             </button>
+            <button className="ghost-button compact-button" onClick={() => void copyOneTimeClaudeConfig()} type="button">
+              <CopyOutlined />
+              Claude
+            </button>
             <button className="icon-button" onClick={() => setOneTimeKey(null)} title="关闭" type="button">
               <CloseOutlined />
             </button>
@@ -498,6 +531,14 @@ export default function TokenPage() {
                       <div className="token-icon-actions">
                         <button className="icon-button compact-icon-button" onClick={() => void copyTokenInfo(token)} title="复制完整密钥" type="button">
                           <CopyOutlined />
+                        </button>
+                        <button
+                          className="ghost-button compact-button"
+                          onClick={() => void copyClaudeConfigForToken(token)}
+                          title="复制 Claude Code 配置"
+                          type="button"
+                        >
+                          Claude
                         </button>
                         <button
                           className="icon-button compact-icon-button"
@@ -741,6 +782,30 @@ function toDateTimeLocal(value: string) {
   const date = new Date(value);
   const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
   return localDate.toISOString().slice(0, 16);
+}
+
+function getClaudeConfigModel(token: ApiToken | undefined, availableModels: AvailableModel[]) {
+  return token?.modelNames[0] ?? availableModels[0]?.model ?? 'glm5.2';
+}
+
+function buildClaudeCodePowerShellConfig(apiKey: string, model: string) {
+  const quotedApiKey = quotePowerShellString(apiKey);
+  const quotedModel = quotePowerShellString(model);
+
+  return [
+    `$env:ANTHROPIC_API_KEY=${quotedApiKey}`,
+    `$env:ANTHROPIC_AUTH_TOKEN=${quotedApiKey}`,
+    `$env:ANTHROPIC_BASE_URL=${quotePowerShellString(publicAnthropicBaseUrl)}`,
+    `$env:NO_PROXY=${quotePowerShellString(publicNoProxyHosts)}`,
+    `$env:ANTHROPIC_MODEL=${quotedModel}`,
+    `$env:ANTHROPIC_DEFAULT_SONNET_MODEL=${quotedModel}`,
+    `$env:ANTHROPIC_DEFAULT_OPUS_MODEL=${quotedModel}`,
+    `claude --model ${quotedModel}`
+  ].join('\n');
+}
+
+function quotePowerShellString(value: string) {
+  return `'${value.replace(/'/g, "''")}'`;
 }
 
 function quoteCsvCell(value: string) {
