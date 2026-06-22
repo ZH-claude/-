@@ -3,12 +3,13 @@
 import {
   AppstoreOutlined,
   CalculatorOutlined,
+  CloseOutlined,
   CopyOutlined,
   ReloadOutlined,
   SearchOutlined
 } from '@ant-design/icons';
 import { useRouter } from 'next/navigation';
-import { useEffect, useMemo, useState } from 'react';
+import { type KeyboardEvent, useEffect, useMemo, useState } from 'react';
 import { ConsoleShell } from '../components/console-shell';
 import { ModelBrandMark, type ModelBrandId } from '../components/model-brand-mark';
 import { formatUsdPerMillionFromUnits } from '../lib/billing-format';
@@ -22,6 +23,164 @@ type ProviderFilter = {
   mark: string;
   className: string;
 };
+
+type IntegrationGuideId = 'python' | 'typescript' | 'java' | 'go' | 'shell' | 'claude-code';
+
+type IntegrationGuide = {
+  id: IntegrationGuideId;
+  label: string;
+  code: (model: string) => string;
+};
+
+const PUBLIC_API_BASE_URL = 'https://newaicode.com';
+const OPENAI_COMPAT_BASE_URL = `${PUBLIC_API_BASE_URL}/v1`;
+
+const INTEGRATION_GUIDES: IntegrationGuide[] = [
+  {
+    id: 'python',
+    label: 'Python',
+    code: (model) => `from openai import OpenAI
+
+client = OpenAI(
+    api_key="Your API Key",
+    base_url="${OPENAI_COMPAT_BASE_URL}"
+)
+
+response = client.chat.completions.create(
+    model="${model}",
+    messages=[
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": "Hello, how are you?"}
+    ],
+    max_tokens=1024,
+    temperature=0.7
+)
+
+print(response.choices[0].message.content)`
+  },
+  {
+    id: 'typescript',
+    label: 'TypeScript',
+    code: (model) => `import OpenAI from "openai";
+
+const client = new OpenAI({
+  apiKey: process.env.NEWAICODE_API_KEY,
+  baseURL: "${OPENAI_COMPAT_BASE_URL}",
+});
+
+const response = await client.chat.completions.create({
+  model: "${model}",
+  messages: [
+    { role: "system", content: "You are a helpful assistant." },
+    { role: "user", content: "Hello, how are you?" },
+  ],
+  max_tokens: 1024,
+  temperature: 0.7,
+});
+
+console.log(response.choices[0]?.message?.content);`
+  },
+  {
+    id: 'java',
+    label: 'Java',
+    code: (model) => `import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+
+String apiKey = System.getenv("NEWAICODE_API_KEY");
+String body = """
+{
+  "model": "${model}",
+  "messages": [
+    {"role": "system", "content": "You are a helpful assistant."},
+    {"role": "user", "content": "Hello, how are you?"}
+  ],
+  "max_tokens": 1024,
+  "temperature": 0.7
+}
+""";
+
+HttpRequest request = HttpRequest.newBuilder()
+    .uri(URI.create("${OPENAI_COMPAT_BASE_URL}/chat/completions"))
+    .header("Content-Type", "application/json")
+    .header("Authorization", "Bearer " + apiKey)
+    .POST(HttpRequest.BodyPublishers.ofString(body))
+    .build();
+
+HttpResponse<String> response = HttpClient.newHttpClient()
+    .send(request, HttpResponse.BodyHandlers.ofString());
+
+System.out.println(response.body());`
+  },
+  {
+    id: 'go',
+    label: 'Go',
+    code: (model) => `package main
+
+import (
+  "bytes"
+  "fmt"
+  "net/http"
+  "os"
+)
+
+func main() {
+  body := []byte(\`{
+    "model": "${model}",
+    "messages": [
+      {"role": "system", "content": "You are a helpful assistant."},
+      {"role": "user", "content": "Hello, how are you?"}
+    ],
+    "max_tokens": 1024,
+    "temperature": 0.7
+  }\`)
+
+  request, _ := http.NewRequest("POST", "${OPENAI_COMPAT_BASE_URL}/chat/completions", bytes.NewBuffer(body))
+  request.Header.Set("Content-Type", "application/json")
+  request.Header.Set("Authorization", "Bearer "+os.Getenv("NEWAICODE_API_KEY"))
+
+  response, _ := http.DefaultClient.Do(request)
+  defer response.Body.Close()
+  fmt.Println(response.Status)
+}`
+  },
+  {
+    id: 'shell',
+    label: 'Shell',
+    code: (model) => `#!/usr/bin/env bash
+
+API_KEY="Your API Key"
+MODEL_ID="${model}"
+BASE_URL="${PUBLIC_API_BASE_URL}"
+
+curl -X POST "$BASE_URL/v1/chat/completions" \\
+  -H "Content-Type: application/json" \\
+  -H "Authorization: Bearer $API_KEY" \\
+  -d '{
+    "model": "'"$MODEL_ID"'",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are a helpful assistant."
+      },
+      {
+        "role": "user",
+        "content": "Hello, how are you?"
+      }
+    ],
+    "max_tokens": 1024,
+    "temperature": 0.7
+  }'`
+  },
+  {
+    id: 'claude-code',
+    label: 'Claude Code',
+    code: (model) => `$env:ANTHROPIC_AUTH_TOKEN="Your API Key"
+$env:ANTHROPIC_BASE_URL="${PUBLIC_API_BASE_URL}/"
+claude --model "${model}"`
+  }
+];
 
 const PROVIDER_FILTERS: ProviderFilter[] = [
   { id: 'all', label: '全部模型', mark: 'All', className: 'all' },
@@ -39,6 +198,9 @@ export default function PricingPage() {
   const [query, setQuery] = useState('');
   const [activeProvider, setActiveProvider] = useState<ProviderId>('all');
   const [copiedModel, setCopiedModel] = useState('');
+  const [copiedGuide, setCopiedGuide] = useState('');
+  const [selectedModel, setSelectedModel] = useState<PricingModel | null>(null);
+  const [activeGuide, setActiveGuide] = useState<IntegrationGuideId>('python');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(true);
 
@@ -101,6 +263,27 @@ export default function PricingPage() {
     }
   }
 
+  async function copyIntegrationCode(model: PricingModel, guide: IntegrationGuide) {
+    setError('');
+    setCopiedModel('');
+    setCopiedGuide('');
+
+    try {
+      await navigator.clipboard.writeText(guide.code(model.model));
+      setCopiedGuide(`已复制 ${guide.label} 接入示例：${model.model}`);
+    } catch {
+      setError('复制失败，请手动选中代码');
+    }
+  }
+
+  function openIntegrationGuide(model: PricingModel) {
+    setSelectedModel(model);
+    setActiveGuide('python');
+    setCopiedModel('');
+    setCopiedGuide('');
+    setError('');
+  }
+
   return (
     <ConsoleShell activePath="/pricing" isRefreshing={isLoading} onRefresh={() => void loadPricing()}>
       <section className="console-content-grid">
@@ -132,6 +315,7 @@ export default function PricingPage() {
         </div>
 
         {error ? <p className="form-error wide-panel">{error}</p> : null}
+        {copiedGuide ? <p className="form-success wide-panel">{copiedGuide}</p> : null}
         {copiedModel ? <p className="form-success wide-panel">已复制模型名：{copiedModel}</p> : null}
 
         <section className="account-panel wide-panel">
@@ -170,7 +354,7 @@ export default function PricingPage() {
 
             <div className="pricing-model-grid">
               {filteredModels.map((model) => (
-                <PricingModelCard key={model.model} model={model} onCopy={copyModelName} />
+                <PricingModelCard key={model.model} model={model} onCopy={copyModelName} onSelect={openIntegrationGuide} />
               ))}
               {!isLoading && filteredModels.length === 0 ? (
                 <div className="pricing-empty-state">
@@ -182,6 +366,16 @@ export default function PricingPage() {
             </div>
           </div>
         </section>
+
+        {selectedModel ? (
+          <PricingIntegrationDialog
+            activeGuide={activeGuide}
+            model={selectedModel}
+            onActiveGuideChange={setActiveGuide}
+            onClose={() => setSelectedModel(null)}
+            onCopy={copyIntegrationCode}
+          />
+        ) : null}
       </section>
     </ConsoleShell>
   );
@@ -216,14 +410,38 @@ function PricingProviderGroup({
   );
 }
 
-function PricingModelCard({ model, onCopy }: { model: PricingModel; onCopy: (model: string) => Promise<void> }) {
+function PricingModelCard({
+  model,
+  onCopy,
+  onSelect
+}: {
+  model: PricingModel;
+  onCopy: (model: string) => Promise<void>;
+  onSelect: (model: PricingModel) => void;
+}) {
   const groupMultiplier = Number(model.groupMultiplier);
   const effectiveInputPrice = model.inputPriceCentsPer1k * groupMultiplier;
   const effectiveOutputPrice = model.outputPriceCentsPer1k * groupMultiplier;
   const provider = getProviderMeta(getModelProvider(model));
 
+  function handleKeyDown(event: KeyboardEvent<HTMLElement>) {
+    if (event.key !== 'Enter' && event.key !== ' ') {
+      return;
+    }
+
+    event.preventDefault();
+    onSelect(model);
+  }
+
   return (
-    <article className="pricing-model-card">
+    <article
+      aria-label={`查看 ${model.model} 接入示例`}
+      className="pricing-model-card"
+      onClick={() => onSelect(model)}
+      onKeyDown={handleKeyDown}
+      role="button"
+      tabIndex={0}
+    >
       <header>
         <ModelBrandMark brand={getProviderBrand(provider.id)} label={provider.label} mark={provider.mark} />
         <div>
@@ -253,12 +471,128 @@ function PricingModelCard({ model, onCopy }: { model: PricingModel; onCopy: (mod
         ) : (
           <span className="status-pill status-pill-muted">普通输出</span>
         )}
-        <button className="ghost-button compact-button" onClick={() => void onCopy(model.model)} type="button">
+        <button
+          className="ghost-button compact-button"
+          onClick={(event) => {
+            event.stopPropagation();
+            void onCopy(model.model);
+          }}
+          type="button"
+        >
           <CopyOutlined />
           复制
         </button>
       </footer>
     </article>
+  );
+}
+
+function PricingIntegrationDialog({
+  activeGuide,
+  model,
+  onActiveGuideChange,
+  onClose,
+  onCopy
+}: {
+  activeGuide: IntegrationGuideId;
+  model: PricingModel;
+  onActiveGuideChange: (guide: IntegrationGuideId) => void;
+  onClose: () => void;
+  onCopy: (model: PricingModel, guide: IntegrationGuide) => Promise<void>;
+}) {
+  const provider = getProviderMeta(getModelProvider(model));
+  const guide = INTEGRATION_GUIDES.find((item) => item.id === activeGuide) ?? INTEGRATION_GUIDES[0];
+  const groupMultiplier = Number(model.groupMultiplier);
+  const effectiveInputPrice = model.inputPriceCentsPer1k * groupMultiplier;
+  const effectiveOutputPrice = model.outputPriceCentsPer1k * groupMultiplier;
+  const codeLines = guide.code(model.model).split('\n');
+
+  return (
+    <div
+      aria-labelledby="pricing-integration-title"
+      aria-modal="true"
+      className="pricing-integration-backdrop"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          onClose();
+        }
+      }}
+      role="dialog"
+    >
+      <section className="pricing-integration-modal">
+        <header className="pricing-integration-header">
+          <div className="pricing-integration-title">
+            <ModelBrandMark brand={getProviderBrand(provider.id)} label={provider.label} mark={provider.mark} />
+            <div>
+              <span>{provider.label}</span>
+              <h2 id="pricing-integration-title">{model.model}</h2>
+              {model.displayName ? <p>{model.displayName}</p> : null}
+            </div>
+          </div>
+          <button className="icon-button" onClick={onClose} title="关闭" type="button">
+            <CloseOutlined />
+          </button>
+        </header>
+
+        <div className="pricing-integration-summary">
+          <div>
+            <span>Base URL</span>
+            <code>{OPENAI_COMPAT_BASE_URL}</code>
+          </div>
+          <div>
+            <span>API Endpoint</span>
+            <code>/chat/completions</code>
+          </div>
+          <div>
+            <span>输入价格</span>
+            <strong>{formatUsdPer1m(effectiveInputPrice)}</strong>
+          </div>
+          <div>
+            <span>输出价格</span>
+            <strong>{formatUsdPer1m(effectiveOutputPrice)}</strong>
+          </div>
+        </div>
+
+        <section className="pricing-integration-guide">
+          <div className="pricing-guide-heading">
+            <div>
+              <h3>使用以下代码示例来集成我们的 API：</h3>
+              <p>先在令牌页面创建 API Key，再把示例里的模型名替换为当前模型。</p>
+            </div>
+            <button className="ghost-button compact-button" onClick={() => void onCopy(model, guide)} type="button">
+              <CopyOutlined />
+              复制
+            </button>
+          </div>
+
+          <div className="pricing-guide-tabs" role="tablist" aria-label="接入示例">
+            {INTEGRATION_GUIDES.map((item) => (
+              <button
+                aria-selected={guide.id === item.id}
+                className={guide.id === item.id ? 'active' : ''}
+                key={item.id}
+                onClick={() => onActiveGuideChange(item.id)}
+                role="tab"
+                type="button"
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="pricing-guide-mode">聊天</div>
+
+          <pre className="pricing-code-block" aria-label={`${guide.label} 接入代码`}>
+            {codeLines.map((line, index) => (
+              <code className="pricing-code-line" key={`${guide.id}-${index}`}>
+                <span>{index + 1}</span>
+                <em>{line || ' '}</em>
+              </code>
+            ))}
+          </pre>
+        </section>
+      </section>
+    </div>
   );
 }
 

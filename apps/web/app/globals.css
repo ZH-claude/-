@@ -1927,6 +1927,7 @@ button {
   background: #ffffff;
   border: 1px solid #e5e7eb;
   border-radius: 8px;
+  cursor: pointer;
   display: grid;
   gap: 14px;
   min-height: 220px;
@@ -1939,6 +1940,12 @@ button {
   border-color: #2563eb;
   box-shadow: 0 16px 40px rgba(15, 23, 42, 0.1);
   transform: translateY(-1px);
+}
+
+.pricing-model-card:focus-visible {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18);
+  outline: none;
 }
 
 .pricing-model-card header {
@@ -2035,6 +2042,199 @@ button {
 
 .pricing-empty-state strong {
   color: #111827;
+}
+
+.pricing-integration-backdrop {
+  align-items: center;
+  background: rgba(15, 23, 42, 0.48);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 28px;
+  position: fixed;
+  z-index: 70;
+}
+
+.pricing-integration-modal {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.24);
+  display: grid;
+  gap: 18px;
+  max-height: calc(100dvh - 56px);
+  overflow: auto;
+  padding: 22px;
+  position: relative;
+  width: min(1120px, calc(100vw - 56px));
+}
+
+.pricing-integration-header {
+  align-items: start;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.pricing-integration-title {
+  align-items: center;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: 52px minmax(0, 1fr);
+  min-width: 0;
+}
+
+.pricing-integration-title span {
+  color: #2563eb;
+  display: block;
+  font-size: 13px;
+  font-weight: 800;
+  margin-bottom: 4px;
+}
+
+.pricing-integration-title h2 {
+  color: #111827;
+  font-size: 26px;
+  line-height: 1.25;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.pricing-integration-title p {
+  color: #64748b;
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.pricing-integration-summary {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 1.4fr 1fr repeat(2, minmax(120px, 0.7fr));
+}
+
+.pricing-integration-summary div {
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 12px;
+}
+
+.pricing-integration-summary span {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.pricing-integration-summary code,
+.pricing-integration-summary strong {
+  color: #111827;
+  font-family: Consolas, "Liberation Mono", monospace;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.pricing-integration-guide {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  display: grid;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.pricing-guide-heading {
+  align-items: center;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  min-width: 0;
+  padding: 18px;
+}
+
+.pricing-guide-heading h3 {
+  color: #111827;
+  font-size: 20px;
+  line-height: 1.35;
+  margin: 0;
+}
+
+.pricing-guide-heading p {
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 6px 0 0;
+}
+
+.pricing-guide-tabs {
+  background: #f5f5f5;
+  border-bottom: 1px solid #e5e7eb;
+  border-top: 1px solid #e5e7eb;
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 14px 16px;
+}
+
+.pricing-guide-tabs button {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  color: #6b7280;
+  flex: 0 0 auto;
+  min-height: 36px;
+  padding: 0 13px;
+}
+
+.pricing-guide-tabs button.active {
+  background: #ffffff;
+  border-color: #e5e7eb;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+  color: #111827;
+}
+
+.pricing-guide-mode {
+  background: #f5f5f5;
+  border-bottom: 1px solid #e5e7eb;
+  color: #111827;
+  font-weight: 700;
+  padding: 14px 18px;
+}
+
+.pricing-code-block {
+  background: #ffffff;
+  color: #111827;
+  display: grid;
+  font-family: Consolas, "Liberation Mono", monospace;
+  font-size: 13px;
+  line-height: 1.65;
+  margin: 0;
+  max-height: min(52dvh, 560px);
+  overflow: auto;
+  padding: 18px 0;
+}
+
+.pricing-code-line {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: 44px minmax(max-content, 1fr);
+  min-width: max-content;
+  padding: 0 20px 0 0;
+  white-space: pre;
+}
+
+.pricing-code-line span {
+  color: #16a34a;
+  font-style: italic;
+  text-align: right;
+  user-select: none;
+}
+
+.pricing-code-line em {
+  color: #111827;
+  font-style: normal;
 }
 
 .pricing-table {
@@ -4203,6 +4403,61 @@ button {
   .pricing-market-shell,
   .pricing-model-grid {
     grid-template-columns: 1fr;
+  }
+
+  .pricing-integration-backdrop {
+    align-items: stretch;
+    padding: 12px;
+  }
+
+  .pricing-integration-modal {
+    align-self: center;
+    max-height: calc(100dvh - 24px);
+    padding: 16px;
+    width: 100%;
+  }
+
+  .pricing-integration-header,
+  .pricing-guide-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .pricing-integration-header .icon-button {
+    position: absolute;
+    right: 22px;
+    top: 22px;
+  }
+
+  .pricing-integration-title {
+    grid-template-columns: 44px minmax(0, 1fr);
+    padding-right: 48px;
+  }
+
+  .pricing-integration-title h2 {
+    font-size: 20px;
+  }
+
+  .pricing-integration-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .pricing-guide-heading .ghost-button {
+    width: 100%;
+  }
+
+  .pricing-guide-tabs {
+    padding: 10px;
+  }
+
+  .pricing-code-block {
+    font-size: 12px;
+    max-height: 48dvh;
+  }
+
+  .pricing-code-line {
+    grid-template-columns: 34px minmax(max-content, 1fr);
+    padding-right: 14px;
   }
 
   .profile-card {
