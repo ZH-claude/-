@@ -3670,6 +3670,11 @@ button {
   padding: 10px 20px;
 }
 
+.experience-result-strip span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .experience-input {
   align-items: end;
   border-top: 1px solid #e6ebf2;
@@ -4138,6 +4143,11 @@ button {
   .experience-messages {
     min-height: 0;
     padding: 16px;
+  }
+
+  .experience-result-strip {
+    gap: 6px 8px;
+    padding: 8px 12px;
   }
 
   .experience-input {
