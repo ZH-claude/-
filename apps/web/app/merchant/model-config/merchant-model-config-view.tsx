@@ -3,21 +3,27 @@
 import {
   ApiOutlined,
   CloseOutlined,
+  DeleteOutlined,
   EditOutlined,
   EyeOutlined,
   LinkOutlined,
   ReloadOutlined,
-  SaveOutlined
+  SaveOutlined,
+  StopOutlined
 } from '@ant-design/icons';
 import { useRouter } from 'next/navigation';
 import { type FormEvent, useEffect, useMemo, useState } from 'react';
 import { MerchantShell } from '../../components/merchant-shell';
 import {
+  createUpstreamProvider,
+  deleteModelPrice,
   createModelPrice,
   createUpstreamModel,
   listModelConfiguration,
   listUpstreamProviders,
+  updateUpstreamProvider,
   updateModelPrice,
+  updateModelPriceStatus,
   updateUpstreamModel,
   type AdminGroup,
   type AdminModelPrice,
@@ -25,7 +31,11 @@ import {
   type UpstreamProvider
 } from '../../lib/admin-api';
 import { logout } from '../../lib/auth-api';
-import { formatBillingUsd } from '../../lib/billing-format';
+import {
+  formatUsdPerMillionFromUnits,
+  formatUsdPerMillionInputFromUnits,
+  parseUsdPerMillionToUnits
+} from '../../lib/billing-format';
 
 const UPSTREAM_MAPPING_PAGE_LIMIT = 100;
 const DEFAULT_MODEL_MULTIPLIER = '1.0000';
@@ -35,6 +45,7 @@ const BASE_TOKEN_CNY_PER_MILLION = 8;
 const USD_UNITS_PER_USD = 1_000_000;
 const TOKENS_PER_MILLION = 1_000_000;
 const TOKENS_PER_1K = 1_000;
+const DEFAULT_UPSTREAM_NAME_PREFIX = 'model-route';
 const DEEPSEEK_USD_UNITS_PER_1K_AT_ONE_X = Math.ceil(
   (BASE_TOKEN_CNY_PER_MILLION / Number(DEFAULT_EXCHANGE_RATE)) *
     (USD_UNITS_PER_USD / TOKENS_PER_MILLION) *
@@ -80,13 +91,17 @@ export function MerchantModelConfigView({
   const [modelGroupIds, setModelGroupIds] = useState<string[]>([]);
   const [editingModelId, setEditingModelId] = useState<string | null>(null);
   const [mappingProviderId, setMappingProviderId] = useState('');
+  const [mappingProviderName, setMappingProviderName] = useState('');
+  const [mappingProviderKind, setMappingProviderKind] = useState<UpstreamProvider['kind']>('generic');
+  const [mappingProviderBaseUrl, setMappingProviderBaseUrl] = useState('');
+  const [mappingProviderApiKey, setMappingProviderApiKey] = useState('');
   const [mappingPublicModel, setMappingPublicModel] = useState('');
   const [mappingUpstreamModel, setMappingUpstreamModel] = useState('');
   const [mappingTimeoutMs, setMappingTimeoutMs] = useState('5000');
   const [mappingPrompt, setMappingPrompt] = useState('');
   const [mappingModelMultiplier, setMappingModelMultiplier] = useState(DEFAULT_MODEL_MULTIPLIER);
-  const [mappingInputTokensPer1k, setMappingInputTokensPer1k] = useState('1000');
-  const [mappingOutputTokensPer1k, setMappingOutputTokensPer1k] = useState('1000');
+  const [mappingInputTokensPer1k, setMappingInputTokensPer1k] = useState(formatUsdPerMillionInputFromUnits(DEEPSEEK_USD_UNITS_PER_1K_AT_ONE_X));
+  const [mappingOutputTokensPer1k, setMappingOutputTokensPer1k] = useState(formatUsdPerMillionInputFromUnits(DEEPSEEK_USD_UNITS_PER_1K_AT_ONE_X));
   const [mappingUpstreamInputPricePerMillion, setMappingUpstreamInputPricePerMillion] = useState('');
   const [mappingUpstreamOutputPricePerMillion, setMappingUpstreamOutputPricePerMillion] = useState('');
   const [mappingUpstreamCurrency, setMappingUpstreamCurrency] = useState<'CNY' | 'USD'>('CNY');
@@ -99,6 +114,7 @@ export function MerchantModelConfigView({
   const [isLoading, setIsLoading] = useState(true);
   const [isModelSaving, setIsModelSaving] = useState(false);
   const [isMappingSaving, setIsMappingSaving] = useState(false);
+  const [modelActionId, setModelActionId] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
 
@@ -118,10 +134,7 @@ export function MerchantModelConfigView({
     () => mappings.find((mapping) => mapping.id === selectedMappingId) ?? null,
     [mappings, selectedMappingId]
   );
-  const selectedMappingProvider = useMemo(
-    () => upstreams.find((upstream) => upstream.id === mappingProviderId) ?? null,
-    [mappingProviderId, upstreams]
-  );
+  const effectiveMappingProviderKind = mappingProviderKind;
   const stats = useMemo(
     () => ({
       models: models.length,
@@ -134,7 +147,7 @@ export function MerchantModelConfigView({
   const mappingPricingPreview = useMemo(
     () =>
       buildMappingPricingPreview({
-        kind: selectedMappingProvider?.kind,
+        kind: effectiveMappingProviderKind,
         modelMultiplier: mappingModelMultiplier,
         upstreamInputPricePerMillion: mappingUpstreamInputPricePerMillion,
         upstreamOutputPricePerMillion: mappingUpstreamOutputPricePerMillion,
@@ -153,7 +166,7 @@ export function MerchantModelConfigView({
       mappingUpstreamExchangeRate,
       mappingUpstreamInputPricePerMillion,
       mappingUpstreamOutputPricePerMillion,
-      selectedMappingProvider?.kind
+      effectiveMappingProviderKind
     ]
   );
 
@@ -173,16 +186,39 @@ export function MerchantModelConfigView({
       setGroups(configResult.groups);
       setModels(configResult.models);
       setMappings(configResult.upstreamModels);
-      const requestedModel =
-        typeof window === 'undefined' ? '' : new URLSearchParams(window.location.search).get('model') ?? '';
+      const searchParams = typeof window === 'undefined' ? new URLSearchParams() : new URLSearchParams(window.location.search);
+      const requestedModel = searchParams.get('model') ?? '';
+      const savedState = searchParams.get('saved') ?? '';
       const nextActiveGroupIds = configResult.groups
         .filter((group) => group.status === 'active')
         .map((group) => group.id);
       setModelGroupIds((current) => keepValidIds(current, configResult.groups, nextActiveGroupIds));
-      setMappingProviderId((current) => keepValidId(current, providerResult.items.map((provider) => provider.id), providerResult.items[0]?.id));
-      setMappingPublicModel((current) =>
-        keepValidId(requestedModel || current, configResult.models.map((model) => model.model), configResult.models[0]?.model)
+      const nextProviderId = keepValidId(mappingProviderId, providerResult.items.map((provider) => provider.id));
+      setMappingProviderId(nextProviderId);
+      const nextProvider = providerResult.items.find((provider) => provider.id === nextProviderId);
+      if (!editingMappingId && nextProvider) {
+        setMappingProviderName(nextProvider.name);
+        setMappingProviderKind(nextProvider.kind);
+        setMappingProviderBaseUrl(nextProvider.baseUrl);
+      }
+      if (!editingMappingId && nextProviderId !== mappingProviderId) {
+        setMappingInputTokensPer1k(defaultDirectPriceInput(nextProvider));
+        setMappingOutputTokensPer1k(defaultDirectPriceInput(nextProvider));
+      }
+      const nextPublicModel = keepValidId(
+        requestedModel || mappingPublicModel,
+        configResult.models.map((model) => model.model),
+        configResult.models[0]?.model
       );
+      setMappingPublicModel(nextPublicModel);
+      if (!editingMappingId && !nextProvider && nextPublicModel) {
+        setMappingProviderName((current) => current || defaultProviderName(nextPublicModel));
+      }
+      if (savedState === 'model' && requestedModel) {
+        setMessage(`客户模型 ${requestedModel} 已发布，请继续给它绑定上游线路。`);
+      } else if (savedState === 'route' && requestedModel) {
+        setMessage(`模型 ${requestedModel} 的线路已保存，列表已刷新。`);
+      }
     } catch (nextError) {
       const nextMessage = nextError instanceof Error ? nextError.message : '模型配置加载失败';
       setError(nextMessage);
@@ -208,13 +244,21 @@ export function MerchantModelConfigView({
     setIsModelSaving(true);
     try {
       const payload = buildModelPayload(groupIds);
+      const wasEditing = Boolean(editingModelId);
       const saved = editingModelId
         ? await updateModelPrice(editingModelId, payload)
         : await createModelPrice(payload);
 
-      setMessage(`客户模型 ${saved.model} 已保存。下一步到“模型映射”给它绑定唯一上游。不同消耗档请发布成不同客户模型。`);
       resetModelForm();
       await loadData();
+      if (!wasEditing) {
+        router.push(`/merchant/model-routes?model=${encodeURIComponent(saved.model)}&saved=model`);
+        router.refresh();
+        return;
+      }
+
+      setMessage(`客户模型 ${saved.model} 已保存，列表已刷新。`);
+      document.getElementById('merchant-model-list')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : '模型保存失败');
     } finally {
@@ -232,18 +276,16 @@ export function MerchantModelConfigView({
   }
 
   function buildMappingPricingPayload() {
-    if (!selectedMappingProvider) {
-      throw new Error('请先选择上游');
-    }
-
-    if (selectedMappingProvider.kind === 'deepseek') {
+    if (effectiveMappingProviderKind === 'deepseek') {
       return {
-        pricingMode: 'deepseek_base' as const,
-        modelMultiplier: mappingModelMultiplier.trim() || DEFAULT_MODEL_MULTIPLIER
+        pricingMode: 'manual' as const,
+        inputPriceCentsPer1k: parseUsdPriceInput(mappingInputTokensPer1k, '输入价格'),
+        outputPriceCentsPer1k: parseUsdPriceInput(mappingOutputTokensPer1k, '输出价格'),
+        modelMultiplier: DEFAULT_MODEL_MULTIPLIER
       };
     }
 
-    if (selectedMappingProvider.kind === 'relay') {
+    if (effectiveMappingProviderKind === 'relay') {
       return {
         pricingMode: 'relay_price' as const,
         upstreamInputPricePerMillion: mappingUpstreamInputPricePerMillion.trim(),
@@ -256,10 +298,57 @@ export function MerchantModelConfigView({
 
     return {
       pricingMode: 'manual' as const,
-      inputPriceCentsPer1k: parseWholeNumber(mappingInputTokensPer1k, '输入扣费'),
-      outputPriceCentsPer1k: parseWholeNumber(mappingOutputTokensPer1k, '输出扣费'),
-      modelMultiplier: mappingModelMultiplier.trim() || DEFAULT_MODEL_MULTIPLIER
+      inputPriceCentsPer1k: parseUsdPriceInput(mappingInputTokensPer1k, '输入价格'),
+      outputPriceCentsPer1k: parseUsdPriceInput(mappingOutputTokensPer1k, '输出价格'),
+      modelMultiplier: DEFAULT_MODEL_MULTIPLIER
     };
+  }
+
+  async function ensureRouteProvider() {
+    const name = mappingProviderName.trim();
+    const kind = mappingProviderKind;
+    const baseUrl = mappingProviderBaseUrl.trim();
+    const apiKey = mappingProviderApiKey.trim();
+    const selectedProvider = upstreams.find((upstream) => upstream.id === mappingProviderId);
+    const sameNameProvider = upstreams.find((upstream) => upstream.name === name);
+    const providerToUpdate = selectedProvider ?? sameNameProvider;
+
+    if (providerToUpdate) {
+      const shouldUpdateProvider =
+        providerToUpdate.name !== name ||
+        providerToUpdate.kind !== kind ||
+        providerToUpdate.baseUrl !== baseUrl ||
+        Boolean(apiKey) ||
+        providerToUpdate.status !== 'active';
+
+      if (!shouldUpdateProvider) {
+        return providerToUpdate.id;
+      }
+
+      const updatedProvider = await updateUpstreamProvider(providerToUpdate.id, {
+        name,
+        kind,
+        baseUrl,
+        ...(apiKey ? { apiKey } : {}),
+        status: 'active'
+      });
+      setUpstreams((current) => upsertProvider(current, updatedProvider));
+      setMappingProviderId(updatedProvider.id);
+      setMappingProviderApiKey('');
+      return updatedProvider.id;
+    }
+
+    const createdProvider = await createUpstreamProvider({
+      name,
+      kind,
+      baseUrl,
+      apiKey,
+      status: 'active'
+    });
+    setUpstreams((current) => upsertProvider(current, createdProvider));
+    setMappingProviderId(createdProvider.id);
+    setMappingProviderApiKey('');
+    return createdProvider.id;
   }
 
   async function handleSaveMapping(event: FormEvent<HTMLFormElement>) {
@@ -267,15 +356,29 @@ export function MerchantModelConfigView({
     setError('');
     setMessage('');
 
-    if (!mappingProviderId || !mappingPublicModel) {
+    if (!mappingPublicModel) {
       setError('请先选择客户模型和上游');
+      return;
+    }
+
+    if (!mappingProviderName.trim()) {
+      setError('请填写上游名称');
+      return;
+    }
+    if (!mappingProviderBaseUrl.trim()) {
+      setError('请填写上游 Base URL');
+      return;
+    }
+    if (!mappingProviderId && !mappingProviderApiKey.trim()) {
+      setError('新上游必须填写密钥；编辑已有上游时可留空沿用原密钥');
       return;
     }
 
     setIsMappingSaving(true);
     try {
+      const providerId = await ensureRouteProvider();
       const payload = {
-        providerId: mappingProviderId,
+        providerId,
         publicModel: mappingPublicModel,
         upstreamModel: mappingUpstreamModel.trim(),
         priority: 1,
@@ -297,6 +400,11 @@ export function MerchantModelConfigView({
       setMessage(`线路已保存：${saved.publicModel} 只会走 ${saved.providerName} / ${saved.upstreamModel}。同名客户模型的其它启用线路已自动停用。`);
       resetMappingForm();
       await loadData();
+      router.replace(`/merchant/model-routes?model=${encodeURIComponent(saved.publicModel)}&saved=route`);
+      router.refresh();
+      window.setTimeout(() => {
+        document.getElementById('merchant-model-routes-list')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 0);
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : '线路保存失败');
     } finally {
@@ -318,14 +426,85 @@ export function MerchantModelConfigView({
   function beginCreateMapping(model: AdminModelPrice) {
     if (!isRoutesPage) {
       router.push(`/merchant/model-routes?model=${encodeURIComponent(model.model)}`);
+      router.refresh();
       return;
     }
 
     resetMappingForm();
     setMappingPublicModel(model.model);
+    setMappingProviderId('');
+    setMappingProviderName(defaultProviderName(model.model));
+    setMappingProviderKind('generic');
+    setMappingProviderBaseUrl('');
+    setMappingProviderApiKey('');
     setMappingUpstreamModel(model.model);
     setMappingModelMultiplier(DEFAULT_MODEL_MULTIPLIER);
     document.getElementById('merchant-model-routes')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  async function handleToggleModelStatus(model: AdminModelPrice) {
+    const nextStatus: ModelStatus = model.status === 'active' ? 'disabled' : 'active';
+    const actionText = nextStatus === 'disabled' ? '下架' : '上架';
+
+    if (
+      nextStatus === 'disabled' &&
+      !window.confirm(`确定下架模型 ${model.model} 吗？下架后用户端将不能继续选择和调用这个模型，历史日志和线路配置会保留。`)
+    ) {
+      return;
+    }
+
+    setError('');
+    setMessage('');
+    setModelActionId(model.id);
+    try {
+      const saved = await updateModelPriceStatus(model.id, { status: nextStatus });
+      if (editingModelId === model.id) {
+        resetModelForm();
+      }
+      await loadData();
+      router.replace(`/merchant/model-config?updated=status&model=${encodeURIComponent(saved.model)}`);
+      router.refresh();
+      setMessage(`模型 ${saved.model} 已${actionText}，列表已刷新。`);
+      window.setTimeout(() => {
+        document.getElementById('merchant-model-list')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 0);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : `模型${actionText}失败`);
+    } finally {
+      setModelActionId(null);
+    }
+  }
+
+  async function handleDeleteModel(model: AdminModelPrice) {
+    const mappingCount = model.upstreamMappings.length;
+    const confirmed = window.confirm(
+      `确定删除模型 ${model.model} 吗？这会删除这个客户模型和 ${mappingCount} 条绑定线路；不会删除上游账号、用户余额、历史请求日志和消费记录。如果模型仍被 API 令牌授权规则使用，系统会拒绝硬删，请先下架。`
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setError('');
+    setMessage('');
+    setModelActionId(model.id);
+    try {
+      const deleted = await deleteModelPrice(model.id);
+      if (editingModelId === model.id) {
+        resetModelForm();
+      }
+      await loadData();
+      router.replace(`/merchant/model-config?deleted=1&model=${encodeURIComponent(deleted.model)}`);
+      router.refresh();
+      setMessage(`模型 ${deleted.model} 已删除，列表已刷新。`);
+      window.setTimeout(() => {
+        document.getElementById('merchant-model-list')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 0);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : '模型删除失败');
+    } finally {
+      setModelActionId(null);
+    }
   }
 
   function beginEditMapping(mapping: UpstreamModelMapping) {
@@ -334,13 +513,17 @@ export function MerchantModelConfigView({
     setEditingMappingId(mapping.id);
     setSelectedMappingId(mapping.id);
     setMappingProviderId(mapping.providerId);
+    setMappingProviderName(mapping.providerName);
+    setMappingProviderKind(mapping.providerKind);
+    setMappingProviderBaseUrl(upstreams.find((upstream) => upstream.id === mapping.providerId)?.baseUrl ?? '');
+    setMappingProviderApiKey('');
     setMappingPublicModel(mapping.publicModel);
     setMappingUpstreamModel(mapping.upstreamModel);
     setMappingTimeoutMs(String(mapping.timeoutMs));
     setMappingPrompt(mapping.upstreamPrompt ?? '');
-    setMappingModelMultiplier(mapping.routePricing?.modelMultiplier ?? DEFAULT_MODEL_MULTIPLIER);
-    setMappingInputTokensPer1k(String(mapping.routePricing?.inputPriceCentsPer1k ?? 1000));
-    setMappingOutputTokensPer1k(String(mapping.routePricing?.outputPriceCentsPer1k ?? 1000));
+    setMappingModelMultiplier(DEFAULT_MODEL_MULTIPLIER);
+    setMappingInputTokensPer1k(formatDirectPriceInput(mapping.routePricing?.inputPriceCentsPer1k));
+    setMappingOutputTokensPer1k(formatDirectPriceInput(mapping.routePricing?.outputPriceCentsPer1k));
     setMappingUpstreamInputPricePerMillion(mapping.routePricing?.upstreamInputPricePerMillion ?? '');
     setMappingUpstreamOutputPricePerMillion(mapping.routePricing?.upstreamOutputPricePerMillion ?? '');
     setMappingUpstreamCurrency(mapping.routePricing?.upstreamCurrency ?? 'CNY');
@@ -363,13 +546,17 @@ export function MerchantModelConfigView({
     setEditingMappingId(null);
     setSelectedMappingId(null);
     setMappingPublicModel(models[0]?.model ?? '');
-    setMappingProviderId(upstreams[0]?.id ?? '');
+    setMappingProviderId('');
+    setMappingProviderName(defaultProviderName(models[0]?.model));
+    setMappingProviderKind('generic');
+    setMappingProviderBaseUrl('');
+    setMappingProviderApiKey('');
     setMappingUpstreamModel('');
     setMappingTimeoutMs('5000');
     setMappingPrompt('');
     setMappingModelMultiplier(DEFAULT_MODEL_MULTIPLIER);
-    setMappingInputTokensPer1k('1000');
-    setMappingOutputTokensPer1k('1000');
+    setMappingInputTokensPer1k(defaultDirectPriceInput());
+    setMappingOutputTokensPer1k(defaultDirectPriceInput());
     setMappingUpstreamInputPricePerMillion('');
     setMappingUpstreamOutputPricePerMillion('');
     setMappingUpstreamCurrency('CNY');
@@ -382,6 +569,44 @@ export function MerchantModelConfigView({
   async function handleLogout() {
     await logout().catch(() => undefined);
     router.replace('/login');
+  }
+
+  function handleMappingProviderChange(providerId: string) {
+    setMappingProviderId(providerId);
+    const provider = upstreams.find((upstream) => upstream.id === providerId);
+    if (!provider) {
+      setMappingProviderName(defaultProviderName(mappingPublicModel));
+      setMappingProviderKind('generic');
+      setMappingProviderBaseUrl('');
+      setMappingProviderApiKey('');
+      setMappingInputTokensPer1k(defaultDirectPriceInput());
+      setMappingOutputTokensPer1k(defaultDirectPriceInput());
+      setMappingModelMultiplier(DEFAULT_MODEL_MULTIPLIER);
+      return;
+    }
+
+    setMappingProviderName(provider.name);
+    setMappingProviderKind(provider.kind);
+    setMappingProviderBaseUrl(provider.baseUrl);
+    setMappingProviderApiKey('');
+    if (editingMappingId) {
+      return;
+    }
+
+    setMappingInputTokensPer1k(defaultDirectPriceInput(provider));
+    setMappingOutputTokensPer1k(defaultDirectPriceInput(provider));
+    setMappingModelMultiplier(DEFAULT_MODEL_MULTIPLIER);
+  }
+
+  function handleMappingProviderKindChange(kind: UpstreamProvider['kind']) {
+    setMappingProviderKind(kind);
+    if (kind === 'relay') {
+      return;
+    }
+
+    const nextDirectPrice = defaultDirectPriceInput({ kind } as UpstreamProvider);
+    setMappingInputTokensPer1k(nextDirectPrice);
+    setMappingOutputTokensPer1k(nextDirectPrice);
   }
 
   return (
@@ -400,11 +625,11 @@ export function MerchantModelConfigView({
         <div className="admin-heading merchant-dashboard-heading">
           <div>
             <p className="eyebrow">商家工作台</p>
-            <h1>{isRoutesPage ? '模型映射（上游线路）' : '模型发布'}</h1>
+            <h1>{isRoutesPage ? '模型线路管理' : '模型管理'}</h1>
             <small>
               {isRoutesPage
-                ? '第三步：把已经发布的客户模型绑定到 DeepSeek 或中转站上游，并在这条线路上设置扣费。'
-                : '先准备用户看到的模型名；上游、真实模型和扣费规则都在后面单独配置。'}
+                ? '给客户模型配置上游 URL、真实模型名、超时、提示词和扣费价格。'
+                : '先发布用户看到的模型名；发布成功后会自动进入线路绑定，不再停留在空表单。'}
             </small>
           </div>
           <button className="icon-button" disabled={isLoading} onClick={() => void loadData()} title="刷新模型配置" type="button">
@@ -417,8 +642,8 @@ export function MerchantModelConfigView({
 
         <section className="admin-metrics">
           <MetricPanel label="客户模型" value={formatNumber(stats.models)} detail={`启用 ${formatNumber(stats.activeModels)}`} />
-          <MetricPanel label="可选上游" value={formatNumber(stats.upstreams)} detail="先去上游页接入" />
-          <MetricPanel label="启用线路" value={formatNumber(stats.activeMappings)} detail="用户请求会走这些线路" />
+          <MetricPanel label="可选上游" value={formatNumber(stats.upstreams)} detail="绑定线路时选择" />
+          <MetricPanel label="启用线路" value={formatNumber(stats.activeMappings)} detail="当前真正生效的模型线路" />
         </section>
 
         {!isRoutesPage ? (
@@ -427,10 +652,10 @@ export function MerchantModelConfigView({
           <span className="anchor-compat" id="merchant-model-prices" aria-hidden="true" />
           <div className="panel-title">
             <ApiOutlined />
-            <h2>第一步：发布客户模型</h2>
+            <h2>发布客户模型</h2>
           </div>
           <p className="form-note">
-            这里只准备用户看到的模型，例如“gpt5.5 低消耗”或“gpt5.5 中消耗”。上游地址在上游页面维护，真实模型、超时、提示词和扣费规则在“模型映射”里配置。
+            这里填写用户实际调用时看到的模型名，例如“gpt5.5”或“claude opus4.8”。发布成功后会自动进入线路管理，继续填写上游 URL 和真实模型。
           </p>
           {editingModel ? (
             <p className="form-note">
@@ -466,7 +691,7 @@ export function MerchantModelConfigView({
             <div className="form-actions full-width-field">
               <button className="primary-button" disabled={isModelSaving || !activeGroupIds.length} type="submit">
                 <SaveOutlined />
-                {isModelSaving ? '保存中' : editingModelId ? '保存模型修改' : '保存客户模型'}
+                {isModelSaving ? '保存中' : editingModelId ? '保存模型修改' : '发布模型'}
               </button>
               {editingModelId ? (
                 <button className="ghost-button" disabled={isModelSaving} onClick={resetModelForm} type="button">
@@ -478,10 +703,10 @@ export function MerchantModelConfigView({
           </form>
         </section>
 
-        <section className="admin-panel">
+        <section className="admin-panel" id="merchant-model-list">
           <div className="panel-title">
             <EyeOutlined />
-            <h2>已发布客户模型</h2>
+            <h2>模型管理</h2>
           </div>
           <div className="admin-table-wrap">
             <table className="admin-table model-table">
@@ -494,28 +719,41 @@ export function MerchantModelConfigView({
                 </tr>
               </thead>
               <tbody>
-                {models.map((model) => (
-                  <tr key={model.id}>
-                    <td>
-                      <strong>{model.model}</strong>
-                      <small className="table-note">{model.displayName || '-'}</small>
-                    </td>
-                    <td>{formatNumber(model.upstreamMappings.length)}</td>
-                    <td>{formatStatus(model.status)}</td>
-                    <td>
-                      <div className="table-actions">
-                        <button className="ghost-button compact-button" onClick={() => beginEditModel(model)} type="button">
-                          <EditOutlined />
-                          修改
-                        </button>
-                        <button className="ghost-button compact-button" onClick={() => beginCreateMapping(model)} type="button">
-                          <LinkOutlined />
-                          去绑定上游
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                {models.map((model) => {
+                  const isActionBusy = modelActionId === model.id;
+                  const isActive = model.status === 'active';
+
+                  return (
+                    <tr key={model.id}>
+                      <td>
+                        <strong>{model.model}</strong>
+                        <small className="table-note">{model.displayName || '-'}</small>
+                      </td>
+                      <td>{formatNumber(model.upstreamMappings.length)}</td>
+                      <td>{formatStatus(model.status)}</td>
+                      <td>
+                        <div className="table-actions">
+                          <button className="ghost-button compact-button" disabled={isActionBusy} onClick={() => beginEditModel(model)} type="button">
+                            <EditOutlined />
+                            修改
+                          </button>
+                          <button className="ghost-button compact-button" disabled={isActionBusy} onClick={() => beginCreateMapping(model)} type="button">
+                            <LinkOutlined />
+                            去绑定上游
+                          </button>
+                          <button className="ghost-button compact-button" disabled={isActionBusy} onClick={() => void handleToggleModelStatus(model)} type="button">
+                            <StopOutlined />
+                            {isActive ? '下架' : '上架'}
+                          </button>
+                          <button className="ghost-button compact-button danger-button" disabled={isActionBusy} onClick={() => void handleDeleteModel(model)} type="button">
+                            <DeleteOutlined />
+                            删除
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
                 {!models.length && !isLoading ? (
                   <tr>
                     <td colSpan={4}>暂无客户模型</td>
@@ -534,10 +772,10 @@ export function MerchantModelConfigView({
           <span className="anchor-compat" id="merchant-upstream-models" aria-hidden="true" />
           <div className="panel-title">
             <LinkOutlined />
-            <h2>第三步：模型映射（上游线路）</h2>
+            <h2>模型线路</h2>
           </div>
           <p className="form-note">
-            一个客户模型只能启用一条上游。需要低消耗和中消耗两档时，请发布两个不同客户模型，例如“gpt5.5 低消耗”绑定 DeepSeek，“gpt5.5 中消耗”绑定中转站上游。
+            一个客户模型只启用一条线路。这里填写上游 URL、密钥、真实上游模型名和输入/输出价格；保存后会刷新下方线路列表。
           </p>
           <form className="auth-form mapping-form" onSubmit={handleSaveMapping}>
             <label>
@@ -552,15 +790,35 @@ export function MerchantModelConfigView({
               </select>
             </label>
             <label>
-              选择上游
-              <select onChange={(event) => setMappingProviderId(event.target.value)} required value={mappingProviderId}>
-                <option value="">选择上游</option>
+              已保存上游（可选）
+              <select onChange={(event) => handleMappingProviderChange(event.target.value)} value={mappingProviderId}>
+                <option value="">新建或手动填写</option>
                 {upstreams.map((upstream) => (
                   <option key={upstream.id} value={upstream.id}>
                     {upstream.name}（{formatKind(upstream)}）
                   </option>
                 ))}
               </select>
+            </label>
+            <label>
+              上游类型
+              <select onChange={(event) => handleMappingProviderKindChange(event.target.value as UpstreamProvider['kind'])} value={mappingProviderKind}>
+                <option value="generic">OpenAI 兼容</option>
+                <option value="deepseek">DeepSeek</option>
+                <option value="relay">中转站</option>
+              </select>
+            </label>
+            <label>
+              上游名称
+              <input maxLength={80} minLength={2} onChange={(event) => setMappingProviderName(event.target.value)} required value={mappingProviderName} />
+            </label>
+            <label>
+              上游 Base URL
+              <input maxLength={2048} minLength={8} onChange={(event) => setMappingProviderBaseUrl(event.target.value)} placeholder="例如：https://api.example.com" required type="url" value={mappingProviderBaseUrl} />
+            </label>
+            <label>
+              上游密钥
+              <input maxLength={512} minLength={mappingProviderId ? undefined : 8} onChange={(event) => setMappingProviderApiKey(event.target.value)} placeholder={mappingProviderId ? '不填则沿用已保存密钥' : '新上游必填'} required={!mappingProviderId} type="password" value={mappingProviderApiKey} />
             </label>
             <label>
               真实上游模型名
@@ -570,21 +828,19 @@ export function MerchantModelConfigView({
               超时时间（毫秒）
               <input max={30000} min={1000} onChange={(event) => setMappingTimeoutMs(event.target.value)} required step={500} type="number" value={mappingTimeoutMs} />
             </label>
-            {selectedMappingProvider?.kind === 'deepseek' ? (
-              <label>
-                价格倍率
-                <input
-                  min="0"
-                  onChange={(event) => setMappingModelMultiplier(event.target.value)}
-                  placeholder="例如：gpt5.5 按 5 倍价格卖就填 5"
-                  required
-                  step="0.0001"
-                  type="number"
-                  value={mappingModelMultiplier}
-                />
-              </label>
+            {effectiveMappingProviderKind === 'deepseek' ? (
+              <>
+                <label>
+                  输入价格（美元 / 1M tokens）
+                  <input min={0} onChange={(event) => setMappingInputTokensPer1k(event.target.value)} required step="0.001" type="number" value={mappingInputTokensPer1k} />
+                </label>
+                <label>
+                  输出价格（美元 / 1M tokens）
+                  <input min={0} onChange={(event) => setMappingOutputTokensPer1k(event.target.value)} required step="0.001" type="number" value={mappingOutputTokensPer1k} />
+                </label>
+              </>
             ) : null}
-            {selectedMappingProvider?.kind === 'relay' ? (
+            {effectiveMappingProviderKind === 'relay' ? (
               <>
                 <label>
                   上游输入价格 / 100万 token
@@ -642,15 +898,15 @@ export function MerchantModelConfigView({
                 ) : null}
               </>
             ) : null}
-            {selectedMappingProvider && selectedMappingProvider.kind === 'generic' ? (
+            {effectiveMappingProviderKind === 'generic' ? (
               <>
                 <label>
-                  输入扣费 / 1K token
-                  <input min={0} onChange={(event) => setMappingInputTokensPer1k(event.target.value)} required type="number" value={mappingInputTokensPer1k} />
+                  输入价格（美元 / 1M tokens）
+                  <input min={0} onChange={(event) => setMappingInputTokensPer1k(event.target.value)} required step="0.001" type="number" value={mappingInputTokensPer1k} />
                 </label>
                 <label>
-                  输出扣费 / 1K token
-                  <input min={0} onChange={(event) => setMappingOutputTokensPer1k(event.target.value)} required type="number" value={mappingOutputTokensPer1k} />
+                  输出价格（美元 / 1M tokens）
+                  <input min={0} onChange={(event) => setMappingOutputTokensPer1k(event.target.value)} required step="0.001" type="number" value={mappingOutputTokensPer1k} />
                 </label>
               </>
             ) : null}
@@ -684,7 +940,7 @@ export function MerchantModelConfigView({
               支持流式输出
             </label>
             <div className="form-actions full-width-field">
-              <button className="primary-button" disabled={isMappingSaving || !models.length || !upstreams.length} type="submit">
+              <button className="primary-button" disabled={isMappingSaving || !models.length} type="submit">
                 <SaveOutlined />
                 {isMappingSaving ? '保存中' : editingMappingId ? '保存线路修改' : '保存线路'}
               </button>
@@ -697,7 +953,7 @@ export function MerchantModelConfigView({
             </div>
           </form>
 
-          <div className="admin-table-wrap">
+          <div className="admin-table-wrap" id="merchant-model-routes-list">
             <table className="admin-table model-table">
               <thead>
                 <tr>
@@ -816,6 +1072,16 @@ function keepValidIds(current: string[], groups: AdminGroup[], fallback: string[
   return nextIds.length ? nextIds : fallback;
 }
 
+function defaultProviderName(model?: string) {
+  const normalizedModel = model?.trim();
+  return normalizedModel ? `${DEFAULT_UPSTREAM_NAME_PREFIX}-${normalizedModel}` : DEFAULT_UPSTREAM_NAME_PREFIX;
+}
+
+function upsertProvider(providers: UpstreamProvider[], provider: UpstreamProvider) {
+  const nextProviders = providers.filter((entry) => entry.id !== provider.id);
+  return [provider, ...nextProviders];
+}
+
 function parseWholeNumber(value: string, label: string) {
   const nextValue = Number(value);
   if (!Number.isInteger(nextValue) || nextValue < 0) {
@@ -830,7 +1096,41 @@ function formatNumber(value: number) {
 }
 
 function formatChargePer1k(value: number | null | undefined) {
-  return typeof value === 'number' ? `${formatBillingUsd(value)} / 1K token` : '-';
+  return formatUsdPerMillionFromUnits(value);
+}
+
+function defaultDirectPriceInput(provider?: UpstreamProvider) {
+  return formatUsdPerMillionInputFromUnits(provider?.kind === 'deepseek' ? DEEPSEEK_USD_UNITS_PER_1K_AT_ONE_X : 1000);
+}
+
+function formatDirectPriceInput(value: number | null | undefined) {
+  if (typeof value !== 'number') {
+    return formatUsdPerMillionInputFromUnits(1000);
+  }
+
+  return formatUsdPerMillionInputFromUnits(value);
+}
+
+function effectiveRoutePrice(value: number | null | undefined) {
+  if (typeof value !== 'number') {
+    return null;
+  }
+
+  return Math.ceil(value);
+}
+
+function parseUsdPriceInput(value: string, label: string) {
+  const parsed = parseUsdPerMillionToUnits(value, label);
+  if (parsed instanceof Error) {
+    throw parsed;
+  }
+
+  return parsed;
+}
+
+function parseUsdPreviewUnits(value: string) {
+  const parsed = parseUsdPerMillionToUnits(value, '价格');
+  return parsed instanceof Error ? null : parsed;
 }
 
 function buildMappingPricingPreview(input: MappingPricingPreviewInput): MappingPricingPreview | null {
@@ -839,21 +1139,21 @@ function buildMappingPricingPreview(input: MappingPricingPreviewInput): MappingP
   }
 
   if (input.kind === 'deepseek') {
-    const multiplier = parsePreviewNumber(input.modelMultiplier);
-    if (multiplier === null) {
+    const inputUnits = parseUsdPreviewUnits(input.inputTokensPer1k);
+    const outputUnits = parseUsdPreviewUnits(input.outputTokensPer1k);
+    if (inputUnits === null || outputUnits === null) {
       return {
         title: 'DeepSeek 线路扣费预览',
-        lines: ['填写价格倍率后会显示扣费预览。普通 DeepSeek 填 1，gpt5.5 如果按 5 倍价格卖就填 5。']
+        lines: ['填完输入价格和输出价格后会显示预览；倍率固定为 1，不再参与价格计算。']
       };
     }
 
-    const chargePer1k = Math.ceil(multiplier * DEEPSEEK_USD_UNITS_PER_1K_AT_ONE_X);
     return {
       title: 'DeepSeek 线路扣费预览',
       lines: [
-        `价格倍率：${formatPreviewNumber(multiplier)} 倍。`,
-        `客户每产生 1,000 个真实 token，页面仍显示 1,000 token。`,
-        `扣费按 ${formatChargePer1k(chargePer1k)} 计算。`
+        `输入价格：${formatChargePer1k(inputUnits)}。`,
+        `输出价格：${formatChargePer1k(outputUnits)}。`,
+        `token 仍显示上游返回的真实输入和输出；实际扣余额时会按汇率折算成人民币。`
       ]
     };
   }
@@ -883,27 +1183,27 @@ function buildMappingPricingPreview(input: MappingPricingPreviewInput): MappingP
     return {
       title: '中转站线路扣费预览',
       lines: [
-        `输入扣费：${formatChargePer1k(inputChargePer1k)}。`,
-        `输出扣费：${formatChargePer1k(outputChargePer1k)}。`,
-        `token 仍显示真实用量；费用按上游价格 × 加价 ${formatPreviewNumber(marginPercent)}% 计算，人民币价格会按汇率换算成美元。`
+        `输入价格：${formatChargePer1k(inputChargePer1k)}。`,
+        `输出价格：${formatChargePer1k(outputChargePer1k)}。`,
+        `token 仍显示真实用量；报价按上游价格 × 加价 ${formatPreviewNumber(marginPercent)}% 换算成美元，实际扣余额时再折算人民币。`
       ]
     };
   }
 
-  const inputTokens = parsePreviewNumber(input.inputTokensPer1k);
-  const outputTokens = parsePreviewNumber(input.outputTokensPer1k);
-  if (inputTokens === null || outputTokens === null) {
+  const inputUnits = parseUsdPreviewUnits(input.inputTokensPer1k);
+  const outputUnits = parseUsdPreviewUnits(input.outputTokensPer1k);
+  if (inputUnits === null || outputUnits === null) {
     return {
       title: '手动线路扣费预览',
-      lines: ['填完输入扣费和输出扣费后会显示美元扣费预览；token 仍显示真实用量。']
+      lines: ['填完输入价格和输出价格后会显示美元报价预览；token 仍显示真实用量。']
     };
   }
 
   return {
     title: '手动线路扣费预览',
     lines: [
-      `输入扣费：${formatChargePer1k(Math.ceil(inputTokens))}。`,
-      `输出扣费：${formatChargePer1k(Math.ceil(outputTokens))}。`
+      `输入价格：${formatChargePer1k(inputUnits)}。`,
+      `输出价格：${formatChargePer1k(outputUnits)}。`
     ]
   };
 }
@@ -916,7 +1216,7 @@ function formatRoutePricing(mapping: UpstreamModelMapping) {
   }
 
   if (pricing.pricingMode === 'deepseek_base') {
-    return `DeepSeek 价格 ${trimNumber(pricing.modelMultiplier ?? '1')} 倍`;
+    return `DeepSeek：输入 ${formatChargePer1k(effectiveRoutePrice(pricing.inputPriceCentsPer1k))} / 输出 ${formatChargePer1k(effectiveRoutePrice(pricing.outputPriceCentsPer1k))}`;
   }
 
   if (pricing.pricingMode === 'relay_price') {
@@ -946,15 +1246,6 @@ function formatStatus(status: string) {
   }
 
   return status;
-}
-
-function trimNumber(value: string) {
-  const numberValue = Number(value);
-  if (!Number.isFinite(numberValue)) {
-    return value;
-  }
-
-  return numberValue.toString();
 }
 
 function parsePreviewNumber(value: string) {

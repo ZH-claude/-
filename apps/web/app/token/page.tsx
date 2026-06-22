@@ -583,7 +583,7 @@ export default function TokenPage() {
               </label>
               <div className="form-row">
                 <label>
-                  额度（美元，可空）
+                  额度（人民币，可空）
                   <input
                     min={0}
                     onChange={(event) => setForm((current) => ({ ...current, quotaBaseTokens: event.target.value }))}

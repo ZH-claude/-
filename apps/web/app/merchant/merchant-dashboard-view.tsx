@@ -1,20 +1,17 @@
 'use client';
 
 import {
-  AlertOutlined,
   ApiOutlined,
-  CloudServerOutlined,
   DatabaseOutlined,
-  DollarOutlined,
   GiftOutlined,
   ReloadOutlined,
   TeamOutlined
 } from '@ant-design/icons';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { MerchantShell } from '../components/merchant-shell';
-import { getDashboardSummary, type DashboardSummary } from '../lib/admin-api';
+import { getDashboardSummary, type DashboardSummary, type DashboardUserStats } from '../lib/admin-api';
 import { logout } from '../lib/auth-api';
 import { formatBillingUsd } from '../lib/billing-format';
 
@@ -27,26 +24,6 @@ export function MerchantDashboardView({ username, role }: { username: string; ro
   useEffect(() => {
     void loadSummary();
   }, []);
-
-  const healthLabel = useMemo(() => {
-    if (!summary) {
-      return '-';
-    }
-
-    if (!summary.upstreams.total) {
-      return '未配置';
-    }
-
-    if (summary.upstreams.health.unhealthy > 0) {
-      return '异常';
-    }
-
-    if (summary.upstreams.health.unknown > 0) {
-      return '待检查';
-    }
-
-    return '正常';
-  }, [summary]);
 
   async function loadSummary() {
     setIsLoading(true);
@@ -79,9 +56,9 @@ export function MerchantDashboardView({ username, role }: { username: string; ro
         <div className="admin-heading merchant-dashboard-heading">
           <div>
             <p className="eyebrow">商家工作台</p>
-            <h1>运营概览</h1>
+            <h1>运营数据</h1>
             <small>
-              数据来自真实数据库，统计窗口从 {summary ? formatDateTime(summary.window.todayStart) : '-'} 开始
+              数据来自真实数据库，刷新时间 {summary ? formatDateTime(summary.generatedAt) : '-'}
             </small>
           </div>
           <button className="icon-button" disabled={isLoading} onClick={() => void loadSummary()} title="刷新商家端概览" type="button">
@@ -92,69 +69,24 @@ export function MerchantDashboardView({ username, role }: { username: string; ro
         {error ? <p className="form-error">{error}</p> : null}
 
         <section className="admin-metrics">
-          <MetricPanel label="客户余额" value={formatBillingUsd(summary?.wallets.totalBalanceCents)} detail="全部客户未用完的额度" tone="green" />
-          <MetricPanel label="今日扣费" value={formatBillingUsd(summary?.today.spendCents)} detail={`${summary?.today.callCount ?? 0} 次客户调用`} tone="red" />
-          <MetricPanel label="活跃用户" value={formatNumber(summary?.users.active)} detail={`总用户 ${summary?.users.total ?? 0}`} />
-          <MetricPanel label="上游状态" value={healthLabel} detail={`${summary?.upstreams.active ?? 0} 个启用上游`} />
-        </section>
-
-        <section className="admin-panel merchant-action-panel">
-          <div className="panel-title">
-            <ApiOutlined />
-            <h2>商家操作入口</h2>
-          </div>
-          <div className="merchant-action-list">
-            <Link className="merchant-action-link" href="/merchant/model-config">
-              <ApiOutlined />
-              <span>
-                <strong>第一步：发布客户模型</strong>
-                <small>只准备用户看到的模型名，例如 gpt5.5，不在这里设置上游和扣费。</small>
-              </span>
-            </Link>
-            <Link className="merchant-action-link" href="/merchant/upstreams/deepseek">
-              <CloudServerOutlined />
-              <span>
-                <strong>第二步 A：接入 DeepSeek 上游</strong>
-                <small>只保存 DeepSeek 地址、密钥和健康检查，不发布客户模型。</small>
-              </span>
-            </Link>
-            <Link className="merchant-action-link" href="/merchant/upstreams/relay">
-              <CloudServerOutlined />
-              <span>
-                <strong>第二步 B：接入中转站上游</strong>
-                <small>只保存其它中转站地址、密钥和健康检查，不发布客户模型。</small>
-              </span>
-            </Link>
-            <Link className="merchant-action-link" href="/merchant/model-routes">
-              <DatabaseOutlined />
-              <span>
-                <strong>第三步：模型映射</strong>
-                <small>把已发布模型绑定到 DeepSeek 或中转站上游，并在这里设置美元扣费。</small>
-              </span>
-            </Link>
-            <Link className="merchant-action-link" href="/merchant/users">
-              <TeamOutlined />
-              <span>
-                <strong>管理用户</strong>
-                <small>查看客户、余额和状态。</small>
-              </span>
-            </Link>
-          </div>
+          <MetricPanel label="用户数" value={formatNumber(summary?.users.ordinary)} detail="普通用户账号" />
+          <MetricPanel label="兑换充值" value={formatBillingUsd(summary?.totals.rechargeCents)} detail={`${summary?.totals.rechargeCount ?? 0} 次兑换码充值`} tone="green" />
+          <MetricPanel label="实际消费" value={formatBillingUsd(summary?.totals.spendCents)} detail={`${summary?.totals.requestCount ?? 0} 条用量记录`} tone="red" />
+          <MetricPanel label="Token 消耗" value={formatNumber(summary?.totals.totalTokens)} detail="输入 + 输出 token" />
         </section>
 
         <section className="admin-grid">
           <section className="admin-panel">
             <div className="panel-title">
               <TeamOutlined />
-              <h2>用户与资金</h2>
+              <h2>用户统计</h2>
             </div>
             <DashboardRows
               rows={[
                 ['普通用户', formatNumber(summary?.users.ordinary)],
-                ['后台账号', formatNumber(summary?.users.admins)],
                 ['今日新增', formatNumber(summary?.users.newToday)],
                 ['禁用/风控', `${summary?.users.disabled ?? 0} / ${summary?.users.riskLocked ?? 0}`],
-                ['累计扣费', formatBillingUsd(summary?.wallets.totalSpendCents)]
+                ['后台账号', formatNumber(summary?.users.admins)]
               ]}
             />
           </section>
@@ -162,31 +94,14 @@ export function MerchantDashboardView({ username, role }: { username: string; ro
           <section className="admin-panel">
             <div className="panel-title">
               <DatabaseOutlined />
-              <h2>今日调用</h2>
+              <h2>Token 与扣费</h2>
             </div>
             <DashboardRows
               rows={[
-                ['调用次数', formatNumber(summary?.today.callCount)],
-                ['Token 总量', formatNumber(summary?.today.totalTokens)],
-                ['成功扣费', formatNumber(summary?.today.statusCounts.billable)],
-                ['失败记录', formatNumber(summary?.today.statusCounts.failed)],
-                ['计量未知', formatNumber(summary?.today.statusCounts.metering_unknown)]
-              ]}
-            />
-          </section>
-
-          <section className="admin-panel">
-            <div className="panel-title">
-              <CloudServerOutlined />
-              <h2>上游健康</h2>
-            </div>
-            <DashboardRows
-              rows={[
-                ['上游总数', formatNumber(summary?.upstreams.total)],
-                ['启用/禁用', `${summary?.upstreams.active ?? 0} / ${summary?.upstreams.disabled ?? 0}`],
-                ['健康', formatNumber(summary?.upstreams.health.healthy)],
-                ['异常', formatNumber(summary?.upstreams.health.unhealthy)],
-                ['未知', formatNumber(summary?.upstreams.health.unknown)]
+                ['输入 token', formatNumber(summary?.totals.promptTokens)],
+                ['输出 token', formatNumber(summary?.totals.completionTokens)],
+                ['Token 总量', formatNumber(summary?.totals.totalTokens)],
+                ['消费金额', formatBillingUsd(summary?.totals.spendCents)]
               ]}
             />
           </section>
@@ -194,58 +109,78 @@ export function MerchantDashboardView({ username, role }: { username: string; ro
           <section className="admin-panel">
             <div className="panel-title">
               <ApiOutlined />
-              <h2>模型容量</h2>
+              <h2>模型管理</h2>
             </div>
             <DashboardRows
               rows={[
                 ['公开模型', formatNumber(summary?.models.total)],
                 ['启用模型', formatNumber(summary?.models.active)],
                 ['停用模型', formatNumber(summary?.models.disabled)],
-                ['上游映射', formatNumber(summary?.models.upstreamMappings.total)],
-                ['启用映射', formatNumber(summary?.models.upstreamMappings.active)]
+                ['启用线路', formatNumber(summary?.models.upstreamMappings.active)]
               ]}
             />
+            <div className="panel-actions">
+              <Link className="ghost-button compact-button" href="/merchant/model-config">
+                管理模型
+              </Link>
+            </div>
           </section>
 
           <section className="admin-panel">
             <div className="panel-title">
               <GiftOutlined />
-              <h2>充值码</h2>
+              <h2>兑换码</h2>
             </div>
             <DashboardRows
               rows={[
-                ['总数', formatNumber(summary?.rechargeCodes.total)],
+                ['兑换码总数', formatNumber(summary?.rechargeCodes.total)],
                 ['未使用', formatNumber(summary?.rechargeCodes.unused)],
                 ['已使用', formatNumber(summary?.rechargeCodes.used)],
-                ['已禁用', formatNumber(summary?.rechargeCodes.disabled)]
+                ['兑换充值', formatBillingUsd(summary?.totals.rechargeCents)]
               ]}
             />
-          </section>
-
-          <section className="admin-panel">
-            <div className="panel-title">
-              <AlertOutlined />
-              <h2>最近告警</h2>
+            <div className="panel-actions">
+              <Link className="ghost-button compact-button" href="/merchant/recharge-codes">
+                管理充值码
+              </Link>
             </div>
-            {summary?.recentAlerts.length ? (
-              <div className="merchant-alert-list">
-                {summary.recentAlerts.map((alert) => (
-                  <article className="merchant-alert-item" key={alert.id}>
-                    <div>
-                      <span className={alert.severity === 'high' ? 'status-pill status-pill-danger' : 'status-pill status-pill-warning'}>
-                        {alert.type === 'upstream_unhealthy' ? '上游' : '请求'}
-                      </span>
-                      <strong>{alert.title}</strong>
-                    </div>
-                    <p>{alert.detail}</p>
-                    <small>{formatDateTime(alert.createdAt)}</small>
-                  </article>
-                ))}
-              </div>
-            ) : (
-              <p className="empty-state">最近 24 小时暂无真实告警</p>
-            )}
           </section>
+        </section>
+
+        <section className="admin-panel">
+          <div className="panel-title panel-title-with-action">
+            <span>
+              <TeamOutlined />
+              <h2>用户消费排行</h2>
+            </span>
+            <Link className="ghost-button compact-button" href="/merchant/users">
+              查看全部用户
+            </Link>
+          </div>
+          <div className="admin-table-wrap">
+            <table className="admin-table merchant-dashboard-user-table">
+              <thead>
+                <tr>
+                  <th>用户</th>
+                  <th>兑换充值</th>
+                  <th>消费金额</th>
+                  <th>Token 消耗</th>
+                  <th>请求数 / 最近调用</th>
+                  <th>当前余额</th>
+                </tr>
+              </thead>
+              <tbody>
+                {summary?.topUsers.map((user) => (
+                  <UserStatsRow key={user.id} user={user} />
+                ))}
+                {summary && !summary.topUsers.length ? (
+                  <tr>
+                    <td colSpan={6}>暂无真实用户用量记录</td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
         </section>
       </section>
     </MerchantShell>
@@ -275,6 +210,33 @@ function DashboardRows({ rows }: { rows: Array<[string, string]> }) {
   );
 }
 
+function UserStatsRow({ user }: { user: DashboardUserStats }) {
+  return (
+    <tr>
+      <td>
+        <strong>{user.username}</strong>
+        <small className="table-note">{user.status}</small>
+      </td>
+      <td>
+        {formatBillingUsd(user.recharge.totalCents)}
+        <small className="table-note">{formatNumber(user.recharge.count)} 次兑换</small>
+      </td>
+      <td>{formatBillingUsd(user.usage.spendCents)}</td>
+      <td>
+        {formatNumber(user.usage.totalTokens)}
+        <small className="table-note">
+          输入 {formatNumber(user.usage.promptTokens)} / 输出 {formatNumber(user.usage.completionTokens)}
+        </small>
+      </td>
+      <td>
+        {formatNumber(user.usage.requestCount)}
+        <small className="table-note">{formatOptionalDate(user.usage.lastUsedAt)}</small>
+      </td>
+      <td>{formatBillingUsd(user.wallet.balanceCents)}</td>
+    </tr>
+  );
+}
+
 function formatNumber(value: number | null | undefined) {
   if (value === null || value === undefined) {
     return '-';
@@ -287,7 +249,18 @@ function formatDateTime(value: string) {
   return new Intl.DateTimeFormat('zh-CN', {
     dateStyle: 'short',
     timeStyle: 'medium',
-    hour12: false,
-    timeZone: 'UTC'
+    hour12: false
+  }).format(new Date(value));
+}
+
+function formatOptionalDate(value: string | null) {
+  if (!value) {
+    return '-';
+  }
+
+  return new Intl.DateTimeFormat('zh-CN', {
+    dateStyle: 'short',
+    timeStyle: 'medium',
+    hour12: false
   }).format(new Date(value));
 }

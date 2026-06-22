@@ -12,6 +12,47 @@ export type AdminUser = {
   wallet: {
     balanceCents: number;
     totalSpendCents?: number;
+    totalRechargeCents?: number;
+  };
+  usage?: {
+    spendCents: number;
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+    requestCount: number;
+    lastUsedAt: string | null;
+  };
+  recharge?: {
+    totalCents: number;
+    count: number;
+    lastRechargedAt: string | null;
+  };
+  lastLoginAt: string | null;
+  createdAt: string;
+};
+
+export type DashboardUserStats = {
+  id: string;
+  username: string;
+  role: string;
+  status: string;
+  wallet: {
+    balanceCents: number;
+    totalSpendCents: number;
+    totalRechargeCents: number;
+  };
+  usage: {
+    spendCents: number;
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+    requestCount: number;
+    lastUsedAt: string | null;
+  };
+  recharge: {
+    totalCents: number;
+    count: number;
+    lastRechargedAt: string | null;
   };
   lastLoginAt: string | null;
   createdAt: string;
@@ -86,6 +127,16 @@ export type DashboardRechargeSummary = {
   disabled: number;
 };
 
+export type DashboardTotalsSummary = {
+  rechargeCents: number;
+  rechargeCount: number;
+  spendCents: number;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  requestCount: number;
+};
+
 export type DashboardSummary = {
   generatedAt: string;
   window: {
@@ -98,6 +149,8 @@ export type DashboardSummary = {
   upstreams: DashboardUpstreamSummary;
   models: DashboardModelsSummary;
   rechargeCodes: DashboardRechargeSummary;
+  totals: DashboardTotalsSummary;
+  topUsers: DashboardUserStats[];
   recentAlerts: DashboardAlert[];
 };
 
@@ -301,6 +354,55 @@ export type AdminImageTask = {
   } | null;
 };
 
+export type AdminAiRechargeProduct = {
+  id: string;
+  title: string;
+  platform: string;
+  planName: string;
+  durationDays: number | null;
+  priceCnyCents: number;
+  description: string;
+  purchaseNote: string | null;
+  deliveryNote: string | null;
+  sortOrder: number;
+  status: 'active' | 'disabled';
+  createdBy?: string;
+  orderCount?: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type AdminAiRechargePageConfig = {
+  id: string;
+  introTitle: string | null;
+  introContent: string | null;
+  introImageDataUrl: string | null;
+  updatedAt: string | null;
+};
+
+export type AdminAiRechargeOrderStatus = 'pending' | 'processing' | 'fulfilled' | 'canceled' | 'failed';
+
+export type AdminAiRechargeOrder = {
+  id: string;
+  orderNo: string;
+  userId: string;
+  username?: string;
+  productId: string;
+  productTitle: string;
+  currentProductTitle?: string;
+  currentProductStatus?: string;
+  platform: string;
+  planName: string;
+  amountCnyCents: number;
+  customerAccount: string;
+  customerContact: string;
+  customerNote: string | null;
+  merchantNote: string | null;
+  status: AdminAiRechargeOrderStatus;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type CreatedRechargeCode = {
   id: string;
   code: string;
@@ -349,6 +451,12 @@ type UpstreamHealthCheckResponse = {
 };
 
 type RechargeCodeListResponse = {
+  stats: {
+    total: number;
+    unused: number;
+    used: number;
+    disabled: number;
+  };
   items: AdminRechargeCode[];
 };
 
@@ -400,6 +508,16 @@ type AdminImageTaskListResponse = {
   total: number;
   page: number;
   limit: number;
+};
+
+type AdminAiRechargeProductListResponse = {
+  items: AdminAiRechargeProduct[];
+};
+
+type AdminAiRechargePageConfigResponse = AdminAiRechargePageConfig;
+
+type AdminAiRechargeOrderListResponse = {
+  items: AdminAiRechargeOrder[];
 };
 
 const API_BASE_URL = '/api';
@@ -535,6 +653,21 @@ export async function updateModelPrice(modelPriceId: string, payload: {
   });
 }
 
+export async function updateModelPriceStatus(modelPriceId: string, payload: {
+  status: 'active' | 'disabled';
+}) {
+  return request<AdminModelPrice>(`/admin/models/${encodeURIComponent(modelPriceId)}/status`, {
+    method: 'POST',
+    body: payload
+  });
+}
+
+export async function deleteModelPrice(modelPriceId: string) {
+  return request<{ id: string; model: string; deleted: true }>(`/admin/models/${encodeURIComponent(modelPriceId)}/delete`, {
+    method: 'POST'
+  });
+}
+
 export async function createUpstreamModel(payload: {
   providerId: string;
   publicModel: string;
@@ -655,6 +788,88 @@ export async function listAdminImageTasks(options: {
 
 export async function getDashboardSummary() {
   return request<DashboardSummary>('/admin/dashboard-summary');
+}
+
+export async function listAdminAiRechargeProducts() {
+  return request<AdminAiRechargeProductListResponse>('/admin/ai-recharge/products');
+}
+
+export async function getAdminAiRechargePageConfig() {
+  return request<AdminAiRechargePageConfigResponse>('/admin/ai-recharge/page-config');
+}
+
+export async function updateAdminAiRechargePageConfig(payload: {
+  introTitle?: string | null;
+  introContent?: string | null;
+  introImageDataUrl?: string | null;
+}) {
+  return request<AdminAiRechargePageConfigResponse>('/admin/ai-recharge/page-config', {
+    method: 'POST',
+    body: payload
+  });
+}
+
+export async function createAdminAiRechargeProduct(payload: {
+  title: string;
+  platform: string;
+  planName: string;
+  durationDays?: number | null;
+  priceCnyCents: number;
+  description: string;
+  purchaseNote?: string | null;
+  deliveryNote?: string | null;
+  sortOrder: number;
+  status: 'active' | 'disabled';
+}) {
+  return request<AdminAiRechargeProduct>('/admin/ai-recharge/products', {
+    method: 'POST',
+    body: payload
+  });
+}
+
+export async function updateAdminAiRechargeProduct(productId: string, payload: {
+  title: string;
+  platform: string;
+  planName: string;
+  durationDays?: number | null;
+  priceCnyCents: number;
+  description: string;
+  purchaseNote?: string | null;
+  deliveryNote?: string | null;
+  sortOrder: number;
+  status: 'active' | 'disabled';
+}) {
+  return request<AdminAiRechargeProduct>(`/admin/ai-recharge/products/${encodeURIComponent(productId)}/update`, {
+    method: 'POST',
+    body: payload
+  });
+}
+
+export async function updateAdminAiRechargeProductStatus(productId: string, payload: { status: 'active' | 'disabled' }) {
+  return request<AdminAiRechargeProduct>(`/admin/ai-recharge/products/${encodeURIComponent(productId)}/status`, {
+    method: 'POST',
+    body: payload
+  });
+}
+
+export async function deleteAdminAiRechargeProduct(productId: string) {
+  return request<{ id: string; deleted: true }>(`/admin/ai-recharge/products/${encodeURIComponent(productId)}/delete`, {
+    method: 'POST'
+  });
+}
+
+export async function listAdminAiRechargeOrders() {
+  return request<AdminAiRechargeOrderListResponse>('/admin/ai-recharge/orders');
+}
+
+export async function updateAdminAiRechargeOrderStatus(orderId: string, payload: {
+  status: AdminAiRechargeOrderStatus;
+  merchantNote?: string | null;
+}) {
+  return request<AdminAiRechargeOrder>(`/admin/ai-recharge/orders/${encodeURIComponent(orderId)}/status`, {
+    method: 'POST',
+    body: payload
+  });
 }
 
 export async function createRechargeCodes(payload: { amountCnyCents: number; count: number }) {

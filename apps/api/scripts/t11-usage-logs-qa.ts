@@ -10,6 +10,8 @@ import {
   User
 } from '../src/generated/prisma/client';
 import { encryptUpstreamApiKey, maskUpstreamApiKey } from '../src/admin/upstream-key-crypto';
+import { DEFAULT_USD_TO_CNY_RATE, USD_UNITS_PER_USD } from '../src/billing/token-pricing';
+import { BASE_TOKEN_UNITS_PER_CNY } from '../src/billing/token-units';
 
 type HttpResult<T = unknown> = {
   status: number;
@@ -100,6 +102,15 @@ const password = `qa-password-${suffix}`;
 const publicModel = `${prefix}-model`;
 const upstreamModel = `${prefix}-upstream`;
 const providerName = `${prefix}-provider`;
+const ROUTE_INPUT_PRICE_CENTS_PER_1K = 17;
+const ROUTE_OUTPUT_PRICE_CENTS_PER_1K = 31;
+const BILLABLE_PROMPT_TOKENS = 100;
+const BILLABLE_COMPLETION_TOKENS = 50;
+const EXPECTED_ROUTE_COST_CENTS = Math.ceil(
+  ((BILLABLE_PROMPT_TOKENS * ROUTE_INPUT_PRICE_CENTS_PER_1K
+    + BILLABLE_COMPLETION_TOKENS * ROUTE_OUTPUT_PRICE_CENTS_PER_1K)
+    / 1000) * DEFAULT_USD_TO_CNY_RATE * BASE_TOKEN_UNITS_PER_CNY / USD_UNITS_PER_USD
+);
 const checks: string[] = [];
 
 async function main() {
@@ -145,7 +156,7 @@ async function main() {
     assert(billableRow.walletTransaction!.amountCents === -billableRow.costCents, 'billable wallet debit amount mismatch');
     assert(billableRow.id === billable.headers.get('x-usage-event-id'), 'billable usage event id mismatch');
     assert(
-      billableRow.costCents === 7,
+      billableRow.costCents === EXPECTED_ROUTE_COST_CENTS,
       `billable row should use upstream route pricing instead of public model pricing, got ${billableRow.costCents}`
     );
     checks.push('real_relay_call_uses_route_level_pricing');
@@ -169,13 +180,22 @@ async function main() {
       allLogs.json.summary.failedRequests === 2,
       `summary failedRequests should count failed and metering unknown rows, got ${allLogs.json.summary.failedRequests}`
     );
-    assert(allLogs.json.summary.totalCostCents === 7, `summary should only charge billable rows, got ${allLogs.json.summary.totalCostCents}`);
-    assert(allLogs.json.summary.promptTokens === 100, `summary should only include billable prompt tokens, got ${allLogs.json.summary.promptTokens}`);
     assert(
-      allLogs.json.summary.completionTokens === 50,
+      allLogs.json.summary.totalCostCents === EXPECTED_ROUTE_COST_CENTS,
+      `summary should only charge billable rows, got ${allLogs.json.summary.totalCostCents}`,
+    );
+    assert(
+      allLogs.json.summary.promptTokens === BILLABLE_PROMPT_TOKENS,
+      `summary should only include billable prompt tokens, got ${allLogs.json.summary.promptTokens}`,
+    );
+    assert(
+      allLogs.json.summary.completionTokens === BILLABLE_COMPLETION_TOKENS,
       `summary should only include billable completion tokens, got ${allLogs.json.summary.completionTokens}`
     );
-    assert(allLogs.json.summary.totalTokens === 150, `summary should only include billable total tokens, got ${allLogs.json.summary.totalTokens}`);
+    assert(
+      allLogs.json.summary.totalTokens === BILLABLE_PROMPT_TOKENS + BILLABLE_COMPLETION_TOKENS,
+      `summary should only include billable total tokens, got ${allLogs.json.summary.totalTokens}`,
+    );
     checks.push('usage_summary_excludes_failed_and_metering_unknown_consumption');
 
     const filteredByStatus = await get<UsageLogsResponse>(
@@ -227,6 +247,22 @@ async function main() {
       assert(!serializedLogs.includes(forbidden), `usage logs response leaked forbidden field/value: ${forbidden}`);
     }
     checks.push('usage_logs_response_uses_sensitive_field_allowlist');
+
+    const repeatedContent = buildLargeRepeatedRequestContent();
+    const repeatedChatFirst = await relayChat(userAToken.apiKey, repeatedContent);
+    const repeatedChatSecond = await relayChat(userAToken.apiKey, repeatedContent);
+    assert(
+      repeatedChatFirst.status === 200 && repeatedChatSecond.status === 200,
+      `repeated large chat requests should not be blocked, got ${repeatedChatFirst.status}/${repeatedChatSecond.status}`
+    );
+
+    const repeatedAnthropicFirst = await relayAnthropicMessage(userAToken.apiKey, repeatedContent);
+    const repeatedAnthropicSecond = await relayAnthropicMessage(userAToken.apiKey, repeatedContent);
+    assert(
+      repeatedAnthropicFirst.status === 200 && repeatedAnthropicSecond.status === 200,
+      `repeated large Anthropic requests should not be blocked, got ${repeatedAnthropicFirst.status}/${repeatedAnthropicSecond.status}`
+    );
+    checks.push('repeated_large_requests_are_not_blocked');
 
     residualBeforeCleanup = await countResidual();
 
@@ -305,8 +341,8 @@ async function seedModelAndUpstream(users: Array<User & { group: { id: string } 
       publicModel,
       upstreamModel,
       pricingMode: ModelPricingMode.MANUAL,
-      inputPriceCentsPer1k: 17,
-      outputPriceCentsPer1k: 31,
+      inputPriceCentsPer1k: ROUTE_INPUT_PRICE_CENTS_PER_1K,
+      outputPriceCentsPer1k: ROUTE_OUTPUT_PRICE_CENTS_PER_1K,
       modelMultiplier: '2.0000',
       status: ModelStatus.ACTIVE,
       supportsStream: false
@@ -333,6 +369,18 @@ async function relayChat(apiKey: string, content: string) {
     model: publicModel,
     messages: [{ role: 'user', content }]
   }, undefined, apiKey);
+}
+
+async function relayAnthropicMessage(apiKey: string, content: string) {
+  return request('POST', '/v1/messages?beta=true', {
+    model: publicModel,
+    max_tokens: 256,
+    messages: [{ role: 'user', content }]
+  }, undefined, apiKey);
+}
+
+function buildLargeRepeatedRequestContent() {
+  return `large repeated request qa ${'x'.repeat(130_000)}`;
 }
 
 async function get<T>(path: string, cookie?: string) {
@@ -568,9 +616,9 @@ async function handleTemporaryUpstream(request: IncomingMessage, response: Serve
         ? {}
         : {
             usage: {
-              prompt_tokens: 100,
-              completion_tokens: 50,
-              total_tokens: 150
+              prompt_tokens: BILLABLE_PROMPT_TOKENS,
+              completion_tokens: BILLABLE_COMPLETION_TOKENS,
+              total_tokens: BILLABLE_PROMPT_TOKENS + BILLABLE_COMPLETION_TOKENS
             }
           })
     })

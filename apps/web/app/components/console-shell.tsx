@@ -1,15 +1,15 @@
 'use client';
 
 import {
+  AppstoreOutlined,
   BellOutlined,
-  CloudServerOutlined,
-  DollarOutlined,
   FileTextOutlined,
   HomeOutlined,
   KeyOutlined,
   LogoutOutlined,
-  PictureOutlined,
+  MessageOutlined,
   ReloadOutlined,
+  ShoppingOutlined,
   UserOutlined,
   WalletOutlined
 } from '@ant-design/icons';
@@ -26,17 +26,17 @@ type NavigationItem = {
 
 const primaryNavItems: NavigationItem[] = [
   { href: '/', label: '首页', icon: <HomeOutlined /> },
+  { href: '/pricing', label: '模型广场', icon: <AppstoreOutlined /> },
+  { href: '/experience', label: '体验', icon: <MessageOutlined /> },
   { href: '/token', label: '令牌', icon: <KeyOutlined /> },
   { href: '/log', label: '日志', icon: <FileTextOutlined /> },
-  { href: '/midjourney', label: '绘图', icon: <PictureOutlined /> },
   { href: '/account/profile', label: '账户', icon: <UserOutlined /> },
-  { href: '/uptimeStatus', label: '服务状态', icon: <CloudServerOutlined /> }
+  { href: '/ai-recharge', label: 'AI代充', icon: <ShoppingOutlined /> }
 ];
 
 const accountNavItems: NavigationItem[] = [
   { href: '/account/profile', label: '个人中心', icon: <UserOutlined /> },
   { href: '/account/topup/recharge', label: '余额充值', icon: <WalletOutlined /> },
-  { href: '/pricing', label: '费用说明', icon: <DollarOutlined /> },
   { href: '/account/notificationSettings', label: '通知设置', icon: <BellOutlined /> }
 ];
 
@@ -146,7 +146,7 @@ function isActive(activePath: string, itemHref: string) {
   }
 
   if (itemHref === '/account/profile') {
-    return activePath.startsWith('/account') || activePath === '/pricing';
+    return activePath.startsWith('/account');
   }
 
   return activePath === itemHref || activePath.startsWith(`${itemHref}/`);

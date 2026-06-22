@@ -1,6 +1,9 @@
 export type RechargeRecord = {
   id: string;
   rechargeCodeId: string | null;
+  paymentOrderId: string | null;
+  paymentOrderNo: string | null;
+  paymentChannel: 'alipay' | 'wechat' | null;
   amountCents: number;
   amountBaseTokens: number;
   faceValueCnyCents: number | null;
@@ -8,6 +11,26 @@ export type RechargeRecord = {
   balanceAfterBaseTokens: number;
   status: string;
   createdAt: string;
+};
+
+export type PaymentChannel = 'alipay' | 'wechat';
+
+export type PaymentOrder = {
+  id: string;
+  orderNo: string;
+  channel: PaymentChannel;
+  status: string;
+  amountCents: number;
+  amountBaseTokens: number;
+  faceValueCnyCents: number;
+  providerTradeNo: string | null;
+  payUrl: string | null;
+  qrCodeContent: string | null;
+  walletTransactionId?: string | null;
+  expiresAt: string;
+  paidAt: string | null;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type RedeemRechargeResponse = {
@@ -37,6 +60,14 @@ type RechargeRecordsResponse = {
   items: RechargeRecord[];
 };
 
+type PaymentOrdersResponse = {
+  items: PaymentOrder[];
+};
+
+type PaymentOrderResponse = {
+  order: PaymentOrder;
+};
+
 const API_BASE_URL = '/api';
 
 export async function redeemRechargeCode(payload: { code: string }) {
@@ -48,6 +79,21 @@ export async function redeemRechargeCode(payload: { code: string }) {
 
 export async function listRechargeRecords() {
   return request<RechargeRecordsResponse>('/recharge/records');
+}
+
+export async function createPaymentOrder(payload: { amountCnyCents: number; channel: PaymentChannel }) {
+  return request<PaymentOrderResponse>('/recharge/payments/orders', {
+    method: 'POST',
+    body: payload
+  });
+}
+
+export async function listPaymentOrders() {
+  return request<PaymentOrdersResponse>('/recharge/payments/orders');
+}
+
+export async function getPaymentOrder(orderNo: string) {
+  return request<PaymentOrderResponse>(`/recharge/payments/orders/${encodeURIComponent(orderNo)}`);
 }
 
 async function request<T>(

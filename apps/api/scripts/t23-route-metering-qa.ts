@@ -11,7 +11,13 @@ import {
   UsageEventStatus
 } from '../src/generated/prisma/client';
 import { encryptUpstreamApiKey, maskUpstreamApiKey } from '../src/admin/upstream-key-crypto';
-import { calculateRelayUsdPricing, deepSeekBaseUsdUnitsPer1k } from '../src/billing/token-pricing';
+import {
+  calculateRelayUsdPricing,
+  deepSeekBaseUsdUnitsPer1k,
+  DEFAULT_USD_TO_CNY_RATE,
+  USD_UNITS_PER_USD
+} from '../src/billing/token-pricing';
+import { BASE_TOKEN_UNITS_PER_CNY } from '../src/billing/token-units';
 
 type HttpResult<T = unknown> = {
   status: number;
@@ -75,12 +81,18 @@ const relayPricing = calculateRelayUsdPricing({
   usdToCnyRate: 7.2,
   marginPercent: 10
 });
-const expectedDeepCost = calculateExpectedCost(deepBasePricePer1k, deepBasePricePer1k, deepMultiplier);
+const expectedDeepCost = calculateExpectedCost(deepBasePricePer1k, deepBasePricePer1k, 1);
 const expectedRelayCost = calculateExpectedCost(relayPricing.inputUsdUnitsPer1k, relayPricing.outputUsdUnitsPer1k, 1);
 const checks: string[] = [];
 
 function calculateExpectedCost(inputPricePer1k: number, outputPricePer1k: number, multiplier: number) {
-  return Math.ceil(((promptTokens * inputPricePer1k) / 1000 + (completionTokens * outputPricePer1k) / 1000) * multiplier);
+  return Math.ceil(
+    ((promptTokens * inputPricePer1k) / 1000 + (completionTokens * outputPricePer1k) / 1000)
+      * multiplier
+      * DEFAULT_USD_TO_CNY_RATE
+      * BASE_TOKEN_UNITS_PER_CNY
+      / USD_UNITS_PER_USD
+  );
 }
 
 async function main() {
@@ -118,7 +130,7 @@ async function main() {
       expectedCost: expectedDeepCost,
       expectedInputPricePer1k: deepBasePricePer1k,
       expectedOutputPricePer1k: deepBasePricePer1k,
-      expectedMultiplier: '5'
+      expectedMultiplier: '1'
     });
     checks.push('low_cost_model_uses_only_deepseek_route');
     assert(deepUpstream.getCallCount() === 1, `DeepSeek model should call DeepSeek once, got ${deepUpstream.getCallCount()}`);

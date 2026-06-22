@@ -24,6 +24,7 @@ type NormalizedUsageLogFilters = {
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
 const MAX_MODEL_LENGTH = 120;
+const UNSUPPORTED_MODEL_NAME_CHARACTERS = /[\x00-\x1F\x7F]/;
 
 @Injectable()
 export class UsageLogsService {
@@ -319,7 +320,7 @@ export class UsageLogsService {
       return undefined;
     }
 
-    if (model.length > MAX_MODEL_LENGTH || !/^[a-zA-Z0-9._:/+-]+$/.test(model)) {
+    if (model.length > MAX_MODEL_LENGTH || UNSUPPORTED_MODEL_NAME_CHARACTERS.test(model)) {
       throw new BadRequestException('model contains unsupported characters');
     }
 

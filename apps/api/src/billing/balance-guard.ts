@@ -1,3 +1,6 @@
+import { DEFAULT_USD_TO_CNY_RATE, USD_UNITS_PER_USD } from './token-pricing';
+import { BASE_TOKEN_UNITS_PER_CNY } from './token-units';
+
 export type BalanceGuardModel = {
   inputPriceCentsPer1k: number;
   outputPriceCentsPer1k: number;
@@ -48,10 +51,13 @@ function calculateEstimatedCostCents(
   usage: { promptTokens: number; completionTokens: number },
   model: BalanceGuardModel
 ) {
-  const multiplier = parsePositiveNumber(model.modelMultiplier) * parsePositiveNumber(model.groupMultiplier);
-  const inputCost = (usage.promptTokens * model.inputPriceCentsPer1k) / 1000;
-  const outputCost = (usage.completionTokens * model.outputPriceCentsPer1k) / 1000;
-  const cost = Math.ceil((inputCost + outputCost) * multiplier);
+  const multiplier = parsePositiveNumber(model.groupMultiplier);
+  const inputUsdUnits = (usage.promptTokens * model.inputPriceCentsPer1k) / 1000;
+  const outputUsdUnits = (usage.completionTokens * model.outputPriceCentsPer1k) / 1000;
+  const cost = Math.ceil(
+    ((inputUsdUnits + outputUsdUnits) * multiplier * DEFAULT_USD_TO_CNY_RATE * BASE_TOKEN_UNITS_PER_CNY)
+      / USD_UNITS_PER_USD
+  );
 
   if (!Number.isSafeInteger(cost) || cost < 0) {
     throw new Error('Estimated billing cost is outside the safe integer range');

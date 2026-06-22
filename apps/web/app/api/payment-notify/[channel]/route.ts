@@ -3,15 +3,28 @@ import { NextRequest, NextResponse } from 'next/server';
 const INTERNAL_API_BASE_URL =
   process.env.INTERNAL_API_BASE_URL ?? process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:3001';
 
-export async function GET(request: NextRequest) {
-  const targetUrl = `${INTERNAL_API_BASE_URL}/service-status${request.nextUrl.search}`;
+type RouteContext = {
+  params: Promise<{
+    channel: string;
+  }>;
+};
+
+export async function POST(request: NextRequest, context: RouteContext) {
+  const { channel } = await context.params;
+  const targetUrl = `${INTERNAL_API_BASE_URL}/payment-notify/${encodeURIComponent(channel)}${request.nextUrl.search}`;
   const headers = new Headers({
     Accept: request.headers.get('accept') ?? 'application/json'
   });
 
+  const contentType = request.headers.get('content-type');
+  if (contentType) {
+    headers.set('Content-Type', contentType);
+  }
+
   const upstream = await fetch(targetUrl, {
-    method: 'GET',
+    method: 'POST',
     headers,
+    body: await request.text(),
     cache: 'no-store',
     redirect: 'manual'
   });

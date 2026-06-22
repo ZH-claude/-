@@ -210,6 +210,31 @@ export class AdminController {
     return this.adminService.updateModelPrice(request.auth.user.id, modelPriceId, this.toRecord(body));
   }
 
+  @Post('models/:id/status')
+  updateModelPriceStatus(
+    @Req() request: AuthenticatedRequest,
+    @Param('id') modelPriceId: string,
+    @Body() body: unknown
+  ) {
+    if (!request.auth?.user?.id) {
+      throw new BadRequestException('Admin context missing');
+    }
+
+    return this.adminService.updateModelPriceStatus(request.auth.user.id, modelPriceId, this.toRecord(body));
+  }
+
+  @Post('models/:id/delete')
+  deleteModelPrice(
+    @Req() request: AuthenticatedRequest,
+    @Param('id') modelPriceId: string
+  ) {
+    if (!request.auth?.user?.id) {
+      throw new BadRequestException('Admin context missing');
+    }
+
+    return this.adminService.deleteModelPrice(request.auth.user.id, modelPriceId);
+  }
+
   @Post('upstream-models')
   createUpstreamModel(
     @Req() request: AuthenticatedRequest,

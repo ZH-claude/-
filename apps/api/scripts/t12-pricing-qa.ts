@@ -40,9 +40,12 @@ type PricingResponse = {
     multiplier: string;
   };
   currency: string;
+  displayCurrency: string;
+  settlementCurrency: string;
+  usdToCnyRate: number;
   unit: string;
   billingFormula: {
-    totalCostUsdUnits: string;
+    totalCostCnyUnits: string;
     rounding: string;
   };
   models: PricingModel[];
@@ -113,8 +116,11 @@ async function main() {
     assert(pricingA.json.group.name === 'QA T12 Group A', 'user A pricing group name mismatch');
     assertDecimalEquals(pricingA.json.group.multiplier, '1.2500', 'user A group multiplier mismatch');
     assert(pricingA.json.currency === 'USD', 'pricing currency mismatch');
-    assert(pricingA.json.unit === 'usd_units_per_1k_tokens', 'pricing unit mismatch');
-    assert(pricingA.json.billingFormula.totalCostUsdUnits === BILLING_FORMULA, 'pricing formula drifted from BillingService constant');
+    assert(pricingA.json.displayCurrency === 'USD', 'pricing display currency mismatch');
+    assert(pricingA.json.settlementCurrency === 'CNY', 'pricing settlement currency mismatch');
+    assert(pricingA.json.usdToCnyRate === 7.2, 'pricing USD to CNY rate mismatch');
+    assert(pricingA.json.unit === 'usd_per_1m_tokens', 'pricing unit mismatch');
+    assert(pricingA.json.billingFormula.totalCostCnyUnits === BILLING_FORMULA, 'pricing formula drifted from BillingService constant');
     assert(pricingA.json.billingFormula.rounding === BILLING_ROUNDING, 'pricing rounding policy mismatch');
     checks.push('pricing_formula_reuses_billing_source_of_truth');
 

@@ -15,9 +15,12 @@ export type PricingResponse = {
     multiplier: string;
   };
   currency: 'USD' | string;
-  unit: 'usd_units_per_1k_tokens' | string;
+  displayCurrency: 'USD' | string;
+  settlementCurrency: 'CNY' | string;
+  usdToCnyRate: number;
+  unit: 'usd_per_1m_tokens' | string;
   billingFormula: {
-    totalCostUsdUnits: string;
+    totalCostCnyUnits: string;
     rounding: string;
   };
   models: PricingModel[];

@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { BILLING_FORMULA, BILLING_ROUNDING } from '../billing/billing.constants';
+import { DEFAULT_USD_TO_CNY_RATE } from '../billing/token-pricing';
 import { ModelCatalogService } from '../model-catalog.service';
 
 @Injectable()
@@ -17,9 +18,12 @@ export class PricingService {
         multiplier: user.group.multiplier.toString()
       },
       currency: 'USD',
-      unit: 'usd_units_per_1k_tokens',
+      displayCurrency: 'USD',
+      settlementCurrency: 'CNY',
+      usdToCnyRate: DEFAULT_USD_TO_CNY_RATE,
+      unit: 'usd_per_1m_tokens',
       billingFormula: {
-        totalCostUsdUnits: BILLING_FORMULA,
+        totalCostCnyUnits: BILLING_FORMULA,
         rounding: BILLING_ROUNDING
       },
       models

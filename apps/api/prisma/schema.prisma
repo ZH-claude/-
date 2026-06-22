@@ -90,6 +90,32 @@ enum RechargeCodeStatus {
   DISABLED
 }
 
+enum PaymentChannel {
+  ALIPAY
+  WECHAT
+}
+
+enum PaymentOrderStatus {
+  PENDING
+  PAID
+  EXPIRED
+  CLOSED
+  FAILED
+}
+
+enum AiRechargeProductStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum AiRechargeOrderStatus {
+  PENDING
+  PROCESSING
+  FULFILLED
+  CANCELED
+  FAILED
+}
+
 enum NotificationChannelType {
   WEBHOOK
   EMAIL
@@ -176,12 +202,16 @@ model User {
   upstreamProviders  UpstreamProvider[]  @relation("UpstreamProviderCreator")
   createdRechargeCodes RechargeCode[]    @relation("RechargeCodeCreator")
   usedRechargeCodes    RechargeCode[]    @relation("RechargeCodeUser")
+  paymentOrders         PaymentOrder[]
   notificationPreference NotificationPreference?
   notificationChannels   NotificationChannel[]
   notificationDeliveries NotificationDelivery[]
   referralRewardsAsInviter ReferralReward[] @relation("ReferralRewardInviter")
   referralRewardsAsInvitee ReferralReward[] @relation("ReferralRewardInvitee")
   asyncTasks              AsyncTask[]
+  createdAiRechargeProducts AiRechargeProduct[] @relation("AiRechargeProductCreator")
+  aiRechargeOrders       AiRechargeOrder[]
+  updatedAiRechargePageConfigs AiRechargePageConfig[] @relation("AiRechargePageConfigUpdater")
 
   @@index([groupId], map: "users_group_id_idx")
   @@index([invitedByUserId], map: "users_invited_by_user_id_idx")
@@ -259,6 +289,8 @@ model WalletTransaction {
   usageEvent        UsageEvent?           @relation(fields: [usageEventId], references: [id], onDelete: Restrict)
   rechargeCodeId    String?               @unique @map("recharge_code_id") @db.Uuid
   rechargeCode      RechargeCode?         @relation(fields: [rechargeCodeId], references: [id], onDelete: Restrict)
+  paymentOrderId    String?               @unique @map("payment_order_id") @db.Uuid
+  paymentOrder      PaymentOrder?         @relation(fields: [paymentOrderId], references: [id], onDelete: Restrict)
   idempotencyKey    String                @unique @map("idempotency_key")
   createdAt         DateTime              @default(now()) @map("created_at")
 
@@ -286,6 +318,93 @@ model RechargeCode {
   @@index([createdByAdminId, createdAt], map: "recharge_codes_created_by_admin_id_idx")
   @@index([usedByUserId, usedAt], map: "recharge_codes_used_by_user_id_idx")
   @@map("recharge_codes")
+}
+
+model PaymentOrder {
+  id                String                @id @default(uuid()) @db.Uuid
+  orderNo           String                @unique @map("order_no")
+  userId            String                @map("user_id") @db.Uuid
+  user              User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  channel           PaymentChannel
+  status            PaymentOrderStatus    @default(PENDING)
+  faceValueCnyCents Int                   @map("face_value_cny_cents")
+  amountCents       Int                   @map("amount_cents")
+  providerTradeNo   String?               @map("provider_trade_no")
+  providerPayload   Json?                 @map("provider_payload")
+  payUrl            String?               @map("pay_url")
+  qrCodeContent     String?               @map("qr_code_content")
+  expiresAt         DateTime              @map("expires_at")
+  paidAt            DateTime?             @map("paid_at")
+  walletTransaction WalletTransaction?
+  createdAt         DateTime              @default(now()) @map("created_at")
+  updatedAt         DateTime              @updatedAt @map("updated_at")
+
+  @@index([userId, createdAt], map: "payment_orders_user_created_at_idx")
+  @@index([status, expiresAt], map: "payment_orders_status_expires_at_idx")
+  @@index([channel, status], map: "payment_orders_channel_status_idx")
+  @@map("payment_orders")
+}
+
+model AiRechargeProduct {
+  id                String                  @id @default(uuid()) @db.Uuid
+  title             String
+  platform          String
+  planName          String                  @map("plan_name")
+  durationDays      Int?                    @map("duration_days")
+  priceCnyCents     Int                     @map("price_cny_cents")
+  description       String
+  purchaseNote      String?                 @map("purchase_note")
+  deliveryNote      String?                 @map("delivery_note")
+  sortOrder         Int                     @default(100) @map("sort_order")
+  status            AiRechargeProductStatus @default(ACTIVE)
+  createdByAdminId  String                  @map("created_by_admin_id") @db.Uuid
+  createdByAdmin    User                    @relation("AiRechargeProductCreator", fields: [createdByAdminId], references: [id], onDelete: Restrict)
+  orders            AiRechargeOrder[]
+  createdAt         DateTime                @default(now()) @map("created_at")
+  updatedAt         DateTime                @updatedAt @map("updated_at")
+
+  @@index([status, sortOrder, createdAt], map: "ai_recharge_products_public_idx")
+  @@index([createdByAdminId, createdAt], map: "ai_recharge_products_created_by_admin_idx")
+  @@map("ai_recharge_products")
+}
+
+model AiRechargeOrder {
+  id                   String                @id @default(uuid()) @db.Uuid
+  orderNo              String                @unique @map("order_no")
+  userId               String                @map("user_id") @db.Uuid
+  user                 User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  productId            String                @map("product_id") @db.Uuid
+  product              AiRechargeProduct     @relation(fields: [productId], references: [id], onDelete: Restrict)
+  productTitleSnapshot String                @map("product_title_snapshot")
+  platformSnapshot     String                @map("platform_snapshot")
+  planNameSnapshot     String                @map("plan_name_snapshot")
+  amountCnyCents       Int                   @map("amount_cny_cents")
+  customerAccount      String                @map("customer_account")
+  customerContact      String                @map("customer_contact")
+  customerNote         String?               @map("customer_note")
+  merchantNote         String?               @map("merchant_note")
+  status               AiRechargeOrderStatus @default(PENDING)
+  createdAt            DateTime              @default(now()) @map("created_at")
+  updatedAt            DateTime              @updatedAt @map("updated_at")
+
+  @@index([userId, createdAt], map: "ai_recharge_orders_user_created_at_idx")
+  @@index([productId, createdAt], map: "ai_recharge_orders_product_created_at_idx")
+  @@index([status, createdAt], map: "ai_recharge_orders_status_created_at_idx")
+  @@map("ai_recharge_orders")
+}
+
+model AiRechargePageConfig {
+  id                 String   @id @default("default")
+  introTitle         String?  @map("intro_title")
+  introContent       String?  @map("intro_content")
+  introImageDataUrl  String?  @map("intro_image_data_url")
+  updatedByAdminId   String?  @map("updated_by_admin_id") @db.Uuid
+  updatedByAdmin     User?    @relation("AiRechargePageConfigUpdater", fields: [updatedByAdminId], references: [id], onDelete: SetNull)
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  @@index([updatedByAdminId], map: "ai_recharge_page_configs_updated_by_admin_idx")
+  @@map("ai_recharge_page_configs")
 }
 
 model NotificationPreference {

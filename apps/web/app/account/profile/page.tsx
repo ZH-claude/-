@@ -78,7 +78,6 @@ export default function AccountProfilePage() {
   const usageSummary = usageData?.summary;
   const periodChargedUsd = usageSummary?.totalCostCents ?? 0;
   const periodRawTokens = usageSummary?.totalTokens ?? 0;
-  const periodAttemptCount = usageSummary?.totalRequests ?? usageSummary?.total ?? 0;
   const periodSuccessCount = useMemo(() => {
     if (usageSummary?.successfulRequests !== undefined) {
       return usageSummary.successfulRequests;
@@ -101,13 +100,6 @@ export default function AccountProfilePage() {
 
     return (usageSummary.statusCounts.failed ?? 0) + (usageSummary.statusCounts.metering_unknown ?? 0);
   }, [usageSummary]);
-  const periodSuccessRate = useMemo(() => {
-    if (periodAttemptCount === 0) {
-      return 0;
-    }
-
-    return Math.round((periodSuccessCount / periodAttemptCount) * 1000) / 10;
-  }, [periodAttemptCount, periodSuccessCount]);
   const periodAvgTokensPerCall = useMemo(() => {
     if (periodSuccessCount === 0) {
       return 0;
@@ -210,15 +202,6 @@ export default function AccountProfilePage() {
     }
   }
 
-  async function copyInviteLink() {
-    if (!user) {
-      return;
-    }
-
-    const origin = window.location.origin;
-    await copyText(`${origin}/register?inviteCode=${encodeURIComponent(user.inviteCode)}`, '邀请链接');
-  }
-
   async function copyAllModels() {
     const modelNames = filteredModels.map((model) => model.model);
     if (!modelNames.length) {
@@ -276,7 +259,7 @@ export default function AccountProfilePage() {
             />
             <MetricBlock
               accent="blue"
-              detail={`原始 token，不乘价格倍率；扣费 ${formatBillingUsd(periodChargedUsd)}`}
+              detail={`原始 token；扣费 ${formatBillingUsd(periodChargedUsd)}`}
               icon={<LineChartOutlined />}
               label={`近 ${rangeDays} 天 token`}
               unit="token"
@@ -289,13 +272,6 @@ export default function AccountProfilePage() {
               label="扣费成功"
               unit="次"
               value={formatNumber(periodSuccessCount)}
-            />
-            <MetricBlock
-              accent="rose"
-              detail={`成功 ${formatNumber(periodSuccessCount)} / 总尝试 ${formatNumber(periodAttemptCount)}，失败或未知 ${formatNumber(periodFailureCount)}`}
-              icon={<CheckCircleOutlined />}
-              label="成功率"
-              value={formatRate(periodSuccessRate)}
             />
           </section>
 
@@ -322,16 +298,9 @@ export default function AccountProfilePage() {
                 label="平均每次 token"
                 value={formatNumber(periodAvgTokensPerCall)}
               />
-              <UsageTile
-                accent="rose"
-                detail={`成功 ${formatNumber(periodSuccessCount)} / 总尝试 ${formatNumber(periodAttemptCount)}`}
-                icon={<ReloadOutlined />}
-                label="成功率"
-                value={`${formatRate(periodSuccessRate)} 成功`}
-              />
             </div>
             <p className="profile-usage-note">
-              说明：token 显示上游返回的原始输入和输出，不会乘价格倍率；价格倍率只影响扣费金额。Claude Code
+              说明：token 显示接口实际记录的原始输入和输出；模型价格按输入单价和输出单价分别展示为美元，实际扣余额会按汇率折算成人民币。Claude Code
               如果开着长会话，会把历史上下文一起发送，所以屏幕上只看到一句话，也可能产生较高输入 token。新开空会话测试，短问句 token 会明显下降。
             </p>
 
@@ -381,8 +350,15 @@ export default function AccountProfilePage() {
                 {tokenTrend.some((entry) => entry.tokens > 0) ? (
                   <div className="profile-token-trend">
                     {tokenTrend.map((entry) => (
-                      <div className="profile-token-trend-item" key={entry.label}>
-                        <i style={{ height: `${entry.percent}%` }} />
+                      <div
+                        aria-label={`${entry.label} token 消耗 ${formatNumber(entry.tokens)}`}
+                        className="profile-token-trend-item"
+                        key={entry.label}
+                        tabIndex={0}
+                      >
+                        <i style={{ height: `${entry.percent}%` }}>
+                          <em>{entry.label}：{formatNumber(entry.tokens)} token</em>
+                        </i>
                         <span>{entry.label}</span>
                       </div>
                     ))}
@@ -391,37 +367,6 @@ export default function AccountProfilePage() {
                   <p className="profile-chart-empty">暂无数据</p>
                 )}
               </section>
-            </div>
-          </section>
-
-          <section className="profile-card profile-referral">
-            <div className="profile-section-title">
-              <GiftOutlined />
-              <h2>推广信息</h2>
-            </div>
-            <div className="profile-referral-actions">
-              <div>
-                <span>邀请码：</span>
-                <strong>{user?.inviteCode ?? '-'}</strong>
-              </div>
-              <button
-                className="ghost-button compact-button"
-                disabled={!user}
-                onClick={() => user && void copyText(user.inviteCode, '邀请码')}
-                type="button"
-              >
-                <CopyOutlined />
-                复制邀请码
-              </button>
-              <button className="primary-button compact-button" disabled={!user} onClick={() => void copyInviteLink()} type="button">
-                <GiftOutlined />
-                邀请链接
-              </button>
-            </div>
-            <div className="profile-referral-stats">
-              <span>待使用收益：{formatBillingUsd(user?.referral.pendingRewardCents ?? 0)}</span>
-              <span>总收益：{formatBillingUsd(user?.referral.settledRewardCents ?? 0)}</span>
-              <span>返利记录：{(user?.referral.pendingRewardCount ?? 0) + (user?.referral.settledRewardCount ?? 0)} 条</span>
             </div>
           </section>
 
@@ -697,10 +642,6 @@ function getTokenTrend(rows: UsageLogEntry[], rangeDays: number) {
     ...entry,
     percent: entry.tokens === 0 ? 4 : Math.max(10, Math.round((entry.tokens / maxTokens) * 100))
   }));
-}
-
-function formatRate(value: number) {
-  return `${value.toFixed(1)}%`;
 }
 
 function formatNumber(value: number) {

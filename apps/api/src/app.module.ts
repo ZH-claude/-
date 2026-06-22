@@ -11,7 +11,8 @@ import { GroupAvailabilityModule } from './group-availability/group-availability
 import { NotificationsModule } from './notifications/notifications.module';
 import { AnnouncementsModule } from './announcements/announcements.module';
 import { AsyncTasksModule } from './async-tasks/async-tasks.module';
-import { ServiceStatusModule } from './service-status/service-status.module';
+import { ExperienceModule } from './experience/experience.module';
+import { AiRechargeModule } from './ai-recharge/ai-recharge.module';
 
 @Module({
   imports: [
@@ -26,7 +27,8 @@ import { ServiceStatusModule } from './service-status/service-status.module';
     NotificationsModule,
     AnnouncementsModule,
     AsyncTasksModule,
-    ServiceStatusModule
+    ExperienceModule,
+    AiRechargeModule
   ],
   controllers: [AppController]
 })

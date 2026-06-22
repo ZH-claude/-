@@ -18,7 +18,8 @@ import {
   UpstreamProviderStatus,
   UserRole,
   UserStatus,
-  UsageEventStatus
+  UsageEventStatus,
+  WalletTransactionType
 } from '../generated/prisma/client';
 import {
   calculateRelayUsdPricing,
@@ -30,9 +31,23 @@ import { PrismaService } from '../prisma.service';
 import { SecurityAuditService } from '../security-audit/security-audit.service';
 import { decryptUpstreamApiKey, encryptUpstreamApiKey, maskUpstreamApiKey } from './upstream-key-crypto';
 
+const UNSUPPORTED_MODEL_NAME_CHARACTERS = /[\x00-\x1F\x7F]/;
+
 type ListUsersOptions = {
   page: number;
   limit: number;
+};
+
+type UserFinanceMetrics = {
+  totalRechargeCents: number;
+  rechargeCount: number;
+  lastRechargeAt: Date | null;
+  spendCents: number;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  requestCount: number;
+  lastUsedAt: Date | null;
 };
 
 type ListRequestLogsOptions = ListUsersOptions & {
@@ -171,7 +186,7 @@ export class AdminService implements OnModuleInit {
 
   async getDashboardSummary() {
     const generatedAt = new Date();
-    const todayStart = this.startOfUtcDay(generatedAt);
+    const todayStart = this.startOfChinaDay(generatedAt);
     const last24HoursStart = new Date(generatedAt.getTime() - 24 * 60 * 60 * 1000);
     const userWhere = { deletedAt: null };
 
@@ -188,6 +203,11 @@ export class AdminService implements OnModuleInit {
       modelStatusGroups,
       upstreamModelStatusGroups,
       rechargeStatusGroups,
+      rechargeAggregate,
+      totalUsageAggregate,
+      totalUsageCount,
+      usageUserGroups,
+      rechargeUserGroups,
       recentRequestErrors,
       unhealthyUpstreams
     ] = await Promise.all([
@@ -246,6 +266,56 @@ export class AdminService implements OnModuleInit {
       this.prisma.rechargeCode.groupBy({
         by: ['status'],
         _count: { _all: true }
+      }),
+      this.prisma.walletTransaction.aggregate({
+        where: {
+          type: WalletTransactionType.RECHARGE,
+          rechargeCodeId: { not: null },
+          user: userWhere
+        },
+        _sum: { amountCents: true },
+        _count: { _all: true }
+      }),
+      this.prisma.usageEvent.aggregate({
+        where: {
+          user: userWhere
+        },
+        _sum: {
+          costCents: true,
+          promptTokens: true,
+          completionTokens: true,
+          totalTokens: true
+        }
+      }),
+      this.prisma.usageEvent.count({
+        where: {
+          user: userWhere
+        }
+      }),
+      this.prisma.usageEvent.groupBy({
+        by: ['userId'],
+        where: {
+          user: userWhere
+        },
+        _sum: {
+          costCents: true,
+          promptTokens: true,
+          completionTokens: true,
+          totalTokens: true
+        },
+        _count: { _all: true },
+        _max: { createdAt: true }
+      }),
+      this.prisma.walletTransaction.groupBy({
+        by: ['userId'],
+        where: {
+          type: WalletTransactionType.RECHARGE,
+          rechargeCodeId: { not: null },
+          user: userWhere
+        },
+        _sum: { amountCents: true },
+        _count: { _all: true },
+        _max: { createdAt: true }
       }),
       this.prisma.requestLog.findMany({
         where: {
@@ -314,6 +384,36 @@ export class AdminService implements OnModuleInit {
     const modelTotal = Object.values(modelStatusCounts).reduce((sum, count) => sum + count, 0);
     const upstreamModelTotal = Object.values(upstreamModelStatusCounts).reduce((sum, count) => sum + count, 0);
     const rechargeTotal = Object.values(rechargeStatusCounts).reduce((sum, count) => sum + count, 0);
+    const dashboardUserMetrics = this.buildUserFinanceMetrics(usageUserGroups, rechargeUserGroups);
+    const topUserIds = Array.from(dashboardUserMetrics.entries())
+      .sort(([, left], [, right]) => {
+        const spendDelta = right.spendCents - left.spendCents;
+        if (spendDelta !== 0) {
+          return spendDelta;
+        }
+
+        const tokenDelta = right.totalTokens - left.totalTokens;
+        if (tokenDelta !== 0) {
+          return tokenDelta;
+        }
+
+        return right.totalRechargeCents - left.totalRechargeCents;
+      })
+      .slice(0, 10)
+      .map(([userId]) => userId);
+    const topUsers = topUserIds.length
+      ? await this.prisma.user.findMany({
+          where: {
+            id: { in: topUserIds },
+            deletedAt: null,
+            role: UserRole.USER
+          },
+          include: {
+            wallet: true
+          }
+        })
+      : [];
+    const topUsersById = new Map(topUsers.map((user) => [user.id, user]));
     const recentAlerts = [
       ...recentRequestErrors.map((entry) => ({
         id: `request:${entry.requestId}`,
@@ -382,6 +482,25 @@ export class AdminService implements OnModuleInit {
         used: rechargeStatusCounts.used,
         disabled: rechargeStatusCounts.disabled
       },
+      totals: {
+        rechargeCents: rechargeAggregate._sum.amountCents ?? 0,
+        rechargeCount: rechargeAggregate._count._all ?? 0,
+        spendCents: totalUsageAggregate._sum.costCents ?? 0,
+        promptTokens: totalUsageAggregate._sum.promptTokens ?? 0,
+        completionTokens: totalUsageAggregate._sum.completionTokens ?? 0,
+        totalTokens: totalUsageAggregate._sum.totalTokens ?? 0,
+        requestCount: totalUsageCount
+      },
+      topUsers: topUserIds
+        .map((userId) => {
+          const user = topUsersById.get(userId);
+          if (!user) {
+            return null;
+          }
+
+          return this.toUserStats(user, dashboardUserMetrics.get(userId));
+        })
+        .filter((user): user is NonNullable<typeof user> => Boolean(user)),
       recentAlerts
     };
   }
@@ -405,26 +524,10 @@ export class AdminService implements OnModuleInit {
       }),
       this.prisma.user.count({ where })
     ]);
+    const userMetrics = await this.getUserFinanceMetrics(users.map((user) => user.id));
 
     return {
-      items: users.map((user) => ({
-        id: user.id,
-        username: user.username,
-        role: user.role.toLowerCase(),
-        status: user.status.toLowerCase(),
-        timezone: user.timezone,
-        group: {
-          id: user.group.id,
-          code: user.group.code,
-          name: user.group.name
-        },
-        wallet: {
-          balanceCents: user.wallet?.balanceCents ?? 0,
-          totalSpendCents: user.wallet?.totalSpendCents ?? 0
-        },
-        lastLoginAt: user.lastLoginAt?.toISOString() ?? null,
-        createdAt: user.createdAt.toISOString()
-      })),
+      items: users.map((user) => this.toAdminUser(user, userMetrics.get(user.id))),
       total,
       page,
       limit
@@ -1400,6 +1503,127 @@ export class AdminService implements OnModuleInit {
     }
   }
 
+  async updateModelPriceStatus(adminUserId: string, modelPriceId: string, body: { status?: unknown }) {
+    const id = this.requiredUuid(modelPriceId, 'modelPriceId');
+    const status = this.normalizeModelStatus(body.status);
+    const existing = await this.prisma.modelPrice.findUnique({
+      where: { id },
+      include: {
+        groupAccesses: {
+          include: { group: true },
+          orderBy: { createdAt: 'asc' }
+        },
+        upstreamModels: {
+          include: { provider: true },
+          orderBy: { createdAt: 'desc' }
+        }
+      }
+    });
+
+    if (!existing) {
+      throw new NotFoundException('Model not found');
+    }
+
+    const modelPrice = await this.prisma.$transaction(async (tx) => {
+      const updatedModel = await tx.modelPrice.update({
+        where: { id },
+        data: { status }
+      });
+
+      await tx.adminAuditLog.create({
+        data: {
+          adminUserId,
+          action: 'model_price_status_updated',
+          targetType: 'model_price',
+          targetId: updatedModel.id,
+          beforeSnapshot: {
+            id: existing.id,
+            model: existing.model,
+            status: existing.status.toLowerCase()
+          },
+          afterSnapshot: {
+            id: updatedModel.id,
+            model: updatedModel.model,
+            status: updatedModel.status.toLowerCase()
+          }
+        }
+      });
+
+      return tx.modelPrice.findUniqueOrThrow({
+        where: { id: updatedModel.id },
+        include: {
+          groupAccesses: {
+            include: { group: true },
+            orderBy: { createdAt: 'asc' }
+          },
+          upstreamModels: {
+            include: { provider: true },
+            orderBy: { createdAt: 'desc' }
+          }
+        }
+      });
+    });
+
+    return this.toPublicModelPrice(modelPrice);
+  }
+
+  async deleteModelPrice(adminUserId: string, modelPriceId: string) {
+    const id = this.requiredUuid(modelPriceId, 'modelPriceId');
+    const existing = await this.prisma.modelPrice.findUnique({
+      where: { id },
+      include: {
+        groupAccesses: {
+          include: { group: true },
+          orderBy: { createdAt: 'asc' }
+        },
+        upstreamModels: {
+          include: { provider: true },
+          orderBy: { createdAt: 'desc' }
+        },
+        tokenAccesses: true
+      }
+    });
+
+    if (!existing) {
+      throw new NotFoundException('Model not found');
+    }
+
+    if (existing.tokenAccesses.length > 0) {
+      throw new BadRequestException('Model is used by API token access rules. Disable it first instead of deleting.');
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.modelPrice.delete({
+        where: { id }
+      });
+
+      await tx.adminAuditLog.create({
+        data: {
+          adminUserId,
+          action: 'model_price_deleted',
+          targetType: 'model_price',
+          targetId: existing.id,
+          beforeSnapshot: {
+            id: existing.id,
+            model: existing.model,
+            displayName: existing.displayName,
+            status: existing.status.toLowerCase(),
+            groupIds: existing.groupAccesses.map((access) => access.group.id),
+            upstreamMappingIds: existing.upstreamModels.map((mapping) => mapping.id),
+            tokenAccessCount: existing.tokenAccesses.length
+          },
+          afterSnapshot: Prisma.JsonNull
+        }
+      });
+    });
+
+    return {
+      id: existing.id,
+      model: existing.model,
+      deleted: true
+    };
+  }
+
   async createUpstreamModel(adminUserId: string, body: UpstreamModelInput) {
     const providerId = this.requiredUuid(body.providerId, 'providerId');
     const publicModel = this.normalizeModelName(body.publicModel, 'publicModel');
@@ -1828,8 +2052,12 @@ export class AdminService implements OnModuleInit {
   }
 
   private validateRoutePricingForProvider(kind: UpstreamProviderKind, pricingMode: ModelPricingMode | null) {
-    if (kind === UpstreamProviderKind.DEEPSEEK && pricingMode !== ModelPricingMode.DEEPSEEK_BASE) {
-      throw new BadRequestException('DeepSeek upstream routes must use deepseek_base pricing');
+    if (
+      kind === UpstreamProviderKind.DEEPSEEK &&
+      pricingMode !== ModelPricingMode.DEEPSEEK_BASE &&
+      pricingMode !== ModelPricingMode.MANUAL
+    ) {
+      throw new BadRequestException('DeepSeek upstream routes must use manual or deepseek_base pricing');
     }
 
     if (kind === UpstreamProviderKind.RELAY && pricingMode !== ModelPricingMode.RELAY_PRICE) {
@@ -2086,7 +2314,7 @@ export class AdminService implements OnModuleInit {
 
   private normalizeModelName(value: unknown, field: string) {
     const model = this.requiredText(value, field, 2, 120);
-    if (!/^[a-zA-Z0-9._:/+-]+$/.test(model)) {
+    if (UNSUPPORTED_MODEL_NAME_CHARACTERS.test(model)) {
       throw new BadRequestException(`${field} contains unsupported characters`);
     }
 
@@ -2752,8 +2980,202 @@ export class AdminService implements OnModuleInit {
     };
   }
 
-  private startOfUtcDay(date: Date) {
-    return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  private async getUserFinanceMetrics(userIds: string[]) {
+    if (!userIds.length) {
+      return new Map<string, UserFinanceMetrics>();
+    }
+
+    const [usageGroups, rechargeGroups] = await Promise.all([
+      this.prisma.usageEvent.groupBy({
+        by: ['userId'],
+        where: { userId: { in: userIds } },
+        _sum: {
+          costCents: true,
+          promptTokens: true,
+          completionTokens: true,
+          totalTokens: true
+        },
+        _count: { _all: true },
+        _max: { createdAt: true }
+      }),
+      this.prisma.walletTransaction.groupBy({
+        by: ['userId'],
+        where: {
+          userId: { in: userIds },
+          type: WalletTransactionType.RECHARGE,
+          rechargeCodeId: { not: null }
+        },
+        _sum: { amountCents: true },
+        _count: { _all: true },
+        _max: { createdAt: true }
+      })
+    ]);
+
+    return this.buildUserFinanceMetrics(usageGroups, rechargeGroups);
+  }
+
+  private buildUserFinanceMetrics(
+    usageGroups: Array<{
+      userId: string;
+      _sum: {
+        costCents?: number | null;
+        promptTokens?: number | null;
+        completionTokens?: number | null;
+        totalTokens?: number | null;
+      } | null;
+      _count?: { _all?: number } | true;
+      _max?: { createdAt?: Date | null } | null;
+    }>,
+    rechargeGroups: Array<{
+      userId: string;
+      _sum: { amountCents?: number | null } | null;
+      _count?: { _all?: number } | true;
+      _max?: { createdAt?: Date | null } | null;
+    }>
+  ) {
+    const metricsByUserId = new Map<string, UserFinanceMetrics>();
+
+    for (const group of usageGroups) {
+      const metrics = this.ensureUserFinanceMetrics(metricsByUserId, group.userId);
+      metrics.spendCents = group._sum?.costCents ?? 0;
+      metrics.promptTokens = group._sum?.promptTokens ?? 0;
+      metrics.completionTokens = group._sum?.completionTokens ?? 0;
+      metrics.totalTokens = group._sum?.totalTokens ?? 0;
+      metrics.requestCount = this.groupCount(group);
+      metrics.lastUsedAt = group._max?.createdAt ?? null;
+    }
+
+    for (const group of rechargeGroups) {
+      const metrics = this.ensureUserFinanceMetrics(metricsByUserId, group.userId);
+      metrics.totalRechargeCents = group._sum?.amountCents ?? 0;
+      metrics.rechargeCount = this.groupCount(group);
+      metrics.lastRechargeAt = group._max?.createdAt ?? null;
+    }
+
+    return metricsByUserId;
+  }
+
+  private ensureUserFinanceMetrics(metricsByUserId: Map<string, UserFinanceMetrics>, userId: string) {
+    const existing = metricsByUserId.get(userId);
+    if (existing) {
+      return existing;
+    }
+
+    const metrics = this.emptyUserFinanceMetrics();
+    metricsByUserId.set(userId, metrics);
+    return metrics;
+  }
+
+  private emptyUserFinanceMetrics(): UserFinanceMetrics {
+    return {
+      totalRechargeCents: 0,
+      rechargeCount: 0,
+      lastRechargeAt: null,
+      spendCents: 0,
+      promptTokens: 0,
+      completionTokens: 0,
+      totalTokens: 0,
+      requestCount: 0,
+      lastUsedAt: null
+    };
+  }
+
+  private toAdminUser(
+    user: {
+      id: string;
+      username: string;
+      role: UserRole;
+      status: UserStatus;
+      timezone: string;
+      group: { id: string; code: string; name: string };
+      wallet: { balanceCents: number; totalSpendCents: number } | null;
+      lastLoginAt: Date | null;
+      createdAt: Date;
+    },
+    metricsInput?: UserFinanceMetrics
+  ) {
+    const metrics = metricsInput ?? this.emptyUserFinanceMetrics();
+
+    return {
+      id: user.id,
+      username: user.username,
+      role: user.role.toLowerCase(),
+      status: user.status.toLowerCase(),
+      timezone: user.timezone,
+      group: {
+        id: user.group.id,
+        code: user.group.code,
+        name: user.group.name
+      },
+      wallet: {
+        balanceCents: user.wallet?.balanceCents ?? 0,
+        totalSpendCents: user.wallet?.totalSpendCents ?? 0,
+        totalRechargeCents: metrics.totalRechargeCents
+      },
+      usage: {
+        spendCents: metrics.spendCents,
+        promptTokens: metrics.promptTokens,
+        completionTokens: metrics.completionTokens,
+        totalTokens: metrics.totalTokens,
+        requestCount: metrics.requestCount,
+        lastUsedAt: metrics.lastUsedAt?.toISOString() ?? null
+      },
+      recharge: {
+        totalCents: metrics.totalRechargeCents,
+        count: metrics.rechargeCount,
+        lastRechargedAt: metrics.lastRechargeAt?.toISOString() ?? null
+      },
+      lastLoginAt: user.lastLoginAt?.toISOString() ?? null,
+      createdAt: user.createdAt.toISOString()
+    };
+  }
+
+  private toUserStats(
+    user: {
+      id: string;
+      username: string;
+      role: UserRole;
+      status: UserStatus;
+      wallet: { balanceCents: number; totalSpendCents: number } | null;
+      lastLoginAt: Date | null;
+      createdAt: Date;
+    },
+    metricsInput?: UserFinanceMetrics
+  ) {
+    const metrics = metricsInput ?? this.emptyUserFinanceMetrics();
+
+    return {
+      id: user.id,
+      username: user.username,
+      role: user.role.toLowerCase(),
+      status: user.status.toLowerCase(),
+      wallet: {
+        balanceCents: user.wallet?.balanceCents ?? 0,
+        totalSpendCents: user.wallet?.totalSpendCents ?? 0,
+        totalRechargeCents: metrics.totalRechargeCents
+      },
+      usage: {
+        spendCents: metrics.spendCents,
+        promptTokens: metrics.promptTokens,
+        completionTokens: metrics.completionTokens,
+        totalTokens: metrics.totalTokens,
+        requestCount: metrics.requestCount,
+        lastUsedAt: metrics.lastUsedAt?.toISOString() ?? null
+      },
+      recharge: {
+        totalCents: metrics.totalRechargeCents,
+        count: metrics.rechargeCount,
+        lastRechargedAt: metrics.lastRechargeAt?.toISOString() ?? null
+      },
+      lastLoginAt: user.lastLoginAt?.toISOString() ?? null,
+      createdAt: user.createdAt.toISOString()
+    };
+  }
+
+  private startOfChinaDay(date: Date) {
+    const chinaOffsetMs = 8 * 60 * 60 * 1000;
+    const chinaTime = new Date(date.getTime() + chinaOffsetMs);
+    return new Date(Date.UTC(chinaTime.getUTCFullYear(), chinaTime.getUTCMonth(), chinaTime.getUTCDate()) - chinaOffsetMs);
   }
 
   private enumCountMap<T extends string>(

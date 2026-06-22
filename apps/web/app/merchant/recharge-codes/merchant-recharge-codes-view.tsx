@@ -19,12 +19,14 @@ import {
 import { logout } from '../../lib/auth-api';
 import { formatBillingUsd } from '../../lib/billing-format';
 
-const RECHARGE_RATE_CNY_CENTS = 800;
+const RECHARGE_RATE_CNY_CENTS = 100;
 const RECHARGE_RATE_BASE_TOKENS = 1_000_000;
+const EMPTY_RECHARGE_STATS = { total: 0, unused: 0, used: 0, disabled: 0 };
 
 export function MerchantRechargeCodesView({ username, role }: { username: string; role: string }) {
   const router = useRouter();
   const [codes, setCodes] = useState<AdminRechargeCode[]>([]);
+  const [codeStats, setCodeStats] = useState(EMPTY_RECHARGE_STATS);
   const [createdCodes, setCreatedCodes] = useState<CreatedRechargeCode[]>([]);
   const [amountCny, setAmountCny] = useState('10.00');
   const [count, setCount] = useState('1');
@@ -38,18 +40,6 @@ export function MerchantRechargeCodesView({ username, role }: { username: string
     void loadCodes();
   }, []);
 
-  const stats = useMemo(() => {
-    return codes.reduce(
-      (current, entry) => ({
-        total: current.total + 1,
-        unused: current.unused + (entry.status === 'unused' ? 1 : 0),
-        used: current.used + (entry.status === 'used' ? 1 : 0),
-        disabled: current.disabled + (entry.status === 'disabled' ? 1 : 0)
-      }),
-      { total: 0, unused: 0, used: 0, disabled: 0 }
-    );
-  }, [codes]);
-
   const estimatedBaseTokens = useMemo(() => {
     const cents = parseCurrencyToCentsOrNull(amountCny);
     return cents ? cnyCentsToBaseTokens(cents) : null;
@@ -62,6 +52,7 @@ export function MerchantRechargeCodesView({ username, role }: { username: string
     try {
       const result = await listRechargeCodes();
       setCodes(result.items);
+      setCodeStats(result.stats);
     } catch (nextError) {
       const nextMessage = nextError instanceof Error ? nextError.message : '充值码数据加载失败';
       setError(nextMessage);
@@ -90,6 +81,11 @@ export function MerchantRechargeCodesView({ username, role }: { username: string
       setCount('1');
       setMessage(`已生成 ${result.items.length} 张充值码，每张到账 ${formatBillingUsd(result.items[0]?.amountCents ?? 0)}`);
       await loadCodes();
+      router.replace('/merchant/recharge-codes?created=1');
+      router.refresh();
+      window.setTimeout(() => {
+        document.getElementById('merchant-recharge-created')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 0);
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : '充值码生成失败');
     } finally {
@@ -106,6 +102,11 @@ export function MerchantRechargeCodesView({ username, role }: { username: string
       await disableRechargeCode(codeId);
       setMessage('未使用充值码已禁用');
       await loadCodes();
+      router.replace('/merchant/recharge-codes?disabled=1');
+      router.refresh();
+      window.setTimeout(() => {
+        document.getElementById('merchant-recharge-list')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 0);
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : '充值码禁用失败');
     } finally {
@@ -138,7 +139,7 @@ export function MerchantRechargeCodesView({ username, role }: { username: string
           <div>
             <p className="eyebrow">商家工作台</p>
             <h1>充值码管理</h1>
-            <small>按人民币生成充值码，用户兑换后得到美元余额；页面上的 token 只用于展示实际用量。</small>
+            <small>按人民币生成充值码，用户兑换后得到人民币余额；页面上的 token 只用于展示实际用量。</small>
           </div>
           <button className="icon-button" disabled={isLoading} onClick={() => void loadCodes()} title="刷新充值码" type="button">
             <ReloadOutlined />
@@ -149,10 +150,10 @@ export function MerchantRechargeCodesView({ username, role }: { username: string
         {message ? <p className="form-success">{message}</p> : null}
 
         <section className="admin-metrics">
-          <MetricPanel label="充值码总数" value={formatNumber(stats.total)} detail="最近 100 条真实记录" />
-          <MetricPanel label="未使用" value={formatNumber(stats.unused)} detail="可兑换余额" tone="green" />
-          <MetricPanel label="已使用" value={formatNumber(stats.used)} detail="已完成入账" />
-          <MetricPanel label="已禁用" value={formatNumber(stats.disabled)} detail="不可再兑换" tone="red" />
+          <MetricPanel label="充值码总数" value={formatNumber(codeStats.total)} detail="数据库全量统计" />
+          <MetricPanel label="未使用" value={formatNumber(codeStats.unused)} detail="可兑换余额" tone="green" />
+          <MetricPanel label="已使用" value={formatNumber(codeStats.used)} detail="已完成入账" />
+          <MetricPanel label="已禁用" value={formatNumber(codeStats.disabled)} detail="不可再兑换" tone="red" />
         </section>
 
         <section className="admin-panel">
@@ -165,7 +166,7 @@ export function MerchantRechargeCodesView({ username, role }: { username: string
               金额（人民币）
               <input
                 min="0.01"
-                max="1000000"
+                max="2000"
                 onChange={(event) => setAmountCny(event.target.value)}
                 required
                 step="0.01"
@@ -195,7 +196,7 @@ export function MerchantRechargeCodesView({ username, role }: { username: string
           </form>
 
           {createdCodes.length ? (
-            <div className="one-time-key-box recharge-code-box">
+            <div className="one-time-key-box recharge-code-box" id="merchant-recharge-created">
               <div>
                 <strong>本次生成，仅显示一次</strong>
                 {createdCodes.map((entry) => (
@@ -215,7 +216,7 @@ export function MerchantRechargeCodesView({ username, role }: { username: string
             <GiftOutlined />
             <h2>充值码状态</h2>
           </div>
-          <div className="admin-table-wrap compact-table">
+          <div className="admin-table-wrap compact-table" id="merchant-recharge-list">
             <table className="admin-table recharge-code-table">
               <thead>
                 <tr>

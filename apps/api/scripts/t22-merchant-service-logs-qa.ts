@@ -42,16 +42,6 @@ type LoginResponse = {
   };
 };
 
-type ServiceStatusResponse = {
-  summary: {
-    totalComponents: number;
-    requiredComponents: number;
-    activeUpstreams: number;
-  };
-  components: unknown[];
-  upstreams: unknown[];
-};
-
 type AdminRequestLogsResponse = {
   items: Array<{
     requestId: string;
@@ -134,29 +124,18 @@ async function main() {
     userCookie = userLogin.cookie;
     checks.push('ordinary_login_uses_real_http_session');
 
-    const status = await get<ServiceStatusResponse>('/service-status');
-    assert(status.status === 200, `service status failed with ${status.status}`);
-    assert(status.json.summary.totalComponents >= 1, 'service status should include real component probes');
-    assert(status.json.components.length >= 1, 'service status should include real component rows');
-    checks.push('service_status_uses_real_probe_response');
-
-    await assertMerchantPageAccess('/merchant/service-status', merchantCookie, userCookie, [
-      'merchant-shell-page',
-      '服务状态',
-      '平台组件',
-      '上游状态'
-    ]);
     await assertMerchantPageAccess('/merchant/request-logs', merchantCookie, userCookie, [
       'merchant-shell-page',
       '请求日志',
       '请求明细'
     ]);
-    await assertMerchantPageAccess('/merchant/drawing-logs', merchantCookie, userCookie, [
-      'merchant-shell-page',
-      '绘图日志',
-      '绘图明细'
-    ]);
-    checks.push('merchant_service_request_and_drawing_pages_render_and_ordinary_user_redirects');
+    const noCookieDrawingLogsPage = await getWebPage('/merchant/drawing-logs');
+    assertRedirect(noCookieDrawingLogsPage, '/login', 'unauthenticated removed merchant drawing logs page');
+    const ordinaryDrawingLogsPage = await getWebPage('/merchant/drawing-logs', userCookie);
+    assertRedirect(ordinaryDrawingLogsPage, '/account/profile', 'ordinary user removed merchant drawing logs page');
+    const merchantDrawingLogsPage = await getWebPage('/merchant/drawing-logs', merchantCookie);
+    assertRedirect(merchantDrawingLogsPage, '/merchant', 'merchant removed merchant drawing logs page');
+    checks.push('merchant_request_page_renders_and_removed_drawing_page_redirects');
 
     const userAdminRequestLogs = await get('/admin/request-logs?limit=20', userCookie);
     assert(userAdminRequestLogs.status === 403, `ordinary user reading admin request logs should be 403, got ${userAdminRequestLogs.status}`);
@@ -180,20 +159,18 @@ async function main() {
     assert(!imageText.includes(seeded.genericExternalTaskId), 'image task list leaked generic async task');
     assert(imageTasks.json.items.every((entry) => entry.kind === 'image'), 'image task list should only include image kind');
     assert(imageTasks.json.capabilities.imageSubmissionSupported === false, 'image submission capability should remain false until real upstream is connected');
-    checks.push('merchant_drawing_logs_show_only_real_image_kind_rows');
+    checks.push('merchant_image_task_api_retains_only_real_image_kind_rows');
 
     const userImageTasks = await get<AdminImageTasksResponse>('/async-tasks?kind=image&limit=50', userCookie);
     assert(userImageTasks.status === 200, `user image tasks failed with ${userImageTasks.status}`);
     const userImageText = JSON.stringify(userImageTasks.json);
     assert(userImageText.includes(seeded.imageExternalTaskId), 'user image logs should include own image task');
     assert(!userImageText.includes(seeded.genericExternalTaskId), 'user image logs leaked generic task');
-    checks.push('ordinary_user_image_log_scope_remains_compatible');
+    checks.push('ordinary_user_image_task_api_scope_remains_compatible');
 
     const userLogPage = await getWebPage('/log', userCookie);
     assert(userLogPage.status === 200, `ordinary user log page should render, got ${userLogPage.status}`);
-    const userServicePage = await getWebPage('/uptimeStatus', userCookie);
-    assert(userServicePage.status === 200, `ordinary user service page should render, got ${userServicePage.status}`);
-    checks.push('ordinary_user_log_and_service_pages_still_render');
+    checks.push('ordinary_user_log_page_still_renders');
 
     residualBefore = await countResidual();
     assert(residualBefore.users >= 2, `expected seeded users before cleanup, got ${residualBefore.users}`);

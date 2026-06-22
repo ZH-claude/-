@@ -224,7 +224,7 @@ async function main() {
     blockedUpstreamProviderIds: string[];
   } = {
     groupId: '',
-    modelName: `${prefix}_model`,
+    modelName: `${prefix}_model 低消耗`,
     upstreamProviderId: '',
     upstreamModelId: '',
     upstreamProviderName: `${prefix}_provider`,
@@ -695,8 +695,8 @@ async function main() {
       `/pricing/models should expose active route output pricing, got ${visiblePricingModel.outputPriceCentsPer1k}`
     );
     assert(
-      Number(visiblePricingModel.modelMultiplier) === 4,
-      `/pricing/models should expose active route multiplier, got ${visiblePricingModel.modelMultiplier}`
+      Number(visiblePricingModel.modelMultiplier) === 1,
+      `/pricing/models should expose active route multiplier as inert, got ${visiblePricingModel.modelMultiplier}`
     );
     assert(pricing.json.group.code === `${prefix}_group`, 'pricing group code should be the created group');
     checks.push('user_visible_models_reflect_real_route_pricing_after_assignment');
@@ -714,8 +714,8 @@ async function main() {
       `/auth/me should expose active route output pricing, got ${authVisibleModel.outputPriceCentsPer1k}`
     );
     assert(
-      Number(authVisibleModel.modelMultiplier) === 4,
-      `/auth/me should expose active route multiplier, got ${authVisibleModel.modelMultiplier}`
+      Number(authVisibleModel.modelMultiplier) === 1,
+      `/auth/me should expose active route multiplier as inert, got ${authVisibleModel.modelMultiplier}`
     );
     checks.push('user_auth_me_shows_real_available_models_with_route_pricing');
 

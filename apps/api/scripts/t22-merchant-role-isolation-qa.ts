@@ -89,9 +89,7 @@ const merchantPages: WebPageCheck[] = [
   { path: '/merchant/model-routes', markers: ['merchant-shell-page', '模型映射（上游线路）'] },
   { path: '/merchant/announcements', markers: ['merchant-shell-page', '公告'] },
   { path: '/merchant/audit', markers: ['merchant-shell-page', '审计'] },
-  { path: '/merchant/service-status', markers: ['merchant-shell-page', '服务状态'] },
-  { path: '/merchant/request-logs', markers: ['merchant-shell-page', '请求日志'] },
-  { path: '/merchant/drawing-logs', markers: ['merchant-shell-page', '绘图日志'] }
+  { path: '/merchant/request-logs', markers: ['merchant-shell-page', '请求日志'] }
 ];
 
 const userPages: WebPageCheck[] = [
@@ -100,9 +98,7 @@ const userPages: WebPageCheck[] = [
   { path: '/token', markers: ['console-shell-page', '令牌'] },
   { path: '/log', markers: ['console-shell-page', '日志'] },
   { path: '/account/pricing', markers: ['console-shell-page', '费用'] },
-  { path: '/account/notificationSettings', markers: ['console-shell-page', '通知'] },
-  { path: '/midjourney', markers: ['console-shell-page', '绘图'] },
-  { path: '/uptimeStatus', markers: ['console-shell-page', '服务'] }
+  { path: '/account/notificationSettings', markers: ['console-shell-page', '通知'] }
 ];
 
 const merchantApiChecks: ApiCheck[] = [
@@ -145,8 +141,7 @@ const userApiChecks: ApiCheck[] = [
   { method: 'GET', path: '/usage/logs' },
   { method: 'GET', path: '/pricing/models' },
   { method: 'GET', path: '/notifications/settings' },
-  { method: 'GET', path: '/async-tasks?kind=image' },
-  { method: 'GET', path: '/service-status' }
+  { method: 'GET', path: '/async-tasks?kind=image' }
 ];
 
 async function main() {
@@ -197,7 +192,19 @@ async function main() {
     assertRedirect(ordinaryRemovedGroupPage, '/account/profile', 'ordinary user removed group page redirect');
     const merchantRemovedGroupPage = await getWebPage('/groupAvailability', merchantCookie);
     assertRedirect(merchantRemovedGroupPage, '/merchant', 'merchant removed group page redirect');
-    checks.push('removed_group_and_legacy_admin_pages_redirect_to_correct_sites');
+    const ordinaryRemovedMidjourneyPage = await getWebPage('/midjourney', userCookie);
+    assertRedirect(ordinaryRemovedMidjourneyPage, '/account/profile', 'ordinary user removed drawing page redirect');
+    const merchantRemovedMidjourneyPage = await getWebPage('/midjourney', merchantCookie);
+    assertRedirect(merchantRemovedMidjourneyPage, '/merchant', 'merchant removed drawing page redirect');
+    const ordinaryRemovedTaskPage = await getWebPage('/task', userCookie);
+    assertRedirect(ordinaryRemovedTaskPage, '/account/profile', 'ordinary user removed task page redirect');
+    const merchantRemovedTaskPage = await getWebPage('/task', merchantCookie);
+    assertRedirect(merchantRemovedTaskPage, '/merchant', 'merchant removed task page redirect');
+    const ordinaryRemovedDrawingLogsPage = await getWebPage('/merchant/drawing-logs', userCookie);
+    assertRedirect(ordinaryRemovedDrawingLogsPage, '/account/profile', 'ordinary user removed merchant drawing logs page redirect');
+    const merchantRemovedDrawingLogsPage = await getWebPage('/merchant/drawing-logs', merchantCookie);
+    assertRedirect(merchantRemovedDrawingLogsPage, '/merchant', 'merchant removed merchant drawing logs page redirect');
+    checks.push('removed_group_drawing_task_and_legacy_admin_pages_redirect_to_correct_sites');
 
     for (const page of userPages) {
       await assertUserPageRenders(page, userCookie);

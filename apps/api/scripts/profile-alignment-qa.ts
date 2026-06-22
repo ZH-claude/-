@@ -4,7 +4,6 @@ import {
   ApiTokenStatus,
   ModelStatus,
   PrismaClient,
-  ReferralRewardStatus,
   UpstreamHealthStatus,
   UpstreamProviderStatus,
   UsageEventStatus
@@ -22,19 +21,11 @@ type ProfileResponse = {
   user: {
     id: string;
     username: string;
-    inviteCode: string;
     timezone: string;
     lastLoginIp: string | null;
     metrics: {
       totalCallCount: number;
       activeTokenCount: number;
-    };
-    referral: {
-      invitedUserCount: number;
-      pendingRewardCents: number;
-      pendingRewardCount: number;
-      settledRewardCents: number;
-      settledRewardCount: number;
     };
     availableModels: Array<{
       model: string;
@@ -74,8 +65,7 @@ const checks: string[] = [];
 
 async function main() {
   try {
-    const inviter = await register(`${prefix}_inviter`);
-    const invitee = await register(`${prefix}_invitee`, inviter.json.user.inviteCode);
+    const user = await register(`${prefix}_user`);
 
     const group = await prisma.userGroup.create({
       data: {
@@ -84,47 +74,22 @@ async function main() {
         multiplier: '1.7500'
       }
     });
-    await prisma.user.update({ where: { id: inviter.json.user.id }, data: { groupId: group.id } });
-    await prisma.user.update({ where: { id: invitee.json.user.id }, data: { groupId: group.id } });
+    await prisma.user.update({ where: { id: user.json.user.id }, data: { groupId: group.id } });
 
-    const seeded = await seedModelAndUsage(inviter.json.user.id, group.id);
-    await prisma.referralReward.createMany({
-      data: [
-        {
-          inviterUserId: inviter.json.user.id,
-          inviteeUserId: invitee.json.user.id,
-          amountCents: 123,
-          status: ReferralRewardStatus.PENDING,
-          source: `${prefix}_pending`
-        },
-        {
-          inviterUserId: inviter.json.user.id,
-          inviteeUserId: invitee.json.user.id,
-          amountCents: 456,
-          status: ReferralRewardStatus.SETTLED,
-          source: `${prefix}_settled`,
-          settledAt: new Date()
-        }
-      ]
-    });
+    const seeded = await seedModelAndUsage(user.json.user.id, group.id);
 
     const unauthenticated = await get<ProfileResponse>('/auth/me');
     assert(unauthenticated.status === 401, `unauthenticated profile should be 401, got ${unauthenticated.status}`);
     checks.push('unauthenticated_profile_is_rejected');
 
-    const profile = await get<ProfileResponse>('/auth/me', inviter.cookie);
+    const profile = await get<ProfileResponse>('/auth/me', user.cookie);
     assert(profile.status === 200, `profile request failed with ${profile.status}`);
-    assert(profile.json.user.username === `${prefix}_inviter`, 'profile username mismatch');
+    assert(profile.json.user.username === `${prefix}_user`, 'profile username mismatch');
     assert(profile.json.user.metrics.totalCallCount === 2, 'profile totalCallCount did not come from usage_events');
     assert(
       profile.json.user.metrics.activeTokenCount === 1,
       'profile activeTokenCount did not exclude expired api_tokens'
     );
-    assert(profile.json.user.referral.invitedUserCount === 1, 'profile invitedUserCount did not come from invited users');
-    assert(profile.json.user.referral.pendingRewardCents === 123, 'profile pendingRewardCents did not come from referral_rewards');
-    assert(profile.json.user.referral.settledRewardCents === 456, 'profile settledRewardCents did not come from referral_rewards');
-    assert(profile.json.user.referral.pendingRewardCount === 1, 'profile pendingRewardCount mismatch');
-    assert(profile.json.user.referral.settledRewardCount === 1, 'profile settledRewardCount mismatch');
     checks.push('profile_metrics_reflect_real_database_rows');
 
     const profileModel = profile.json.user.availableModels.find((model) => model.model === modelName);
@@ -137,17 +102,17 @@ async function main() {
     assert(profileModel!.supportsStream === true, 'profile model stream capability mismatch');
     checks.push('profile_models_reflect_real_model_catalog');
 
-    const timezone = await post<ProfileResponse>('/auth/timezone', { timezone: 'Asia/Shanghai' }, inviter.cookie);
+    const timezone = await post<ProfileResponse>('/auth/timezone', { timezone: 'Asia/Shanghai' }, user.cookie);
     assert(timezone.status === 201 || timezone.status === 200, `timezone update failed with ${timezone.status}`);
     assert(timezone.json.user.timezone === 'Asia/Shanghai', 'timezone response did not update');
     const savedTimezone = await prisma.user.findUniqueOrThrow({
-      where: { id: inviter.json.user.id },
+      where: { id: user.json.user.id },
       select: { timezone: true }
     });
     assert(savedTimezone.timezone === 'Asia/Shanghai', 'timezone was not persisted to users table');
     const timezoneAudit = await prisma.securityAuditLog.count({
       where: {
-        actorUserId: inviter.json.user.id,
+        actorUserId: user.json.user.id,
         action: 'user_timezone_updated'
       }
     });
@@ -187,8 +152,8 @@ async function main() {
   }
 }
 
-async function register(username: string, inviteCode?: string) {
-  const result = await post<ProfileResponse>('/auth/register', { username, password, inviteCode });
+async function register(username: string) {
+  const result = await post<ProfileResponse>('/auth/register', { username, password });
   assert(result.status >= 200 && result.status < 300, `register ${username} failed with ${result.status}`);
   assert(result.cookie, `register ${username} did not return a session cookie`);
   return result;
@@ -360,11 +325,6 @@ async function countResidual() {
     wallets: await prisma.wallet.count({ where: { userId: { in: userIds } } }),
     api_tokens: tokenIds.length,
     usage_events: usageIds.length,
-    referral_rewards: await prisma.referralReward.count({
-      where: {
-        OR: [{ inviterUserId: { in: userIds } }, { inviteeUserId: { in: userIds } }]
-      }
-    }),
     security_audit_logs: await prisma.securityAuditLog.count({ where: { actorUserId: { in: userIds } } }),
     model_prices: modelPrices.length,
     model_group_accesses: await prisma.modelGroupAccess.count({
@@ -418,11 +378,6 @@ async function cleanup() {
     })
   ).map((event) => event.id);
 
-  await prisma.referralReward.deleteMany({
-    where: {
-      OR: [{ inviterUserId: { in: userIds } }, { inviteeUserId: { in: userIds } }]
-    }
-  });
   await prisma.securityAuditLog.deleteMany({ where: { actorUserId: { in: userIds } } });
   await prisma.walletTransaction.deleteMany({ where: { usageEventId: { in: usageIds } } });
   await prisma.usageEvent.deleteMany({ where: { id: { in: usageIds } } });

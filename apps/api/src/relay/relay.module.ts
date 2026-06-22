@@ -11,6 +11,7 @@ import { RelayService } from './relay.service';
 @Module({
   imports: [BillingModule, TokensModule, RequestLogsModule],
   controllers: [RelayController],
-  providers: [RelayService, RelayPolicyService, PrismaService, ModelCatalogService]
+  providers: [RelayService, RelayPolicyService, PrismaService, ModelCatalogService],
+  exports: [RelayService]
 })
 export class RelayModule {}

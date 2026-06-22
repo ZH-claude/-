@@ -37,14 +37,24 @@ export function MerchantUsersView({ username, role }: { username: string; role: 
   });
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
-  const [message, setMessage] = useState('');
 
   useEffect(() => {
     void loadData(1);
   }, []);
 
-  const activeUsers = useMemo(() => users.filter((entry) => entry.status === 'active').length, [users]);
-  const disabledUsers = useMemo(() => users.filter((entry) => entry.status !== 'active').length, [users]);
+  const pageTotals = useMemo(
+    () =>
+      users.reduce(
+        (totals, user) => ({
+          rechargeCents: totals.rechargeCents + (user.recharge?.totalCents ?? user.wallet.totalRechargeCents ?? 0),
+          spendCents: totals.spendCents + (user.usage?.spendCents ?? user.wallet.totalSpendCents ?? 0),
+          totalTokens: totals.totalTokens + (user.usage?.totalTokens ?? 0),
+          requestCount: totals.requestCount + (user.usage?.requestCount ?? 0)
+        }),
+        { rechargeCents: 0, spendCents: 0, totalTokens: 0, requestCount: 0 }
+      ),
+    [users]
+  );
 
   async function loadData(page = pagination.page) {
     setIsLoading(true);
@@ -88,9 +98,9 @@ export function MerchantUsersView({ username, role }: { username: string; role: 
         <div className="admin-heading merchant-dashboard-heading">
           <div>
             <p className="eyebrow">商家工作台</p>
-            <h1>用户管理</h1>
+            <h1>用户统计</h1>
             <small>
-              每页 {pagination.limit} 条，共 {pagination.total} 个真实用户；余额和状态来自真实数据库。
+              每页 {pagination.limit} 条，共 {pagination.total} 个真实用户；充值、消费和 token 都来自数据库聚合。
             </small>
           </div>
           <button className="icon-button" disabled={isLoading} onClick={() => void loadData()} title="刷新用户列表" type="button">
@@ -99,12 +109,12 @@ export function MerchantUsersView({ username, role }: { username: string; role: 
         </div>
 
         {error ? <p className="form-error">{error}</p> : null}
-        {message ? <p className="form-success">{message}</p> : null}
 
         <section className="admin-metrics">
           <MetricPanel label="用户总数" value={formatNumber(pagination.total)} detail="未删除用户" />
-          <MetricPanel label="本页活跃" value={formatNumber(activeUsers)} detail="当前页 active 用户" tone="green" />
-          <MetricPanel label="本页非活跃" value={formatNumber(disabledUsers)} detail="禁用或风控用户" tone="red" />
+          <MetricPanel label="本页兑换充值" value={formatBillingUsd(pageTotals.rechargeCents)} detail="按兑换码充值流水" tone="green" />
+          <MetricPanel label="本页消费金额" value={formatBillingUsd(pageTotals.spendCents)} detail={`${formatNumber(pageTotals.requestCount)} 条用量记录`} tone="red" />
+          <MetricPanel label="本页 Token" value={formatNumber(pageTotals.totalTokens)} detail="输入 + 输出 token" />
         </section>
 
         <section className="admin-panel">
@@ -117,10 +127,12 @@ export function MerchantUsersView({ username, role }: { username: string; role: 
               <thead>
                 <tr>
                   <th>用户</th>
-                  <th>角色</th>
                   <th>状态</th>
-                  <th>客户余额 / 累计扣费</th>
-                  <th>上次登录</th>
+                  <th>兑换充值</th>
+                  <th>消费金额</th>
+                  <th>Token 消耗</th>
+                  <th>请求数 / 最近调用</th>
+                  <th>当前余额 / 上次登录</th>
                 </tr>
               </thead>
               <tbody>
@@ -136,25 +148,35 @@ export function MerchantUsersView({ username, role }: { username: string; role: 
                       </div>
                     </td>
                     <td>
-                      <span className={`status-pill ${user.role === 'admin' ? 'status-pill-warning' : 'status-pill-muted'}`}>
-                        {user.role}
-                      </span>
-                    </td>
-                    <td>
                       <span className={`status-pill ${getUserStatusClass(user.status)}`}>
                         {user.status}
                       </span>
+                      <small className="table-note">{user.role}</small>
+                    </td>
+                    <td>
+                      {formatBillingUsd(user.recharge?.totalCents ?? user.wallet.totalRechargeCents ?? 0)}
+                      <small className="table-note">{formatNumber(user.recharge?.count ?? 0)} 次兑换</small>
+                    </td>
+                    <td>{formatBillingUsd(user.usage?.spendCents ?? user.wallet.totalSpendCents ?? 0)}</td>
+                    <td>
+                      {formatNumber(user.usage?.totalTokens ?? 0)}
+                      <small className="table-note">
+                        输入 {formatNumber(user.usage?.promptTokens ?? 0)} / 输出 {formatNumber(user.usage?.completionTokens ?? 0)}
+                      </small>
+                    </td>
+                    <td>
+                      {formatNumber(user.usage?.requestCount ?? 0)}
+                      <small className="table-note">{formatOptionalDate(user.usage?.lastUsedAt ?? null)}</small>
                     </td>
                     <td>
                       {formatBillingUsd(user.wallet.balanceCents)}
-                      <small className="table-note">累计 {formatBillingUsd(user.wallet.totalSpendCents ?? 0)}</small>
+                      <small className="table-note">{formatOptionalDate(user.lastLoginAt)}</small>
                     </td>
-                    <td>{formatOptionalDate(user.lastLoginAt)}</td>
                   </tr>
                 ))}
                 {!users.length && !isLoading ? (
                   <tr>
-                    <td colSpan={5}>暂无真实用户记录</td>
+                    <td colSpan={7}>暂无真实用户记录</td>
                   </tr>
                 ) : null}
               </tbody>

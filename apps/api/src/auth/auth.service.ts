@@ -6,7 +6,7 @@ import {
   Injectable,
   UnauthorizedException
 } from '@nestjs/common';
-import { ApiTokenStatus, Prisma, ReferralRewardStatus, UserStatus } from '../generated/prisma/client';
+import { ApiTokenStatus, Prisma, UserStatus } from '../generated/prisma/client';
 import bcrypt from 'bcryptjs';
 import { createHash, randomBytes } from 'node:crypto';
 import { ModelCatalogService } from '../model-catalog.service';
@@ -17,7 +17,6 @@ import { AuthContext, AuthenticatedUser } from './auth.types';
 type RegisterInput = {
   username?: unknown;
   password?: unknown;
-  inviteCode?: unknown;
 };
 
 type LoginInput = {
@@ -52,18 +51,6 @@ export class AuthService {
   async register(input: RegisterInput, ipAddress?: string) {
     const username = this.normalizeUsername(input.username);
     const password = this.validatePassword(input.password, 'password');
-    const inviteCode = this.optionalString(input.inviteCode);
-
-    if (inviteCode) {
-      const inviter = await this.prisma.user.findFirst({
-        where: { inviteCode, deletedAt: null, status: UserStatus.ACTIVE },
-        select: { id: true }
-      });
-
-      if (!inviter) {
-        throw new BadRequestException('邀请码无效');
-      }
-    }
 
     const passwordHash = await bcrypt.hash(password, PASSWORD_HASH_ROUNDS);
 
@@ -78,19 +65,11 @@ export class AuthService {
           }
         });
 
-        const inviter = inviteCode
-          ? await tx.user.findFirst({
-              where: { inviteCode, deletedAt: null, status: UserStatus.ACTIVE },
-              select: { id: true }
-            })
-          : null;
-
         const createdUser = await tx.user.create({
           data: {
             username,
             passwordHash,
             groupId: group.id,
-            invitedByUserId: inviter?.id,
             inviteCode: this.createInviteCode(),
             lastLoginAt: new Date(),
             lastLoginIp: ipAddress
@@ -111,8 +90,7 @@ export class AuthService {
           targetId: createdUser.id,
           ipAddress,
           metadata: {
-            username: createdUser.username,
-            invited: Boolean(inviter?.id)
+            username: createdUser.username
           }
         });
 
@@ -369,18 +347,6 @@ export class AuthService {
     return value;
   }
 
-  private optionalString(value: unknown) {
-    if (value === undefined || value === null || value === '') {
-      return undefined;
-    }
-
-    if (typeof value !== 'string') {
-      throw new BadRequestException('邀请码格式错误');
-    }
-
-    return value.trim();
-  }
-
   private createInviteCode() {
     return randomBytes(4).toString('hex');
   }
@@ -395,7 +361,6 @@ export class AuthService {
       username: user.username,
       status: user.status.toLowerCase(),
       role: user.role.toLowerCase(),
-      inviteCode: user.inviteCode,
       timezone: user.timezone,
       lastLoginIp: user.lastLoginIp ?? null,
       lastLoginAt: user.lastLoginAt?.toISOString() ?? null,
@@ -413,59 +378,29 @@ export class AuthService {
   }
 
   private async toPublicUserWithModels(user: AuthenticatedUser) {
-    const [availableModels, totalCallCount, activeTokenCount, invitedUserCount, pendingReward, settledReward] =
-      await Promise.all([
-        this.modelCatalogService.listAvailableModelsForGroup(user.group.id),
-        this.prisma.usageEvent.count({
-          where: {
-            userId: user.id
-          }
-        }),
-        this.prisma.apiToken.count({
-          where: {
-            userId: user.id,
-            deletedAt: null,
-            revokedAt: null,
-            status: ApiTokenStatus.ACTIVE,
-            OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }]
-          }
-        }),
-        this.prisma.user.count({
-          where: {
-            invitedByUserId: user.id,
-            deletedAt: null
-          }
-        }),
-        this.prisma.referralReward.aggregate({
-          where: {
-            inviterUserId: user.id,
-            status: ReferralRewardStatus.PENDING
-          },
-          _sum: { amountCents: true },
-          _count: { _all: true }
-        }),
-        this.prisma.referralReward.aggregate({
-          where: {
-            inviterUserId: user.id,
-            status: ReferralRewardStatus.SETTLED
-          },
-          _sum: { amountCents: true },
-          _count: { _all: true }
-        })
-      ]);
+    const [availableModels, totalCallCount, activeTokenCount] = await Promise.all([
+      this.modelCatalogService.listAvailableModelsForGroup(user.group.id),
+      this.prisma.usageEvent.count({
+        where: {
+          userId: user.id
+        }
+      }),
+      this.prisma.apiToken.count({
+        where: {
+          userId: user.id,
+          deletedAt: null,
+          revokedAt: null,
+          status: ApiTokenStatus.ACTIVE,
+          OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }]
+        }
+      })
+    ]);
 
     return {
       ...this.toPublicUser(user),
       metrics: {
         totalCallCount,
         activeTokenCount
-      },
-      referral: {
-        invitedUserCount,
-        pendingRewardCents: pendingReward._sum.amountCents ?? 0,
-        pendingRewardCount: pendingReward._count._all,
-        settledRewardCents: settledReward._sum.amountCents ?? 0,
-        settledRewardCount: settledReward._count._all
       },
       availableModels
     };

@@ -2,15 +2,11 @@
 
 import {
   ApiOutlined,
-  BellOutlined,
-  CloudServerOutlined,
-  ExperimentOutlined,
-  FileTextOutlined,
   GiftOutlined,
   HomeOutlined,
   LogoutOutlined,
-  PictureOutlined,
   ReloadOutlined,
+  ShoppingOutlined,
   TeamOutlined
 } from '@ant-design/icons';
 import Link from 'next/link';
@@ -27,17 +23,10 @@ type NavigationItem = {
 
 const merchantNavigationItems: NavigationItem[] = [
   { href: '/merchant', label: '商家首页', icon: <HomeOutlined />, topbar: true },
-  { href: '/merchant/users', label: '用户管理', icon: <TeamOutlined />, topbar: true },
+  { href: '/merchant/users', label: '用户统计', icon: <TeamOutlined />, topbar: true },
   { href: '/merchant/recharge-codes', label: '充值码', icon: <GiftOutlined />, topbar: true },
-  { href: '/merchant/model-config', label: '模型发布', icon: <ApiOutlined />, topbar: true },
-  { href: '/merchant/upstreams/deepseek', label: 'DeepSeek 上游', icon: <ExperimentOutlined />, topbar: true },
-  { href: '/merchant/upstreams/relay', label: '中转站上游', icon: <CloudServerOutlined />, topbar: true },
-  { href: '/merchant/model-routes', label: '模型映射', icon: <ApiOutlined />, topbar: true },
-  { href: '/merchant/request-logs', label: '请求日志', icon: <FileTextOutlined /> },
-  { href: '/merchant/drawing-logs', label: '绘图日志', icon: <PictureOutlined /> },
-  { href: '/merchant/announcements', label: '公告', icon: <BellOutlined />, topbar: true },
-  { href: '/merchant/audit', label: '审计', icon: <FileTextOutlined />, topbar: true },
-  { href: '/merchant/service-status', label: '服务状态', icon: <CloudServerOutlined />, topbar: true }
+  { href: '/merchant/model-config', label: '模型管理', icon: <ApiOutlined />, topbar: true },
+  { href: '/merchant/ai-recharge', label: 'AI代充', icon: <ShoppingOutlined />, topbar: true }
 ];
 
 export function MerchantShell({
@@ -216,6 +205,10 @@ function isActive(activePath: string, activeHash: string, href: string) {
 
   if (itemPath === '/merchant') {
     return activePath === '/merchant';
+  }
+
+  if (itemPath === '/merchant/model-config' && activePath === '/merchant/model-routes') {
+    return true;
   }
 
   return activePath === itemPath || activePath.startsWith(`${itemPath}/`);

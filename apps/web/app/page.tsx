@@ -2,12 +2,12 @@
 
 import {
   ApiOutlined,
+  AppstoreOutlined,
   BellOutlined,
-  CloudServerOutlined,
   CreditCardOutlined,
   FileTextOutlined,
   KeyOutlined,
-  PictureOutlined
+  MessageOutlined
 } from '@ant-design/icons';
 import { Alert, Card, Col, Empty, List, Row, Space, Spin, Statistic, Typography } from 'antd';
 import Link from 'next/link';
@@ -17,12 +17,11 @@ import { listPublishedAnnouncements } from './lib/announcements-api';
 import type { AnnouncementFeedResponse, AnnouncementSection } from './lib/announcements-api';
 
 const documentEntries = [
+  { title: '模型广场', href: '/pricing', icon: <AppstoreOutlined /> },
+  { title: '模型体验', href: '/experience', icon: <MessageOutlined /> },
   { title: '令牌管理', href: '/token', icon: <KeyOutlined /> },
-  { title: '费用说明', href: '/pricing', icon: <CreditCardOutlined /> },
   { title: '调用日志', href: '/log', icon: <FileTextOutlined /> },
-  { title: '绘图', href: '/midjourney', icon: <PictureOutlined /> },
   { title: '余额充值', href: '/account/topup/recharge', icon: <CreditCardOutlined /> },
-  { title: '服务状态', href: '/uptimeStatus', icon: <CloudServerOutlined /> },
   { title: '通知设置', href: '/account/notificationSettings', icon: <BellOutlined /> }
 ];
 

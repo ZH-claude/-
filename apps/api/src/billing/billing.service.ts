@@ -4,6 +4,8 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma.service';
 import { canStartUsageWithEstimatedCost } from './balance-guard';
 import { BILLING_FORMULA } from './billing.constants';
+import { DEFAULT_USD_TO_CNY_RATE, USD_UNITS_PER_USD } from './token-pricing';
+import { BASE_TOKEN_UNITS_PER_CNY } from './token-units';
 
 export type BillableModel = {
   model: string;
@@ -298,12 +300,14 @@ export class BillingService {
   }
 
   private calculateCostCents(usage: NormalizedUsage, model: BillableModel) {
-    const inputCost = new Prisma.Decimal(usage.promptTokens).mul(model.inputPriceCentsPer1k).div(1000);
-    const outputCost = new Prisma.Decimal(usage.completionTokens).mul(model.outputPriceCentsPer1k).div(1000);
-    const total = inputCost
-      .plus(outputCost)
-      .mul(new Prisma.Decimal(model.modelMultiplier))
+    const inputUsdUnits = new Prisma.Decimal(usage.promptTokens).mul(model.inputPriceCentsPer1k).div(1000);
+    const outputUsdUnits = new Prisma.Decimal(usage.completionTokens).mul(model.outputPriceCentsPer1k).div(1000);
+    const total = inputUsdUnits
+      .plus(outputUsdUnits)
       .mul(new Prisma.Decimal(model.groupMultiplier))
+      .mul(new Prisma.Decimal(DEFAULT_USD_TO_CNY_RATE))
+      .mul(BASE_TOKEN_UNITS_PER_CNY)
+      .div(USD_UNITS_PER_USD)
       .ceil();
     const costCents = Number(total.toString());
 
@@ -330,6 +334,9 @@ export class BillingService {
       outputPriceCentsPer1k: input.model.outputPriceCentsPer1k,
       modelMultiplier: input.model.modelMultiplier,
       groupMultiplier: input.model.groupMultiplier,
+      priceCurrency: 'USD',
+      settlementCurrency: 'CNY',
+      usdToCnyRate: DEFAULT_USD_TO_CNY_RATE,
       promptTokens: input.usage.promptTokens,
       completionTokens: input.usage.completionTokens,
       totalTokens: input.usage.totalTokens,

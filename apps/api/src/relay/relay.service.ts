@@ -1232,7 +1232,7 @@ export class RelayService {
       ...defaultModel,
       inputPriceCentsPer1k: mapping.inputPriceCentsPer1k,
       outputPriceCentsPer1k: mapping.outputPriceCentsPer1k,
-      modelMultiplier: mapping.modelMultiplier.toString()
+      modelMultiplier: '1.0000'
     };
   }
 

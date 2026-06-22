@@ -31,10 +31,13 @@ type TokenInput = {
 
 const API_KEY_PREFIX = 'sk-nr';
 const API_KEY_COLLISION_RETRIES = 3;
+const EXPERIENCE_TOKEN_NAME = '\u6a21\u578b\u4f53\u9a8c\u4e13\u7528\u4ee4\u724c';
+const EXPERIENCE_TOKEN_NOTE = '\u7cfb\u7edf\u81ea\u52a8\u521b\u5efa\uff0c\u7528\u4e8e\u6a21\u578b\u4f53\u9a8c\u6263\u8d39\u3002';
 const MAX_QUOTA_CENTS = 100_000_000_000;
 const MAX_RATE_LIMIT_REQUESTS_PER_MINUTE = 1_000_000;
 const MAX_ACTIVATION_TTL_SECONDS = 31_536_000;
 const MAX_IP_WHITELIST_ENTRIES = 64;
+const UNSUPPORTED_MODEL_NAME_CHARACTERS = /[\x00-\x1F\x7F]/;
 
 @Injectable()
 export class TokensService {
@@ -156,6 +159,82 @@ export class TokensService {
     });
   }
 
+  async getOrCreateExperienceApiKey(user: AuthenticatedUser) {
+    const existingToken = await this.prisma.apiToken.findFirst({
+      where: {
+        userId: user.id,
+        name: EXPERIENCE_TOKEN_NAME,
+        deletedAt: null,
+        revokedAt: null,
+        status: ApiTokenStatus.ACTIVE,
+        encryptedApiKey: { not: null }
+      },
+      include: {
+        modelAccesses: {
+          orderBy: { model: 'asc' }
+        }
+      },
+      orderBy: { createdAt: 'asc' }
+    });
+
+    if (existingToken?.encryptedApiKey) {
+      return {
+        apiKey: decryptApiTokenKey(existingToken.encryptedApiKey),
+        token: this.toPublicToken(existingToken)
+      };
+    }
+
+    return this.createTokenWithKeyRetry(async (apiKey, tokenHash, keyPreview, encryptedApiKey) => {
+      const token = await this.prisma.$transaction(async (tx) => {
+        const createdToken = await tx.apiToken.create({
+          data: {
+            userId: user.id,
+            name: EXPERIENCE_TOKEN_NAME,
+            tokenHash,
+            keyPreview,
+            encryptedApiKey,
+            note: EXPERIENCE_TOKEN_NOTE,
+            rateLimitRequestsPerMinute: 60
+          }
+        });
+
+        await this.securityAuditService.record({
+          tx,
+          actorUserId: user.id,
+          action: 'api_token_created',
+          targetType: 'api_token',
+          targetId: createdToken.id,
+          metadata: {
+            name: EXPERIENCE_TOKEN_NAME,
+            source: 'model_experience',
+            hasQuota: false,
+            hasExpiresAt: false,
+            modelCount: 0,
+            hasTokenRateLimit: true,
+            hasModelRateLimit: false,
+            hasIpRateLimit: false,
+            ipWhitelistCount: 0,
+            hasActivationTtl: false
+          }
+        });
+
+        return tx.apiToken.findUniqueOrThrow({
+          where: { id: createdToken.id },
+          include: {
+            modelAccesses: {
+              orderBy: { model: 'asc' }
+            }
+          }
+        });
+      });
+
+      return {
+        apiKey,
+        token: this.toPublicToken(token)
+      };
+    });
+  }
+
   async disableToken(user: AuthenticatedUser, tokenId: string) {
     const existingToken = await this.findOwnedActiveOrDisabledToken(user.id, tokenId);
 
@@ -243,7 +322,7 @@ export class TokensService {
     const token = await this.findOwnedActiveOrDisabledToken(user.id, tokenId);
 
     if (!token.encryptedApiKey) {
-      throw new BadRequestException('完整密钥不可恢复，请重置令牌后再复制');
+      throw new BadRequestException('Full API key cannot be recovered. Reset the token before copying it again.');
     }
 
     await this.securityAuditService.record({
@@ -424,15 +503,15 @@ export class TokensService {
     const now = new Date();
 
     if (!token || token.deletedAt || token.revokedAt || token.status !== ApiTokenStatus.ACTIVE) {
-      throw new UnauthorizedException('API Key 无效或已停用');
+      throw new UnauthorizedException('API Key is invalid or disabled');
     }
 
     if (token.expiresAt && token.expiresAt <= now) {
-      throw new UnauthorizedException('API Key 已过期');
+      throw new UnauthorizedException('API Key has expired');
     }
 
     if (token.user.deletedAt) {
-      throw new UnauthorizedException('API Key 无效');
+      throw new UnauthorizedException('API Key is invalid');
     }
 
     this.assertActiveUser(token.user.status);
@@ -582,7 +661,7 @@ export class TokensService {
       }
     }
 
-    throw new ConflictException('API Key 生成冲突，请重试', { cause: lastError });
+    throw new ConflictException('API Key generation conflict. Please retry.', { cause: lastError });
   }
 
   private async normalizeModelNames(user: AuthenticatedUser, value: unknown) {
@@ -721,7 +800,7 @@ export class TokensService {
     }
 
     const model = value.trim();
-    if (model.length < 2 || model.length > 120 || !/^[a-zA-Z0-9._:/+-]+$/.test(model)) {
+    if (model.length < 2 || model.length > 120 || UNSUPPORTED_MODEL_NAME_CHARACTERS.test(model)) {
       throw new BadRequestException('modelNames contains unsupported model name');
     }
 
@@ -788,7 +867,7 @@ export class TokensService {
 
   private assertActiveUser(status: UserStatus) {
     if (status === UserStatus.DISABLED) {
-      throw new ForbiddenException('账号已禁用');
+      throw new ForbiddenException('Account is disabled');
     }
 
     if (status === UserStatus.RISK_LOCKED) {

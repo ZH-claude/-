@@ -15,7 +15,6 @@
     "qa:t14:notifications": "npm --prefix apps/api run qa:t14:notifications",
     "qa:t15:announcements": "npm --prefix apps/api run qa:t15:announcements",
     "qa:t16:async-tasks": "npm --prefix apps/api run qa:t16:async-tasks",
-    "qa:t17:service-status": "npm --prefix apps/api run qa:t17:service-status",
     "qa:t18:rate-limits": "npm --prefix apps/api run qa:t18:rate-limits",
     "qa:t19:security-hardening": "npm --prefix apps/api run qa:t19:security-hardening",
     "qa:t20:observability": "npm --prefix apps/api run qa:t20:observability",

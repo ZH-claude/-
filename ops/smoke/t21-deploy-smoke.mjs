@@ -27,12 +27,6 @@ await check('web_home', async () => {
   assert(response.status >= 200 && response.status < 400, `expected web 2xx/3xx, got ${response.status}`);
 });
 
-await check('service_status', async () => {
-  const response = await http('GET', `${API_URL}/service-status`);
-  assert(response.status === 200, `expected 200, got ${response.status}`);
-  assert(response.json?.summary, 'service status summary missing');
-});
-
 if (USERNAME && PASSWORD) {
   await check('login', async () => {
     const response = await http('POST', `${API_URL}/auth/login`, { username: USERNAME, password: PASSWORD });

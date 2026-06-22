@@ -299,8 +299,7 @@ function assertIsShellHtml(text: string) {
     'DeepSeek 上游',
     '模型发布',
     '充值码',
-    '审计',
-    '服务状态'
+    '审计'
   ];
   const foundCount = markers.filter((marker) => text.includes(marker)).length;
   assert(foundCount >= 5, `admin page did not render expected merchant shell markers, found only ${foundCount} markers`);

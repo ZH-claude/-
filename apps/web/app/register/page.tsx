@@ -3,7 +3,7 @@
 import { LoginOutlined, UserAddOutlined } from '@ant-design/icons';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import type { FormEvent } from 'react';
 import { register } from '../lib/auth-api';
 
@@ -11,16 +11,8 @@ export default function RegisterPage() {
   const router = useRouter();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [inviteCode, setInviteCode] = useState('');
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-
-  useEffect(() => {
-    const nextInviteCode = new URLSearchParams(window.location.search).get('inviteCode');
-    if (nextInviteCode) {
-      setInviteCode(nextInviteCode);
-    }
-  }, []);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -30,8 +22,7 @@ export default function RegisterPage() {
     try {
       await register({
         username,
-        password,
-        inviteCode: inviteCode.trim() || undefined
+        password
       });
       router.push('/account/profile');
     } catch (nextError) {
@@ -71,15 +62,6 @@ export default function RegisterPage() {
               required
               type="password"
               value={password}
-            />
-          </label>
-          <label>
-            邀请码
-            <input
-              autoComplete="off"
-              onChange={(event) => setInviteCode(event.target.value)}
-              placeholder="可选"
-              value={inviteCode}
             />
           </label>
           {error ? <p className="form-error">{error}</p> : null}

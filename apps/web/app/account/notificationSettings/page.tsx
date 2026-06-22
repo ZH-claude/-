@@ -176,7 +176,7 @@ export default function NotificationSettingsPage() {
               余额预警
             </label>
             <label>
-              余额阈值（美元）
+              余额阈值（人民币）
               <input
                 inputMode="decimal"
                 min="0"

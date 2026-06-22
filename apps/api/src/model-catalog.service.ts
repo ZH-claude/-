@@ -62,9 +62,15 @@ export class ModelCatalogService {
       return {
         model: model.model,
         displayName: model.displayName,
-        inputPriceCentsPer1k: activeRoute?.inputPriceCentsPer1k ?? model.inputPriceCentsPer1k,
-        outputPriceCentsPer1k: activeRoute?.outputPriceCentsPer1k ?? model.outputPriceCentsPer1k,
-        modelMultiplier: activeRoute?.modelMultiplier?.toString() ?? model.modelMultiplier.toString(),
+        inputPriceCentsPer1k:
+          activeRoute?.inputPriceCentsPer1k != null
+            ? activeRoute.inputPriceCentsPer1k
+            : model.inputPriceCentsPer1k,
+        outputPriceCentsPer1k:
+          activeRoute?.outputPriceCentsPer1k != null
+            ? activeRoute.outputPriceCentsPer1k
+            : model.outputPriceCentsPer1k,
+        modelMultiplier: activeRoute ? '1.0000' : model.modelMultiplier.toString(),
         groupMultiplier: group.multiplier.toString(),
         supportsStream: model.upstreamModels.some((upstreamModel) => upstreamModel.supportsStream)
       };

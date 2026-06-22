@@ -17,16 +17,15 @@ const MERCHANT_ROLES = new Set(['admin', 'merchant']);
 const USER_SITE_PATHS = [
   '/',
   '/account',
+  '/experience',
   '/log',
-  '/midjourney',
   '/pricing',
-  '/task',
-  '/token',
-  '/uptimeStatus'
+  '/token'
 ];
 
 const MERCHANT_SITE_PATHS = ['/admin', '/merchant'];
-const REMOVED_USER_PATHS = ['/groupAvailability'];
+const REMOVED_USER_PATHS = ['/groupAvailability', '/midjourney', '/task'];
+const REMOVED_MERCHANT_PATHS = ['/merchant/drawing-logs'];
 
 export async function proxy(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
@@ -36,6 +35,10 @@ export async function proxy(request: NextRequest) {
   const isLoggedIn = Boolean(profile);
 
   if (isRemovedUserPath(pathname)) {
+    return NextResponse.redirect(new URL(isMerchant ? '/merchant' : isLoggedIn ? '/account/profile' : '/login', request.url));
+  }
+
+  if (isRemovedMerchantPath(pathname)) {
     return NextResponse.redirect(new URL(isMerchant ? '/merchant' : isLoggedIn ? '/account/profile' : '/login', request.url));
   }
 
@@ -68,6 +71,7 @@ export const config = {
     '/account/:path*',
     '/admin/:path*',
     '/groupAvailability/:path*',
+    '/experience/:path*',
     '/log/:path*',
     '/login',
     '/merchant/:path*',
@@ -75,8 +79,7 @@ export const config = {
     '/pricing/:path*',
     '/register',
     '/task/:path*',
-    '/token/:path*',
-    '/uptimeStatus/:path*'
+    '/token/:path*'
   ]
 };
 
@@ -115,4 +118,8 @@ function isMerchantSitePath(pathname: string) {
 
 function isRemovedUserPath(pathname: string) {
   return REMOVED_USER_PATHS.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+}
+
+function isRemovedMerchantPath(pathname: string) {
+  return REMOVED_MERCHANT_PATHS.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
 }

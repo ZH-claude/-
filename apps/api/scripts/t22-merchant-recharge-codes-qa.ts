@@ -72,7 +72,7 @@ type ResidualCounts = {
 const API_BASE_URL = process.env.API_BASE_URL ?? 'http://127.0.0.1:3001';
 const WEB_BASE_URL = process.env.WEB_BASE_URL ?? 'http://127.0.0.1:3000';
 const DATABASE_URL = process.env.DATABASE_URL;
-const FACE_VALUE_CNY_CENTS = 800;
+const FACE_VALUE_CNY_CENTS = 100;
 const EXPECTED_BASE_TOKENS = 1_000_000;
 const CODE_COUNT = 2;
 

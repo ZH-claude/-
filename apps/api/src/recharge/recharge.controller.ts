@@ -26,7 +26,7 @@ export class AdminRechargeController {
 
   @Post()
   createRechargeCodes(@Req() request: AuthenticatedRequest, @Body() body: unknown) {
-    return this.rechargeService.createRechargeCodes(this.requireUserId(request), this.toRecord(body));
+    return this.rechargeService.createRechargeCodes(this.requireUserId(request), toRecord(body));
   }
 
   @Post(':id/disable')
@@ -41,9 +41,29 @@ export class AdminRechargeController {
 
     return request.auth.user.id;
   }
+}
 
-  private toRecord(value: unknown) {
-    return value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+@Controller('admin/payment-orders')
+@UseGuards(AuthGuard, AdminGuard)
+export class AdminPaymentOrderController {
+  constructor(@Inject(RechargeService) private readonly rechargeService: RechargeService) {}
+
+  @Get()
+  listPaymentOrders() {
+    return this.rechargeService.listAdminPaymentOrders();
+  }
+
+  @Post(':orderNo/mock-success')
+  mockPaymentSuccess(@Req() request: AuthenticatedRequest, @Param('orderNo') orderNo: string) {
+    return this.rechargeService.mockConfirmPaymentOrder(this.requireUserId(request), orderNo);
+  }
+
+  private requireUserId(request: AuthenticatedRequest) {
+    if (!request.auth?.user?.id) {
+      throw new BadRequestException('Admin context missing');
+    }
+
+    return request.auth.user.id;
   }
 }
 
@@ -59,18 +79,43 @@ export class RechargeController {
 
   @Post('redeem')
   redeemRechargeCode(@Req() request: AuthenticatedRequest, @Body() body: unknown) {
-    return this.rechargeService.redeemRechargeCode(this.requireUser(request), this.toRecord(body));
+    return this.rechargeService.redeemRechargeCode(this.requireUser(request), toRecord(body));
+  }
+
+  @Post('payments/orders')
+  createPaymentOrder(@Req() request: AuthenticatedRequest, @Body() body: unknown) {
+    return this.rechargeService.createPaymentOrder(this.requireUser(request), toRecord(body));
+  }
+
+  @Get('payments/orders')
+  listPaymentOrders(@Req() request: AuthenticatedRequest) {
+    return this.rechargeService.listUserPaymentOrders(this.requireUser(request));
+  }
+
+  @Get('payments/orders/:orderNo')
+  getPaymentOrder(@Req() request: AuthenticatedRequest, @Param('orderNo') orderNo: string) {
+    return this.rechargeService.getUserPaymentOrder(this.requireUser(request), orderNo);
   }
 
   private requireUser(request: AuthenticatedRequest) {
     if (!request.auth?.user) {
-      throw new BadRequestException('认证上下文缺失');
+      throw new BadRequestException('Auth context missing');
     }
 
     return request.auth.user;
   }
+}
 
-  private toRecord(value: unknown) {
-    return value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+@Controller('payment-notify')
+export class PaymentNotifyController {
+  constructor(@Inject(RechargeService) private readonly rechargeService: RechargeService) {}
+
+  @Post(':channel')
+  handleNotify(@Param('channel') channel: string, @Body() body: unknown) {
+    return this.rechargeService.handleProviderNotify(channel, toRecord(body));
   }
+}
+
+function toRecord(value: unknown) {
+  return value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
 }

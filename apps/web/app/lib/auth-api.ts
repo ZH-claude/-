@@ -3,7 +3,6 @@ export type PublicUser = {
   username: string;
   status: string;
   role: string;
-  inviteCode: string;
   timezone: string;
   lastLoginIp: string | null;
   lastLoginAt: string | null;
@@ -20,13 +19,6 @@ export type PublicUser = {
   metrics: {
     totalCallCount: number;
     activeTokenCount: number;
-  };
-  referral: {
-    invitedUserCount: number;
-    pendingRewardCents: number;
-    pendingRewardCount: number;
-    settledRewardCents: number;
-    settledRewardCount: number;
   };
   availableModels: AvailableModel[];
 };
@@ -51,7 +43,7 @@ type ProfileResponse = {
 
 const API_BASE_URL = '/api';
 
-export async function register(payload: { username: string; password: string; inviteCode?: string }) {
+export async function register(payload: { username: string; password: string }) {
   return request<AuthResponse>('/auth/register', {
     method: 'POST',
     body: payload

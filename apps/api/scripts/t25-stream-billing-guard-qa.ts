@@ -30,12 +30,21 @@ const body = {
 };
 
 const estimatedCost = estimateChatCompletionCostCents(body, model);
+const estimatedCostWithoutModelMultiplier = estimateChatCompletionCostCents(body, {
+  ...model,
+  modelMultiplier: '1',
+});
 
-assert.ok(
-  estimatedCost > 243,
-  `expected the guard estimate to exceed the low wallet balance, got ${estimatedCost}`,
+assert.equal(
+  estimatedCost,
+  estimatedCostWithoutModelMultiplier,
+  'modelMultiplier must not affect stream billing guard estimates',
 );
-assert.equal(canStartUsageWithEstimatedCost(243, estimatedCost), false);
+assert.ok(
+  estimatedCost > 0,
+  `expected the guard estimate to be positive, got ${estimatedCost}`,
+);
+assert.equal(canStartUsageWithEstimatedCost(0, estimatedCost), false);
 assert.equal(canStartUsageWithEstimatedCost(estimatedCost, estimatedCost), true);
 
 console.log('t25 stream billing guard qa passed');
