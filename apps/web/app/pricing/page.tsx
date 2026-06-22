@@ -10,10 +10,11 @@ import {
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import { ConsoleShell } from '../components/console-shell';
+import { ModelBrandMark, type ModelBrandId } from '../components/model-brand-mark';
 import { formatUsdPerMillionFromUnits } from '../lib/billing-format';
 import { getModelPricing, type PricingModel, type PricingResponse } from '../lib/pricing-api';
 
-type ProviderId = 'all' | 'anthropic' | 'openai' | 'google' | 'deepseek' | 'other';
+type ProviderId = 'all' | 'anthropic' | 'openai' | 'google' | 'deepseek' | 'glm' | 'other';
 
 type ProviderFilter = {
   id: ProviderId;
@@ -26,8 +27,9 @@ const PROVIDER_FILTERS: ProviderFilter[] = [
   { id: 'all', label: '全部模型', mark: 'All', className: 'all' },
   { id: 'anthropic', label: 'Claude', mark: 'AI', className: 'claude' },
   { id: 'openai', label: 'GPT', mark: 'GPT', className: 'gpt' },
-  { id: 'google', label: 'Google', mark: 'G', className: 'google' },
+  { id: 'google', label: 'Gemini', mark: 'G', className: 'google' },
   { id: 'deepseek', label: 'DeepSeek', mark: 'DS', className: 'deepseek' },
+  { id: 'glm', label: 'GLM', mark: 'GLM', className: 'glm' },
   { id: 'other', label: '其他', mark: 'AI', className: 'other' }
 ];
 
@@ -205,7 +207,7 @@ function PricingProviderGroup({
           onClick={() => onChange(item.id)}
           type="button"
         >
-          <span className={`experience-brand-mark compact ${item.className}`}>{item.mark}</span>
+          <ModelBrandMark brand={getProviderBrand(item.id)} className="compact" label={item.label} mark={item.mark} />
           <strong>{item.label}</strong>
           <em>{item.count}</em>
         </button>
@@ -223,7 +225,7 @@ function PricingModelCard({ model, onCopy }: { model: PricingModel; onCopy: (mod
   return (
     <article className="pricing-model-card">
       <header>
-        <span className={`experience-brand-mark ${provider.className}`}>{provider.mark}</span>
+        <ModelBrandMark brand={getProviderBrand(provider.id)} label={provider.label} mark={provider.mark} />
         <div>
           <div className="pricing-card-tags">
             <span>{provider.label}</span>
@@ -265,7 +267,21 @@ function formatUsdPer1m(value: number) {
 }
 
 function getProviderMeta(id: ProviderId) {
-  return PROVIDER_FILTERS.find((item) => item.id === id) ?? PROVIDER_FILTERS[5];
+  return PROVIDER_FILTERS.find((item) => item.id === id) ?? PROVIDER_FILTERS[6];
+}
+
+function getProviderBrand(id: ProviderId): ModelBrandId {
+  const brands: Record<ProviderId, ModelBrandId> = {
+    all: 'all',
+    anthropic: 'claude',
+    deepseek: 'deepseek',
+    glm: 'glm',
+    google: 'google',
+    openai: 'gpt',
+    other: 'other'
+  };
+
+  return brands[id];
 }
 
 function getModelProvider(model: PricingModel): ProviderId {
@@ -285,6 +301,10 @@ function getModelProvider(model: PricingModel): ProviderId {
 
   if (text.includes('deepseek')) {
     return 'deepseek';
+  }
+
+  if (text.includes('glm') || text.includes('chatglm') || text.includes('zhipu')) {
+    return 'glm';
   }
 
   return 'other';

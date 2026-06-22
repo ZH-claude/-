@@ -12,6 +12,7 @@ import {
 } from '@ant-design/icons';
 import { useEffect, useMemo, useState } from 'react';
 import { ConsoleShell } from '../components/console-shell';
+import { ModelBrandMark, type ModelBrandId } from '../components/model-brand-mark';
 import { getProfile } from '../lib/auth-api';
 import { formatBillingCny, formatUsdPerMillionFromUnits } from '../lib/billing-format';
 import {
@@ -28,7 +29,7 @@ type LocalMessage = ExperienceChatMessage & {
   billing?: ExperienceChatResponse['billing'];
 };
 
-type ModelFamilyId = 'all' | 'gpt' | 'claude' | 'google' | 'deepseek' | 'other';
+type ModelFamilyId = ModelBrandId;
 
 type ModelFamily = {
   id: ModelFamilyId;
@@ -44,8 +45,9 @@ const MODEL_FAMILIES: ModelFamily[] = [
   { id: 'all', label: '全部模型', mark: 'All', hint: 'All models', className: 'all' },
   { id: 'gpt', label: 'GPT', mark: 'GPT', hint: 'OpenAI', className: 'gpt' },
   { id: 'claude', label: 'Claude', mark: 'AI', hint: 'Anthropic', className: 'claude' },
-  { id: 'google', label: 'Google', mark: 'G', hint: 'Gemini', className: 'google' },
+  { id: 'google', label: 'Gemini', mark: 'G', hint: 'Google', className: 'google' },
   { id: 'deepseek', label: 'DeepSeek', mark: 'DS', hint: 'DeepSeek', className: 'deepseek' },
+  { id: 'glm', label: 'GLM', mark: 'GLM', hint: 'Zhipu', className: 'glm' },
   { id: 'other', label: '其他', mark: 'AI', hint: 'Other', className: 'other' }
 ];
 
@@ -208,7 +210,7 @@ export default function ExperiencePage() {
               onClick={() => setActiveFamily(family.id)}
               type="button"
             >
-              <span className={`experience-brand-mark ${family.className}`}>{family.mark}</span>
+              <ModelBrandMark brand={family.id} label={family.label} mark={family.mark} />
               <span>
                 <strong>{family.label}</strong>
                 <small>{family.hint}</small>
@@ -244,7 +246,7 @@ export default function ExperiencePage() {
               <div className="experience-model-list">
                 {filteredModels.length ? (
                   filteredModels.map((model) => {
-                    const family = MODEL_FAMILIES.find((item) => item.id === inferModelFamily(model)) ?? MODEL_FAMILIES[5];
+                    const family = MODEL_FAMILIES.find((item) => item.id === inferModelFamily(model)) ?? MODEL_FAMILIES[6];
 
                     return (
                       <button
@@ -254,7 +256,7 @@ export default function ExperiencePage() {
                         onClick={() => handleSelectModel(model.model)}
                         type="button"
                       >
-                        <span className={`experience-brand-mark compact ${family.className}`}>{family.mark}</span>
+                        <ModelBrandMark brand={family.id} className="compact" label={family.label} mark={family.mark} />
                         <span className="experience-model-option-body">
                           <strong>{getModelTitle(model)}</strong>
                           <small>{family.label}</small>
@@ -342,7 +344,7 @@ export default function ExperiencePage() {
           <section className="experience-chat">
             <div className="experience-chat-head">
               <div className="experience-chat-title">
-                <span className={`experience-brand-mark ${activeModelFamily.className}`}>{activeModelFamily.mark}</span>
+                <ModelBrandMark brand={activeModelFamily.id} label={activeModelFamily.label} mark={activeModelFamily.mark} />
                 <span>
                   <strong>{activeModel ? getModelTitle(activeModel) : '暂无模型'}</strong>
                   {activeModel ? <small>{activeModelFamily.label} / Chat</small> : null}
@@ -372,13 +374,16 @@ export default function ExperiencePage() {
             <div className="experience-messages">
               {messages.length === 0 ? (
                 <div className="experience-empty">
-                  <span className={`experience-brand-mark hero ${activeModelFamily.className}`}>{activeModelFamily.mark}</span>
+                  <ModelBrandMark brand={activeModelFamily.id} className="hero" label={activeModelFamily.label} mark={activeModelFamily.mark} />
                   <h2>{activeModel ? getModelTitle(activeModel) : '选择一个模型'}</h2>
                   <p>当前模型按真实输入、输出 token 计费。</p>
                 </div>
               ) : (
                 messages.map((message) => (
                   <article className={`experience-message ${message.role}`} key={message.id}>
+                    {message.role === 'assistant' ? (
+                      <ModelBrandMark brand={activeModelFamily.id} className="compact" label={activeModelFamily.label} mark={activeModelFamily.mark} />
+                    ) : null}
                     <div className="experience-message-role">{message.role === 'user' ? '你' : 'AI'}</div>
                     <div className="experience-message-body">
                       <p>{message.content}</p>
@@ -462,6 +467,10 @@ function inferModelFamily(model: ExperienceModel): Exclude<ModelFamilyId, 'all'>
 
   if (text.includes('deepseek')) {
     return 'deepseek';
+  }
+
+  if (text.includes('glm') || text.includes('chatglm') || text.includes('zhipu')) {
+    return 'glm';
   }
 
   return 'other';

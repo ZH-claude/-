@@ -3182,7 +3182,7 @@ button {
 .experience-family-bar {
   display: grid;
   gap: 10px;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
 }
 
 .experience-family-card {
@@ -3260,6 +3260,20 @@ button {
   width: 38px;
 }
 
+.experience-brand-mark.has-logo {
+  background: #ffffff;
+  color: transparent;
+  overflow: hidden;
+  padding: 4px;
+}
+
+.experience-brand-mark.has-logo img {
+  display: block;
+  height: 100%;
+  object-fit: contain;
+  width: 100%;
+}
+
 .experience-brand-mark.compact {
   border-radius: 7px;
   font-size: 12px;
@@ -3271,6 +3285,7 @@ button {
   border-radius: 12px;
   font-size: 22px;
   height: 68px;
+  padding: 8px;
   width: 68px;
 }
 
@@ -3294,8 +3309,16 @@ button {
   background: #2563eb;
 }
 
+.experience-brand-mark.glm {
+  background: #2563eb;
+}
+
 .experience-brand-mark.other {
   background: #7c3aed;
+}
+
+.experience-brand-mark.has-logo {
+  background: #ffffff;
 }
 
 .experience-shell {
@@ -3610,6 +3633,10 @@ button {
 .experience-message.assistant .experience-message-role {
   background: #ecfdf5;
   color: #047857;
+}
+
+.experience-message.assistant .experience-message-role {
+  display: none;
 }
 
 .experience-message-body {
