@@ -97,8 +97,8 @@ export function ConsoleShell({
     <main className="relay-console-page">
       <header className="relay-console-topbar">
         <Link className="relay-console-brand" href="/">
-          <span className="shell-logo-mark">中</span>
-          <span>中转站用户端</span>
+          <img alt="" aria-hidden="true" className="shell-logo-image" src="/brand-mark.svg" />
+          <span>蔚蓝星球中转站</span>
         </Link>
         <nav className="relay-primary-nav" aria-label="主导航">
           {primaryNavItems.map((item) => (

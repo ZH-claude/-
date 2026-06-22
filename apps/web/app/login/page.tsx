@@ -34,8 +34,8 @@ export default function LoginPage() {
     <main className="auth-page">
       <section className="auth-panel">
         <div className="auth-brand">
-          <span className="shell-logo-mark">中</span>
-          <span>中转站登录</span>
+          <img alt="" aria-hidden="true" className="shell-logo-image" src="/brand-mark.svg" />
+          <span>蔚蓝星球中转站登录</span>
         </div>
         <h1>登录账户</h1>
         <form className="auth-form" onSubmit={handleSubmit}>

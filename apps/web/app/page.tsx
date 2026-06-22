@@ -86,7 +86,7 @@ export default function HomePage() {
       <section className="profile-card account-summary">
         <div>
           <p className="eyebrow">首页</p>
-          <h1>中转站用户端</h1>
+          <h1>蔚蓝星球中转站</h1>
           <p className="page-subtitle">
             <ApiOutlined /> 智能服务中转后台
           </p>

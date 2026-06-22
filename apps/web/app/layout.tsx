@@ -3,8 +3,8 @@ import 'antd/dist/antd.css';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Nested API Relay',
-  description: 'API relay console scaffold',
+  title: '蔚蓝星球中转站',
+  description: '蔚蓝星球 AI API 中转站',
   icons: {
     icon: '/favicon.svg'
   }

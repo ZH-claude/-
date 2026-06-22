@@ -61,6 +61,7 @@ export default function ExperiencePage() {
   const [draft, setDraft] = useState('');
   const [balanceCents, setBalanceCents] = useState<number | null>(null);
   const [lastResult, setLastResult] = useState<ExperienceChatResponse | null>(null);
+  const [isChatFocused, setIsChatFocused] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState('');
@@ -132,6 +133,7 @@ export default function ExperiencePage() {
       return;
     }
 
+    setIsChatFocused(true);
     const userMessage: LocalMessage = {
       id: createMessageId(),
       role: 'user',
@@ -177,9 +179,16 @@ export default function ExperiencePage() {
     setError('');
   }
 
+  function handleSelectModel(model: string) {
+    setSelectedModel(model);
+    if (typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches) {
+      setIsChatFocused(true);
+    }
+  }
+
   return (
     <ConsoleShell activePath="/experience" isRefreshing={isLoading} onRefresh={() => void loadExperience()}>
-      <section className="experience-page">
+      <section className={`experience-page ${isChatFocused ? 'mobile-chat-focused' : 'mobile-model-focused'}`}>
         <div className="experience-status-row">
           <div className="experience-balance">
             <span>当前余额</span>
@@ -211,6 +220,11 @@ export default function ExperiencePage() {
 
         <section className="experience-shell">
           <aside className="experience-config">
+            <div className="experience-mobile-picker-head">
+              <span>选择模型</span>
+              <strong>{activeModel ? getModelTitle(activeModel) : '暂无模型'}</strong>
+            </div>
+
             <div className="panel-title">
               <SettingOutlined />
               <h2>模型配置</h2>
@@ -237,7 +251,7 @@ export default function ExperiencePage() {
                         className={`experience-model-option ${selectedModel === model.model ? 'active' : ''}`}
                         disabled={isSending}
                         key={model.model}
-                        onClick={() => setSelectedModel(model.model)}
+                        onClick={() => handleSelectModel(model.model)}
                         type="button"
                       >
                         <span className={`experience-brand-mark compact ${family.className}`}>{family.mark}</span>
@@ -261,16 +275,16 @@ export default function ExperiencePage() {
               </div>
             </div>
 
-            <label>
+            <label className="experience-advanced-control">
               系统提示词
               <textarea
                 onChange={(event) => setSystemPrompt(event.target.value)}
-                rows={4}
+                rows={3}
                 value={systemPrompt}
               />
             </label>
 
-            <label>
+            <label className="experience-advanced-control">
               最大输出
               <div className="experience-control-row">
                 <input
@@ -290,7 +304,7 @@ export default function ExperiencePage() {
               </div>
             </label>
 
-            <label>
+            <label className="experience-advanced-control">
               temperature
               <div className="experience-control-row">
                 <input
@@ -313,7 +327,7 @@ export default function ExperiencePage() {
             </label>
 
             {activeModel ? (
-              <div className="experience-price-box">
+              <div className="experience-price-box experience-advanced-control">
                 <span>
                   输入 <strong>{formatUsdPerMillionFromUnits(activeModel.inputPriceCentsPer1k)}</strong>
                 </span>
@@ -341,6 +355,10 @@ export default function ExperiencePage() {
                 </div>
               ) : null}
               <div className="experience-chat-actions">
+                <button className="secondary-link-button experience-model-switch" onClick={() => setIsChatFocused(false)} type="button">
+                  <AppstoreOutlined />
+                  换模型
+                </button>
                 <button className="ghost-button" disabled={isSending || messages.length === 0} onClick={clearConversation} type="button">
                   <ClearOutlined />
                   清空历史

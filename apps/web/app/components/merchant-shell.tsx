@@ -112,8 +112,8 @@ export function MerchantShell({
     <main className="merchant-shell-page" data-console="merchant">
       <header className="merchant-shell-topbar">
         <Link className="merchant-shell-brand" href="/merchant" onClick={() => setActiveHash('merchant-dashboard')}>
-          <span className="shell-logo-mark">中</span>
-          <span>商家控制台</span>
+          <img alt="" aria-hidden="true" className="shell-logo-image" src="/brand-mark.svg" />
+          <span>蔚蓝星球商家端</span>
         </Link>
         <nav className="merchant-primary-nav" aria-label="商家端主导航">
           {topbarItems.map((item) => (

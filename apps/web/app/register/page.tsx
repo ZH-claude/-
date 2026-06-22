@@ -36,8 +36,8 @@ export default function RegisterPage() {
     <main className="auth-page">
       <section className="auth-panel">
         <div className="auth-brand">
-          <span className="shell-logo-mark">中</span>
-          <span>中转站注册</span>
+          <img alt="" aria-hidden="true" className="shell-logo-image" src="/brand-mark.svg" />
+          <span>蔚蓝星球中转站注册</span>
         </div>
         <h1>注册账户</h1>
         <form className="auth-form" onSubmit={handleSubmit}>

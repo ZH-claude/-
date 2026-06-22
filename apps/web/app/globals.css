@@ -48,6 +48,14 @@ button {
   width: 28px;
 }
 
+.shell-logo-image {
+  border-radius: 8px;
+  display: block;
+  flex: 0 0 auto;
+  height: 30px;
+  width: 30px;
+}
+
 .ant-layout {
   background: #f5f7fb;
 }
@@ -2486,6 +2494,11 @@ button {
   padding: 42px;
 }
 
+.profile-content:has(.experience-page) {
+  overflow: hidden;
+  padding: 20px;
+}
+
 .table-scroll {
   max-width: 100%;
   overflow-x: auto;
@@ -3104,7 +3117,9 @@ button {
 .experience-page {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 10px;
+  height: calc(100vh - 102px);
+  min-height: 0;
   min-width: 0;
 }
 
@@ -3157,16 +3172,16 @@ button {
 
 .experience-status-row .experience-balance {
   min-width: 168px;
-  padding: 10px 14px;
+  padding: 8px 12px;
 }
 
 .experience-status-row .experience-balance strong {
-  font-size: 22px;
+  font-size: 20px;
 }
 
 .experience-family-bar {
   display: grid;
-  gap: 12px;
+  gap: 10px;
   grid-template-columns: repeat(6, minmax(0, 1fr));
 }
 
@@ -3179,11 +3194,11 @@ button {
   color: #1f2937;
   cursor: pointer;
   display: grid;
-  gap: 10px;
-  grid-template-columns: 42px minmax(0, 1fr) auto;
-  min-height: 74px;
+  gap: 8px;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+  min-height: 58px;
   min-width: 0;
-  padding: 12px;
+  padding: 9px 10px;
   text-align: left;
   transition: border-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
 }
@@ -3239,10 +3254,10 @@ button {
   flex: 0 0 auto;
   font-size: 15px;
   font-weight: 900;
-  height: 42px;
+  height: 38px;
   justify-content: center;
   letter-spacing: 0;
-  width: 42px;
+  width: 38px;
 }
 
 .experience-brand-mark.compact {
@@ -3289,8 +3304,9 @@ button {
   border-radius: 8px;
   box-shadow: 0 18px 50px rgba(15, 23, 42, 0.05);
   display: grid;
+  flex: 1 1 auto;
   grid-template-columns: minmax(320px, 390px) minmax(0, 1fr);
-  min-height: calc(100vh - 300px);
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -3299,9 +3315,10 @@ button {
   border-right: 1px solid #e6ebf2;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
   min-width: 0;
-  padding: 20px;
+  overflow-y: auto;
+  padding: 14px;
 }
 
 .experience-config label {
@@ -3343,6 +3360,7 @@ button {
 .experience-model-picker {
   display: grid;
   gap: 10px;
+  flex: 0 1 auto;
   min-width: 0;
 }
 
@@ -3366,7 +3384,7 @@ button {
 .experience-model-list {
   display: grid;
   gap: 8px;
-  max-height: 330px;
+  max-height: min(30vh, 260px);
   min-height: 120px;
   overflow-y: auto;
   padding-right: 2px;
@@ -3382,9 +3400,9 @@ button {
   display: grid;
   gap: 10px;
   grid-template-columns: 34px minmax(0, 1fr);
-  min-height: 86px;
+  min-height: 72px;
   min-width: 0;
-  padding: 11px;
+  padding: 9px;
   text-align: left;
   transition: border-color 0.16s ease, background 0.16s ease, box-shadow 0.16s ease;
 }
@@ -3459,6 +3477,11 @@ button {
   padding: 12px;
 }
 
+.experience-mobile-picker-head,
+.experience-model-switch {
+  display: none;
+}
+
 .experience-price-box span {
   color: #334155;
   display: flex;
@@ -3484,7 +3507,7 @@ button {
   gap: 14px;
   grid-template-columns: minmax(0, 1fr) auto auto;
   min-width: 0;
-  padding: 16px 20px;
+  padding: 12px 16px;
 }
 
 .experience-chat-title {
@@ -3535,9 +3558,9 @@ button {
   display: flex;
   flex-direction: column;
   gap: 14px;
-  min-height: 480px;
+  min-height: 0;
   overflow-y: auto;
-  padding: 28px;
+  padding: 18px;
 }
 
 .experience-empty {
@@ -3547,7 +3570,7 @@ button {
   flex: 1;
   flex-direction: column;
   justify-content: center;
-  min-height: 300px;
+  min-height: 180px;
   text-align: center;
 }
 
@@ -3653,7 +3676,7 @@ button {
   display: grid;
   gap: 12px;
   grid-template-columns: minmax(0, 1fr) auto;
-  padding: 16px 20px;
+  padding: 12px 16px;
 }
 
 .experience-input .primary-button {
@@ -3685,6 +3708,11 @@ button {
 
   .shell-logo {
     justify-content: center;
+  }
+
+  .shell-logo-image {
+    height: 28px;
+    width: 28px;
   }
 
   .shell-logo span:last-child {
@@ -3885,13 +3913,26 @@ button {
   }
 
   .relay-primary-nav {
+    display: grid;
     grid-column: 1 / -1;
     grid-row: 2;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    overflow: visible;
     order: 3;
   }
 
   .relay-primary-nav a {
+    border-bottom: 0;
+    border-radius: 8px;
+    font-size: 13px;
+    justify-content: center;
     min-height: 42px;
+    padding: 0 6px;
+  }
+
+  .relay-primary-nav a.active {
+    background: #eff6ff;
+    color: #2563eb;
   }
 
   .relay-topbar-actions {
@@ -3907,23 +3948,41 @@ button {
     grid-template-columns: 1fr;
   }
 
+  .relay-console-body:has(.experience-page) {
+    min-height: 0;
+  }
+
+  .relay-console-body:has(.experience-page) .relay-account-sidebar {
+    display: none;
+  }
+
   .relay-account-sidebar {
     border-bottom: 1px solid #eceff3;
     border-right: 0;
-    display: flex;
-    gap: 8px;
+    display: grid;
+    gap: 6px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     height: auto;
-    overflow-x: auto;
+    overflow: visible;
     padding: 10px 16px;
     position: static;
   }
 
   .relay-account-sidebar a {
-    flex: 0 0 auto;
+    justify-content: center;
+    min-height: 40px;
+    padding: 0 8px;
   }
 
   .profile-content {
     padding: 16px;
+  }
+
+  .profile-content:has(.experience-page) {
+    height: calc(100dvh - 208px);
+    min-height: 0;
+    overflow: visible;
+    padding: 10px;
   }
 
   .experience-toolbar {
@@ -3938,11 +3997,11 @@ button {
   }
 
   .experience-status-row {
-    justify-content: flex-start;
+    display: none;
   }
 
   .experience-family-bar {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    display: none;
   }
 
   .experience-family-card {
@@ -3950,23 +4009,126 @@ button {
     min-height: 68px;
   }
 
+  .experience-page {
+    gap: 10px;
+    height: 100%;
+    min-height: 0;
+  }
+
+  .experience-page.mobile-model-focused {
+    height: 100%;
+    overflow: hidden;
+  }
+
+  .experience-page.mobile-chat-focused {
+    height: 100%;
+    overflow: hidden;
+  }
+
   .experience-shell {
     grid-template-columns: 1fr;
+    min-height: 0;
+  }
+
+  .experience-page.mobile-model-focused .experience-shell {
+    height: 100%;
   }
 
   .experience-config {
     border-bottom: 1px solid #eceff3;
     border-right: 0;
+    border-radius: 8px;
+    height: 100%;
+    max-height: 100%;
+    padding: 12px;
+    scrollbar-width: none;
+  }
+
+  .experience-config::-webkit-scrollbar {
+    display: none;
+  }
+
+  .experience-mobile-picker-head {
+    align-items: center;
+    color: #64748b;
+    display: flex;
+    font-size: 13px;
+    font-weight: 800;
+    justify-content: space-between;
+    min-width: 0;
+  }
+
+  .experience-mobile-picker-head strong {
+    color: #111827;
+    max-width: 62%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .experience-mobile-picker-head + .panel-title,
+  .experience-advanced-control {
+    display: none !important;
+  }
+
+  .experience-model-picker {
+    flex: 1 1 auto;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .experience-model-list {
+    max-height: none;
+    min-height: 0;
+    scrollbar-width: none;
+  }
+
+  .experience-model-list::-webkit-scrollbar,
+  .experience-messages::-webkit-scrollbar {
+    display: none;
+  }
+
+  .experience-messages {
+    scrollbar-width: none;
+  }
+
+  .experience-model-option {
+    min-height: 72px;
+  }
+
+  .experience-page.mobile-model-focused .experience-chat {
+    display: none;
+  }
+
+  .experience-page.mobile-chat-focused .experience-config {
+    display: none;
+  }
+
+  .experience-page.mobile-chat-focused .experience-shell {
+    border: 0;
+    box-shadow: none;
+    height: 100%;
+  }
+
+  .experience-page.mobile-chat-focused .experience-chat {
+    border: 1px solid #e6ebf2;
+    border-radius: 8px;
+    height: 100%;
+    overflow: hidden;
   }
 
   .experience-chat-head {
     align-items: stretch;
     gap: 12px;
     grid-template-columns: 1fr;
+    padding: 10px 12px;
   }
 
   .experience-chat-actions {
     justify-content: space-between;
+  }
+
+  .experience-model-switch {
+    display: inline-flex;
   }
 
   .experience-chat-prices {
@@ -3974,12 +4136,18 @@ button {
   }
 
   .experience-messages {
-    min-height: 300px;
+    min-height: 0;
     padding: 16px;
   }
 
   .experience-input {
     grid-template-columns: 1fr;
+    padding: 10px 12px;
+  }
+
+  .experience-input textarea {
+    max-height: 116px;
+    min-height: 88px;
   }
 
   .experience-input .primary-button {
