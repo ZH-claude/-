@@ -4216,13 +4216,42 @@ button {
 }
 
 .site-home-hero {
+  align-items: flex-start;
   border-left: 4px solid currentColor;
+  min-height: clamp(320px, 38dvh, 420px);
+  padding: 42px 46px;
+}
+
+.site-home-hero > div {
+  max-width: 1080px;
+}
+
+.site-home-hero .eyebrow {
+  font-size: 15px;
+  margin-bottom: 24px;
+}
+
+.site-home-hero h1 {
+  font-size: 36px;
+  line-height: 1.2;
+  margin: 0 0 28px;
+}
+
+.site-home-hero .page-subtitle {
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.5;
+  margin-bottom: 24px;
 }
 
 .site-home-content {
-  margin: 10px 0 0;
-  max-width: 820px;
+  font-size: 18px;
+  line-height: 1.9;
+  margin: 18px 0 0;
+  max-width: 1040px;
+  overflow-wrap: anywhere;
   white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .site-announcement-backdrop {
@@ -4365,6 +4394,32 @@ button {
   .site-announcement-backdrop {
     align-items: center;
     padding: 16px;
+  }
+
+  .site-home-hero {
+    min-height: 0;
+    padding: 24px 20px;
+  }
+
+  .site-home-hero .eyebrow {
+    font-size: 13px;
+    margin-bottom: 16px;
+  }
+
+  .site-home-hero h1 {
+    font-size: 28px;
+    margin-bottom: 18px;
+  }
+
+  .site-home-hero .page-subtitle {
+    font-size: 16px;
+    margin-bottom: 16px;
+  }
+
+  .site-home-content {
+    font-size: 15px;
+    line-height: 1.75;
+    margin-top: 12px;
   }
 
   .site-announcement-modal {
