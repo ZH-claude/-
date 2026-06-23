@@ -1349,10 +1349,6 @@ export class AdminService implements OnModuleInit {
         where: { invitedByUserId: targetUserId },
         data: { invitedByUserId: null }
       });
-      const rechargeCodes = await tx.rechargeCode.updateMany({
-        where: { usedByUserId: targetUserId },
-        data: { usedByUserId: null }
-      });
       const securityAuditLogs = await tx.securityAuditLog.updateMany({
         where: { actorUserId: targetUserId },
         data: { actorUserId: null }
@@ -1396,6 +1392,9 @@ export class AdminService implements OnModuleInit {
       const walletTransactions = await tx.walletTransaction.deleteMany({
         where: { userId: targetUserId }
       });
+      const rechargeCodes = await tx.rechargeCode.deleteMany({
+        where: { usedByUserId: targetUserId }
+      });
       const paymentOrders = await tx.paymentOrder.deleteMany({
         where: { userId: targetUserId }
       });
@@ -1429,7 +1428,7 @@ export class AdminService implements OnModuleInit {
 
       const removed = {
         invitedUsersDetached: invitedUsers.count,
-        rechargeCodesDetached: rechargeCodes.count,
+        rechargeCodes: rechargeCodes.count,
         requestLogsDetached: requestLogsByUser.count + requestLogsByToken.count,
         securityAuditLogsDetached: securityAuditLogs.count,
         aiRechargePageConfigsDetached: aiRechargePageConfigs.count,

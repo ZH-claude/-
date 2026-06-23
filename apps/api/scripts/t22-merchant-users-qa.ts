@@ -1,7 +1,19 @@
 import { PrismaPg } from '@prisma/adapter-pg';
 import bcrypt from 'bcryptjs';
 import { randomBytes } from 'node:crypto';
-import { PrismaClient, UserRole, UserStatus } from '../src/generated/prisma/client';
+import {
+  ModelStatus,
+  PaymentChannel,
+  PaymentOrderStatus,
+  PrismaClient,
+  RechargeCodeStatus,
+  UpstreamHealthStatus,
+  UpstreamProviderStatus,
+  UsageEventStatus,
+  UserRole,
+  UserStatus,
+  WalletTransactionType
+} from '../src/generated/prisma/client';
 
 type HttpResult<T = unknown> = {
   status: number;
@@ -85,6 +97,15 @@ type Residual = {
   wallets: number;
   sessions: number;
   apiTokens: number;
+  apiTokenModelAccesses: number;
+  usageEvents: number;
+  walletTransactions: number;
+  paymentOrders: number;
+  rechargeCodes: number;
+  requestLogs: number;
+  relayRateLimitEvents: number;
+  upstreamProviders: number;
+  modelPrices: number;
   adminAuditLogs: number;
   securityAuditLogs: number;
   userGroups: number;
@@ -108,6 +129,13 @@ const password = `qa-password-${suffix}`;
 const checks: string[] = [];
 const groupAName = `${prefix}_group_a`;
 const groupBName = `${prefix}_group_b`;
+const richDeleteModelName = `${prefix}_rich_delete_model`;
+const richDeleteProviderName = `${prefix}_rich_delete_provider`;
+const richDeleteUsageRequestId = `${prefix}_rich_delete_usage`;
+const richDeleteRequestLogId = `${prefix}_rich_delete_request_log`;
+const richDeleteRateLimitRequestId = `${prefix}_rich_delete_rate_limit`;
+const richDeletePaymentOrderNo = `${prefix}_payment_order`;
+const richDeleteRechargeCodeHash = `${prefix}_recharge_code_hash`;
 
 let checksError: unknown;
 let residualBefore: Residual | null = null;
@@ -211,7 +239,7 @@ async function main() {
     const deletedUser = await deleteUserData(seeded.userIds.deleteUser, adminLogin.cookie);
     assert(
       deletedUser.status >= 200 && deletedUser.status < 300,
-      `admin /admin/users/:id/delete should return 2xx, got ${deletedUser.status}`
+      `admin /admin/users/:id/delete should return 2xx, got ${deletedUser.status}: ${deletedUser.text}`
     );
     assertNoSensitiveLeak(deletedUser.text, 'admin /admin/users/:id/delete response');
     const deletedPayload = toDeletedUserResponse(deletedUser.json);
@@ -228,7 +256,8 @@ async function main() {
       }
     });
     assert(deletedDbState === null, 'deleted user should no longer exist in database');
-    checks.push('deleted_user_row_and_direct_dependents_are_removed');
+    await assertRichDeleteUserDataRemoved(seeded.userIds.deleteUser);
+    checks.push('deleted_user_row_and_rich_dependents_are_removed');
 
     const reRegister = await register(seeded.usernames.deleteUser);
     assert(
@@ -386,6 +415,149 @@ async function seedFixture(): Promise<SeededContext> {
 
     await tx.wallet.createMany({
       data: [{ userId: admin.id }, { userId: user.id }, { userId: deleteUser.id }]
+    });
+
+    const modelPrice = await tx.modelPrice.create({
+      data: {
+        model: richDeleteModelName,
+        displayName: `${richDeleteModelName}_display`,
+        inputPriceCentsPer1k: 8,
+        outputPriceCentsPer1k: 12,
+        modelMultiplier: '1.0000',
+        status: ModelStatus.ACTIVE
+      }
+    });
+
+    const provider = await tx.upstreamProvider.create({
+      data: {
+        name: richDeleteProviderName,
+        kind: 'GENERIC',
+        baseUrl: `https://${richDeleteProviderName}.example.invalid`,
+        encryptedApiKey: `${prefix}_encrypted_upstream_key`,
+        apiKeyPreview: 'sk-qa',
+        status: UpstreamProviderStatus.ACTIVE,
+        healthStatus: UpstreamHealthStatus.UNHEALTHY,
+        createdByAdminId: admin.id
+      }
+    });
+
+    const token = await tx.apiToken.create({
+      data: {
+        userId: deleteUser.id,
+        name: `${prefix}_rich_delete_token`,
+        tokenHash: `${prefix}_rich_delete_token_hash`,
+        keyPreview: 'sk-qa'
+      }
+    });
+
+    await tx.apiTokenModelAccess.create({
+      data: {
+        apiTokenId: token.id,
+        model: modelPrice.model
+      }
+    });
+
+    const usageEvent = await tx.usageEvent.create({
+      data: {
+        requestId: richDeleteUsageRequestId,
+        userId: deleteUser.id,
+        tokenId: token.id,
+        upstreamProviderId: provider.id,
+        model: richDeleteModelName,
+        upstreamModel: `${richDeleteModelName}_upstream`,
+        promptTokens: 25886,
+        completionTokens: 140,
+        totalTokens: 26026,
+        costCents: 9,
+        status: UsageEventStatus.BILLABLE,
+        priceSnapshot: { source: prefix, model: richDeleteModelName, multiplier: 1 }
+      }
+    });
+
+    const paymentOrder = await tx.paymentOrder.create({
+      data: {
+        orderNo: richDeletePaymentOrderNo,
+        userId: deleteUser.id,
+        channel: PaymentChannel.ALIPAY,
+        status: PaymentOrderStatus.PAID,
+        faceValueCnyCents: 50,
+        amountCents: 5000,
+        providerTradeNo: `${prefix}_provider_trade`,
+        providerPayload: { source: prefix },
+        payUrl: `https://${richDeleteProviderName}.example.invalid/pay`,
+        qrCodeContent: `${prefix}_qr`,
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+        paidAt: new Date()
+      }
+    });
+
+    const rechargeCode = await tx.rechargeCode.create({
+      data: {
+        codeHash: richDeleteRechargeCodeHash,
+        amountCents: 5000,
+        faceValueCnyCents: 50,
+        status: RechargeCodeStatus.USED,
+        createdByAdminId: admin.id,
+        usedByUserId: deleteUser.id,
+        usedAt: new Date()
+      }
+    });
+
+    await tx.walletTransaction.createMany({
+      data: [
+        {
+          userId: deleteUser.id,
+          type: WalletTransactionType.DEBIT,
+          amountCents: -9,
+          balanceAfterCents: 4991,
+          usageEventId: usageEvent.id,
+          idempotencyKey: `${prefix}_usage_debit`
+        },
+        {
+          userId: deleteUser.id,
+          type: WalletTransactionType.RECHARGE,
+          amountCents: 5000,
+          balanceAfterCents: 5000,
+          paymentOrderId: paymentOrder.id,
+          idempotencyKey: `${prefix}_payment_recharge`
+        },
+        {
+          userId: deleteUser.id,
+          type: WalletTransactionType.RECHARGE,
+          amountCents: 5000,
+          balanceAfterCents: 9991,
+          rechargeCodeId: rechargeCode.id,
+          idempotencyKey: `${prefix}_code_recharge`
+        }
+      ]
+    });
+
+    await tx.requestLog.create({
+      data: {
+        requestId: richDeleteRequestLogId,
+        userId: deleteUser.id,
+        tokenId: token.id,
+        upstreamProviderId: provider.id,
+        method: 'POST',
+        path: '/v1/chat/completions',
+        model: richDeleteModelName,
+        statusCode: 200,
+        latencyMs: 180,
+        upstreamLatencyMs: 120,
+        upstreamStatusCode: 200,
+        upstreamStatus: 'ok',
+        completedAt: new Date()
+      }
+    });
+
+    await tx.relayRateLimitEvent.create({
+      data: {
+        requestId: richDeleteRateLimitRequestId,
+        userId: deleteUser.id,
+        tokenId: token.id,
+        model: richDeleteModelName,
+        ipAddress: '127.0.0.1'
+      }
     });
 
     const seeded = {
@@ -561,12 +733,89 @@ async function countResidual(): Promise<Residual> {
           select: { id: true }
         });
   const tokenIdList = tokenIds.map((token) => token.id);
+  const providerIds = (
+    await prisma.upstreamProvider.findMany({
+      where: { name: richDeleteProviderName },
+      select: { id: true }
+    })
+  ).map((provider) => provider.id);
+  const usageIds = (
+    await prisma.usageEvent.findMany({
+      where: {
+        OR: [
+          { requestId: richDeleteUsageRequestId },
+          { userId: { in: userIds } },
+          { tokenId: { in: tokenIdList } },
+          { model: richDeleteModelName }
+        ]
+      },
+      select: { id: true }
+    })
+  ).map((event) => event.id);
+  const paymentOrderIds = (
+    await prisma.paymentOrder.findMany({
+      where: {
+        OR: [{ orderNo: richDeletePaymentOrderNo }, { userId: { in: userIds } }]
+      },
+      select: { id: true }
+    })
+  ).map((order) => order.id);
 
   return {
     users: users.length,
     wallets: userIds.length === 0 ? 0 : await prisma.wallet.count({ where: { userId: { in: userIds } } }),
     sessions: userIds.length === 0 ? 0 : await prisma.session.count({ where: { userId: { in: userIds } } }),
     apiTokens: tokenIdList.length === 0 ? 0 : await prisma.apiToken.count({ where: { id: { in: tokenIdList } } }),
+    apiTokenModelAccesses:
+      tokenIdList.length === 0
+        ? await prisma.apiTokenModelAccess.count({ where: { model: richDeleteModelName } })
+        : await prisma.apiTokenModelAccess.count({
+            where: { OR: [{ apiTokenId: { in: tokenIdList } }, { model: richDeleteModelName }] }
+          }),
+    usageEvents: usageIds.length,
+    walletTransactions: await prisma.walletTransaction.count({
+      where: {
+        OR: [
+          { userId: { in: userIds } },
+          { usageEventId: { in: usageIds } },
+          { paymentOrderId: { in: paymentOrderIds } },
+          { rechargeCode: { codeHash: richDeleteRechargeCodeHash } },
+          { idempotencyKey: { startsWith: prefix } }
+        ]
+      }
+    }),
+    paymentOrders: paymentOrderIds.length,
+    rechargeCodes: await prisma.rechargeCode.count({
+      where: {
+        OR: [
+          { codeHash: richDeleteRechargeCodeHash },
+          { createdByAdminId: { in: userIds } },
+          { usedByUserId: { in: userIds } }
+        ]
+      }
+    }),
+    requestLogs: await prisma.requestLog.count({
+      where: {
+        OR: [
+          { requestId: richDeleteRequestLogId },
+          { requestId: { startsWith: prefix } },
+          { userId: { in: userIds } },
+          { tokenId: { in: tokenIdList } }
+        ]
+      }
+    }),
+    relayRateLimitEvents: await prisma.relayRateLimitEvent.count({
+      where: {
+        OR: [
+          { requestId: richDeleteRateLimitRequestId },
+          { requestId: { startsWith: prefix } },
+          { userId: { in: userIds } },
+          { tokenId: { in: tokenIdList } }
+        ]
+      }
+    }),
+    upstreamProviders: providerIds.length,
+    modelPrices: await prisma.modelPrice.count({ where: { model: richDeleteModelName } }),
     adminAuditLogs: userIds.length === 0 ? 0 : await prisma.adminAuditLog.count({
       where: {
         OR: [{ adminUserId: { in: userIds } }, { targetId: { in: userIds } }]
@@ -609,11 +858,93 @@ async function cleanup() {
     });
   }
 
+  const providerIds = (
+    await prisma.upstreamProvider.findMany({
+      where: { name: richDeleteProviderName },
+      select: { id: true }
+    })
+  ).map((provider) => provider.id);
+  const paymentOrderIds = (
+    await prisma.paymentOrder.findMany({
+      where: {
+        OR: [{ orderNo: richDeletePaymentOrderNo }, { userId: { in: cleanupTargetIds } }]
+      },
+      select: { id: true }
+    })
+  ).map((order) => order.id);
+  const usageIds = (
+    await prisma.usageEvent.findMany({
+      where: {
+        OR: [
+          { requestId: richDeleteUsageRequestId },
+          { userId: { in: cleanupTargetIds } },
+          { model: richDeleteModelName }
+        ]
+      },
+      select: { id: true }
+    })
+  ).map((event) => event.id);
+
+  await prisma.requestLog.deleteMany({
+    where: {
+      OR: [
+        { requestId: richDeleteRequestLogId },
+        { requestId: { startsWith: prefix } },
+        { userId: { in: cleanupTargetIds } }
+      ]
+    }
+  });
+  await prisma.relayRateLimitEvent.deleteMany({
+    where: {
+      OR: [
+        { requestId: richDeleteRateLimitRequestId },
+        { requestId: { startsWith: prefix } },
+        { userId: { in: cleanupTargetIds } }
+      ]
+    }
+  });
+  await prisma.walletTransaction.deleteMany({
+    where: {
+      OR: [
+        { userId: { in: cleanupTargetIds } },
+        { usageEventId: { in: usageIds } },
+        { paymentOrderId: { in: paymentOrderIds } },
+        { rechargeCode: { codeHash: richDeleteRechargeCodeHash } },
+        { idempotencyKey: { startsWith: prefix } }
+      ]
+    }
+  });
+  await prisma.usageEvent.deleteMany({ where: { id: { in: usageIds } } });
+  await prisma.paymentOrder.deleteMany({
+    where: {
+      OR: [{ id: { in: paymentOrderIds } }, { userId: { in: cleanupTargetIds } }]
+    }
+  });
+  await prisma.rechargeCode.deleteMany({
+    where: {
+      OR: [
+        { codeHash: richDeleteRechargeCodeHash },
+        { createdByAdminId: { in: cleanupTargetIds } },
+        { usedByUserId: { in: cleanupTargetIds } }
+      ]
+    }
+  });
+
   if (tokenIds.length > 0) {
     const tokenIdList = tokenIds.map((token) => token.id);
     await prisma.apiTokenModelAccess.deleteMany({ where: { apiTokenId: { in: tokenIdList } } });
     await prisma.apiToken.deleteMany({ where: { id: { in: tokenIdList } } });
   }
+
+  await prisma.apiTokenModelAccess.deleteMany({ where: { model: richDeleteModelName } });
+  await prisma.upstreamModel.deleteMany({
+    where: { OR: [{ providerId: { in: providerIds } }, { publicModel: richDeleteModelName }] }
+  });
+  await prisma.upstreamProvider.deleteMany({ where: { id: { in: providerIds } } });
+  await prisma.modelGroupAccess.deleteMany({
+    where: { modelPrice: { model: richDeleteModelName } }
+  });
+  await prisma.modelPrice.deleteMany({ where: { model: richDeleteModelName } });
 
   if (userIds.length > 0) {
     await prisma.session.deleteMany({ where: { userId: { in: userIds } } });
@@ -621,6 +952,40 @@ async function cleanup() {
     await prisma.user.deleteMany({ where: { id: { in: userIds } } });
   }
   await prisma.userGroup.deleteMany({ where: { OR: [{ code: groupAName }, { code: groupBName }] } });
+}
+
+async function assertRichDeleteUserDataRemoved(userId: string) {
+  const residuals = await Promise.all([
+    prisma.apiToken.count({ where: { userId } }),
+    prisma.apiTokenModelAccess.count({ where: { model: richDeleteModelName } }),
+    prisma.usageEvent.count({ where: { userId } }),
+    prisma.walletTransaction.count({ where: { userId } }),
+    prisma.paymentOrder.count({ where: { userId } }),
+    prisma.relayRateLimitEvent.count({ where: { userId } }),
+    prisma.requestLog.findUnique({ where: { requestId: richDeleteRequestLogId } }),
+    prisma.rechargeCode.findUnique({ where: { codeHash: richDeleteRechargeCodeHash } })
+  ]);
+
+  const [
+    apiTokenCount,
+    apiTokenModelAccessCount,
+    usageEventCount,
+    walletTransactionCount,
+    paymentOrderCount,
+    relayRateLimitEventCount,
+    requestLog,
+    rechargeCode
+  ] = residuals;
+
+  assert(apiTokenCount === 0, `deleted user still has ${apiTokenCount} api token(s)`);
+  assert(apiTokenModelAccessCount === 0, `deleted token still has ${apiTokenModelAccessCount} model access row(s)`);
+  assert(usageEventCount === 0, `deleted user still has ${usageEventCount} usage event(s)`);
+  assert(walletTransactionCount === 0, `deleted user still has ${walletTransactionCount} wallet transaction(s)`);
+  assert(paymentOrderCount === 0, `deleted user still has ${paymentOrderCount} payment order(s)`);
+  assert(relayRateLimitEventCount === 0, `deleted user still has ${relayRateLimitEventCount} rate-limit event(s)`);
+  assert(requestLog?.userId === null, 'request log should detach deleted user id');
+  assert(requestLog?.tokenId === null, 'request log should detach deleted token id');
+  assert(rechargeCode === null, 'deleted user recharge code should be removed');
 }
 
 async function request<T>(
