@@ -185,6 +185,18 @@ export class AdminController {
     return this.adminService.assignUserGroup(request.auth.user.id, userId, this.toRecord(body));
   }
 
+  @Post('users/:id/delete')
+  deleteUserData(
+    @Req() request: AuthenticatedRequest,
+    @Param('id') userId: string
+  ) {
+    if (!request.auth?.user?.id) {
+      throw new BadRequestException('Admin context missing');
+    }
+
+    return this.adminService.deleteUserData(request.auth.user.id, userId);
+  }
+
   @Post('models')
   createModelPrice(
     @Req() request: AuthenticatedRequest,

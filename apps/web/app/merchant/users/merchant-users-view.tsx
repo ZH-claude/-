@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  DeleteOutlined,
   LeftOutlined,
   ReloadOutlined,
   RightOutlined,
@@ -11,6 +12,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import { MerchantShell } from '../../components/merchant-shell';
 import {
+  deleteAdminUserData,
   listAdminUsers,
   type AdminUser
 } from '../../lib/admin-api';
@@ -36,7 +38,9 @@ export function MerchantUsersView({ username, role }: { username: string; role: 
     totalPages: 1
   });
   const [isLoading, setIsLoading] = useState(true);
+  const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
 
   useEffect(() => {
     void loadData(1);
@@ -59,6 +63,7 @@ export function MerchantUsersView({ username, role }: { username: string; role: 
   async function loadData(page = pagination.page) {
     setIsLoading(true);
     setError('');
+    setSuccess('');
 
     try {
       const userResult = await listAdminUsers({ page, limit: USER_PAGE_LIMIT });
@@ -77,6 +82,35 @@ export function MerchantUsersView({ username, role }: { username: string; role: 
       }
     } finally {
       setIsLoading(false);
+    }
+  }
+
+  async function handleDeleteUserData(user: AdminUser) {
+    if (user.role !== 'user') {
+      setError('只能删除普通用户，管理员账号不允许在这里删除。');
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `确定删除用户「${user.username}」的全部账号数据吗？\n\n删除后该用户名可以重新注册，但旧余额、令牌、会话和用量记录无法找回。`
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setDeletingUserId(user.id);
+    setError('');
+    setSuccess('');
+
+    try {
+      await deleteAdminUserData(user.id);
+      const nextPage = users.length === 1 && pagination.page > 1 ? pagination.page - 1 : pagination.page;
+      await loadData(nextPage);
+      setSuccess(`已删除用户「${user.username}」，该用户名现在可以重新注册。`);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : '删除用户数据失败');
+    } finally {
+      setDeletingUserId(null);
     }
   }
 
@@ -109,6 +143,7 @@ export function MerchantUsersView({ username, role }: { username: string; role: 
         </div>
 
         {error ? <p className="form-error">{error}</p> : null}
+        {success ? <p className="form-success">{success}</p> : null}
 
         <section className="admin-metrics">
           <MetricPanel label="用户总数" value={formatNumber(pagination.total)} detail="未删除用户" />
@@ -133,6 +168,7 @@ export function MerchantUsersView({ username, role }: { username: string; role: 
                   <th>Token 消耗</th>
                   <th>请求数 / 最近调用</th>
                   <th>当前余额 / 上次登录</th>
+                  <th>操作</th>
                 </tr>
               </thead>
               <tbody>
@@ -172,11 +208,23 @@ export function MerchantUsersView({ username, role }: { username: string; role: 
                       {formatBillingUsd(user.wallet.balanceCents)}
                       <small className="table-note">{formatOptionalDate(user.lastLoginAt)}</small>
                     </td>
+                    <td>
+                      <button
+                        className="ghost-button compact-button danger-button"
+                        disabled={isLoading || deletingUserId === user.id || user.role !== 'user'}
+                        onClick={() => void handleDeleteUserData(user)}
+                        title={user.role === 'user' ? '删除用户数据并释放用户名' : '管理员账号不能删除'}
+                        type="button"
+                      >
+                        <DeleteOutlined />
+                        {deletingUserId === user.id ? '删除中' : '删除用户数据'}
+                      </button>
+                    </td>
                   </tr>
                 ))}
                 {!users.length && !isLoading ? (
                   <tr>
-                    <td colSpan={7}>暂无真实用户记录</td>
+                    <td colSpan={8}>暂无真实用户记录</td>
                   </tr>
                 ) : null}
               </tbody>

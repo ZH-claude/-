@@ -835,7 +835,7 @@ button {
 }
 
 .merchant-users-table {
-  min-width: 980px;
+  min-width: 1120px;
 }
 
 .merchant-request-log-table {
@@ -1374,7 +1374,7 @@ button {
 
 .merchant-dashboard-user-table,
 .merchant-users-table {
-  min-width: 1080px;
+  min-width: 1180px;
 }
 
 .merchant-alert-list {

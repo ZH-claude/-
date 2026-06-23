@@ -660,6 +660,12 @@ export async function assignUserGroup(userId: string, payload: { groupId: string
   });
 }
 
+export async function deleteAdminUserData(userId: string) {
+  return request<{ id: string; username: string; deleted: true }>(`/admin/users/${encodeURIComponent(userId)}/delete`, {
+    method: 'POST'
+  });
+}
+
 export async function createModelPrice(payload: {
   model: string;
   displayName?: string;

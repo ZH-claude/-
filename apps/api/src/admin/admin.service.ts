@@ -1289,6 +1289,202 @@ export class AdminService implements OnModuleInit {
     };
   }
 
+  async deleteUserData(adminUserId: string, userId: string) {
+    const actorUserId = this.requiredUuid(adminUserId, 'adminUserId');
+    const targetUserId = this.requiredUuid(userId, 'userId');
+
+    if (actorUserId === targetUserId) {
+      throw new BadRequestException('Cannot delete the current admin account');
+    }
+
+    const user = await this.prisma.user.findFirst({
+      where: { id: targetUserId, deletedAt: null },
+      include: {
+        group: true,
+        wallet: true
+      }
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    if (user.role !== UserRole.USER) {
+      throw new BadRequestException('Only ordinary user accounts can be deleted');
+    }
+
+    const [
+      adminAuditActorCount,
+      announcementCount,
+      upstreamProviderCount,
+      rechargeCodeCreatedCount,
+      aiRechargeProductCount
+    ] =
+      await this.prisma.$transaction([
+        this.prisma.adminAuditLog.count({ where: { adminUserId: targetUserId } }),
+        this.prisma.announcement.count({ where: { createdByAdminId: targetUserId } }),
+        this.prisma.upstreamProvider.count({ where: { createdByAdminId: targetUserId } }),
+        this.prisma.rechargeCode.count({ where: { createdByAdminId: targetUserId } }),
+        this.prisma.aiRechargeProduct.count({ where: { createdByAdminId: targetUserId } })
+      ]);
+
+    if (
+      adminAuditActorCount ||
+      announcementCount ||
+      upstreamProviderCount ||
+      rechargeCodeCreatedCount ||
+      aiRechargeProductCount
+    ) {
+      throw new BadRequestException('This account owns merchant resources and cannot be deleted safely');
+    }
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      const tokens = await tx.apiToken.findMany({
+        where: { userId: targetUserId },
+        select: { id: true }
+      });
+      const tokenIds = tokens.map((token) => token.id);
+
+      const invitedUsers = await tx.user.updateMany({
+        where: { invitedByUserId: targetUserId },
+        data: { invitedByUserId: null }
+      });
+      const rechargeCodes = await tx.rechargeCode.updateMany({
+        where: { usedByUserId: targetUserId },
+        data: { usedByUserId: null }
+      });
+      const securityAuditLogs = await tx.securityAuditLog.updateMany({
+        where: { actorUserId: targetUserId },
+        data: { actorUserId: null }
+      });
+      const aiRechargePageConfigs = await tx.aiRechargePageConfig.updateMany({
+        where: { updatedByAdminId: targetUserId },
+        data: { updatedByAdminId: null }
+      });
+      const siteContentConfigs = await tx.siteContentConfig.updateMany({
+        where: { updatedByAdminId: targetUserId },
+        data: { updatedByAdminId: null }
+      });
+      const requestLogsByUser = await tx.requestLog.updateMany({
+        where: { userId: targetUserId },
+        data: { userId: null }
+      });
+      const requestLogsByToken = tokenIds.length
+        ? await tx.requestLog.updateMany({
+            where: { tokenId: { in: tokenIds } },
+            data: { tokenId: null }
+          })
+        : { count: 0 };
+
+      const notificationDeliveries = await tx.notificationDelivery.deleteMany({
+        where: { userId: targetUserId }
+      });
+      const notificationChannels = await tx.notificationChannel.deleteMany({
+        where: { userId: targetUserId }
+      });
+      const notificationPreferences = await tx.notificationPreference.deleteMany({
+        where: { userId: targetUserId }
+      });
+      const referralRewards = await tx.referralReward.deleteMany({
+        where: {
+          OR: [{ inviterUserId: targetUserId }, { inviteeUserId: targetUserId }]
+        }
+      });
+      const relayRateLimitEvents = await tx.relayRateLimitEvent.deleteMany({
+        where: { userId: targetUserId }
+      });
+      const walletTransactions = await tx.walletTransaction.deleteMany({
+        where: { userId: targetUserId }
+      });
+      const paymentOrders = await tx.paymentOrder.deleteMany({
+        where: { userId: targetUserId }
+      });
+      const usageEvents = await tx.usageEvent.deleteMany({
+        where: { userId: targetUserId }
+      });
+      const asyncTasks = await tx.asyncTask.deleteMany({
+        where: { userId: targetUserId }
+      });
+      const aiRechargeOrders = await tx.aiRechargeOrder.deleteMany({
+        where: { userId: targetUserId }
+      });
+      const sessions = await tx.session.deleteMany({
+        where: { userId: targetUserId }
+      });
+      const apiTokenModelAccesses = tokenIds.length
+        ? await tx.apiTokenModelAccess.deleteMany({
+            where: { apiTokenId: { in: tokenIds } }
+          })
+        : { count: 0 };
+      const apiTokens = await tx.apiToken.deleteMany({
+        where: { userId: targetUserId }
+      });
+      const wallets = await tx.wallet.deleteMany({
+        where: { userId: targetUserId }
+      });
+
+      await tx.user.delete({
+        where: { id: targetUserId }
+      });
+
+      const removed = {
+        invitedUsersDetached: invitedUsers.count,
+        rechargeCodesDetached: rechargeCodes.count,
+        requestLogsDetached: requestLogsByUser.count + requestLogsByToken.count,
+        securityAuditLogsDetached: securityAuditLogs.count,
+        aiRechargePageConfigsDetached: aiRechargePageConfigs.count,
+        siteContentConfigsDetached: siteContentConfigs.count,
+        notificationDeliveries: notificationDeliveries.count,
+        notificationChannels: notificationChannels.count,
+        notificationPreferences: notificationPreferences.count,
+        referralRewards: referralRewards.count,
+        relayRateLimitEvents: relayRateLimitEvents.count,
+        walletTransactions: walletTransactions.count,
+        paymentOrders: paymentOrders.count,
+        usageEvents: usageEvents.count,
+        asyncTasks: asyncTasks.count,
+        aiRechargeOrders: aiRechargeOrders.count,
+        sessions: sessions.count,
+        apiTokenModelAccesses: apiTokenModelAccesses.count,
+        apiTokens: apiTokens.count,
+        wallets: wallets.count
+      };
+
+      await tx.adminAuditLog.create({
+        data: {
+          adminUserId: actorUserId,
+          action: 'user_data_deleted',
+          targetType: 'user',
+          targetId: targetUserId,
+          beforeSnapshot: {
+            id: user.id,
+            username: user.username,
+            role: user.role.toLowerCase(),
+            status: user.status.toLowerCase(),
+            groupId: user.group.id,
+            groupCode: user.group.code,
+            balanceCents: user.wallet?.balanceCents ?? 0,
+            totalSpendCents: user.wallet?.totalSpendCents ?? 0,
+            createdAt: user.createdAt.toISOString()
+          },
+          afterSnapshot: {
+            deleted: true,
+            removed
+          }
+        }
+      });
+
+      return removed;
+    });
+
+    return {
+      id: user.id,
+      username: user.username,
+      deleted: true,
+      removed: result
+    };
+  }
+
   async createModelPrice(adminUserId: string, body: ModelPriceInput) {
     const model = this.normalizeModelName(body.model, 'model');
     const displayName = this.optionalText(body.displayName, 'displayName', 1, 120) ?? null;

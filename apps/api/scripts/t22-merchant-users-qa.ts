@@ -19,6 +19,12 @@ type LoginResponse = {
   };
 };
 
+type DeleteUserResponse = {
+  id: string;
+  username: string;
+  deleted: true;
+};
+
 type AdminUsersResponse = {
   items: Array<{
     id: string;
@@ -61,10 +67,12 @@ type SeededContext = {
   usernames: {
     admin: string;
     user: string;
+    deleteUser: string;
   };
   userIds: {
     admin: string;
     user: string;
+    deleteUser: string;
   };
   groups: {
     primaryId: string;
@@ -104,6 +112,7 @@ const groupBName = `${prefix}_group_b`;
 let checksError: unknown;
 let residualBefore: Residual | null = null;
 let residualAfter: Residual | null = null;
+let cleanupKnownUserIds: string[] = [];
 
 async function main() {
   let seeded: SeededContext;
@@ -180,6 +189,56 @@ async function main() {
       `ordinary user should not be able to call /admin/users/:id/group, got ${ordinaryAssign.status}`
     );
     checks.push('ordinary_user_cannot_mutate_user_group');
+
+    const deleteCandidateLogin = await login(seeded.usernames.deleteUser);
+    assert(
+      deleteCandidateLogin.status >= 200 && deleteCandidateLogin.status < 300,
+      `delete-candidate user login failed with ${deleteCandidateLogin.status}`
+    );
+    checks.push('delete_candidate_user_login_created_session');
+
+    const ordinaryDelete = await deleteUserData(seeded.userIds.deleteUser, userLogin.cookie);
+    assert(
+      ordinaryDelete.status === 401 || ordinaryDelete.status === 403,
+      `ordinary user should not be able to delete user data, got ${ordinaryDelete.status}`
+    );
+    checks.push('ordinary_user_cannot_delete_user_data');
+
+    const adminSelfDelete = await deleteUserData(seeded.userIds.admin, adminLogin.cookie);
+    assert(adminSelfDelete.status === 400, `admin self-delete should return 400, got ${adminSelfDelete.status}`);
+    checks.push('admin_cannot_delete_current_admin_account');
+
+    const deletedUser = await deleteUserData(seeded.userIds.deleteUser, adminLogin.cookie);
+    assert(
+      deletedUser.status >= 200 && deletedUser.status < 300,
+      `admin /admin/users/:id/delete should return 2xx, got ${deletedUser.status}`
+    );
+    assertNoSensitiveLeak(deletedUser.text, 'admin /admin/users/:id/delete response');
+    const deletedPayload = toDeletedUserResponse(deletedUser.json);
+    assert(deletedPayload.id === seeded.userIds.deleteUser, `deleted response returned wrong user: ${deletedPayload.id}`);
+    assert(deletedPayload.username === seeded.usernames.deleteUser, 'deleted response returned wrong username');
+    checks.push('admin_can_delete_ordinary_user_data_via_api');
+
+    const deletedDbState = await prisma.user.findUnique({
+      where: { id: seeded.userIds.deleteUser },
+      include: {
+        wallet: true,
+        sessions: true,
+        apiTokens: true
+      }
+    });
+    assert(deletedDbState === null, 'deleted user should no longer exist in database');
+    checks.push('deleted_user_row_and_direct_dependents_are_removed');
+
+    const reRegister = await register(seeded.usernames.deleteUser);
+    assert(
+      reRegister.status >= 200 && reRegister.status < 300,
+      `deleted username should be reusable, got register status ${reRegister.status}`
+    );
+    const reRegisteredUser = (reRegister.json as LoginResponse).user;
+    assert(reRegisteredUser.username === seeded.usernames.deleteUser, 're-register returned wrong username');
+    assert(reRegisteredUser.id !== seeded.userIds.deleteUser, 're-register should create a new user id');
+    checks.push('deleted_username_can_register_again');
 
     const assigned = await assignUserGroup(seeded.userIds.user, seeded.groups.secondaryId, adminLogin.cookie);
     assert(
@@ -274,6 +333,7 @@ async function seedFixture(): Promise<SeededContext> {
   const passwordHash = await bcrypt.hash(password, 12);
   const adminUsername = `${prefix}_admin`;
   const ordinaryUsername = `${prefix}_user`;
+  const deleteUsername = `${prefix}_del`;
 
   const seed = await prisma.$transaction(async (tx) => {
     const primaryGroup = await tx.userGroup.create({
@@ -313,24 +373,41 @@ async function seedFixture(): Promise<SeededContext> {
       }
     });
 
-    await tx.wallet.createMany({
-      data: [{ userId: admin.id }, { userId: user.id }]
+    const deleteUser = await tx.user.create({
+      data: {
+        username: deleteUsername,
+        passwordHash,
+        role: UserRole.USER,
+        status: UserStatus.ACTIVE,
+        groupId: primaryGroup.id,
+        inviteCode: `m04_delete_${suffix}`
+      }
     });
 
-    return {
+    await tx.wallet.createMany({
+      data: [{ userId: admin.id }, { userId: user.id }, { userId: deleteUser.id }]
+    });
+
+    const seeded = {
       usernames: {
         admin: adminUsername,
-        user: ordinaryUsername
+        user: ordinaryUsername,
+        deleteUser: deleteUsername
       },
       userIds: {
         admin: admin.id,
-        user: user.id
+        user: user.id,
+        deleteUser: deleteUser.id
       },
       groups: {
         primaryId: primaryGroup.id,
         secondaryId: secondaryGroup.id
       }
     } satisfies SeededContext;
+
+    cleanupKnownUserIds = [admin.id, user.id, deleteUser.id];
+
+    return seeded;
   });
 
   return seed;
@@ -340,6 +417,19 @@ async function login(username: string): Promise<HttpResult<LoginResponse>> {
   return request<LoginResponse>(
     'POST',
     '/auth/login',
+    {
+      username,
+      password
+    },
+    undefined,
+    { accept: 'application/json' }
+  );
+}
+
+async function register(username: string): Promise<HttpResult<LoginResponse>> {
+  return request<LoginResponse>(
+    'POST',
+    '/auth/register',
     {
       username,
       password
@@ -374,6 +464,10 @@ async function assignUserGroup(userId: string, groupId: string, cookie: string):
   return request('POST', `/admin/users/${userId}/group`, { groupId }, cookie, { accept: 'application/json' });
 }
 
+async function deleteUserData(userId: string, cookie: string): Promise<HttpResult<unknown>> {
+  return request('POST', `/admin/users/${userId}/delete`, undefined, cookie, { accept: 'application/json' });
+}
+
 function toAdminUsersResponse(json: unknown): AdminUsersResponse {
   assert(typeof json === 'object' && json !== null && 'items' in json, 'admin users response shape is invalid');
   const response = json as AdminUsersResponse;
@@ -390,6 +484,15 @@ function toAssignedUser(json: unknown): AdminUsersResponse['items'][number] {
   return user;
 }
 
+function toDeletedUserResponse(json: unknown): DeleteUserResponse {
+  assert(typeof json === 'object' && json !== null, 'admin delete user response is not an object');
+  const response = json as DeleteUserResponse;
+  assert(typeof response.id === 'string', 'deleted response id is missing');
+  assert(typeof response.username === 'string', 'deleted response username is missing');
+  assert(response.deleted === true, 'deleted response deleted=true is missing');
+  return response;
+}
+
 function assertRedirect(
   response: { status: number; location: string },
   expectedPath: string,
@@ -403,9 +506,9 @@ function assertRedirect(
 }
 
 function assertMerchantUsersHtml(text: string) {
-  const markers = ['merchant-shell-page', '用户管理', '用户列表', '客户额度'];
+  const markers = ['merchant-shell-page', '用户统计', '用户列表'];
   const found = markers.filter((marker) => text.includes(marker)).length;
-  assert(found >= 3, `merchant users page missing expected markers, found ${found}`);
+  assert(found === markers.length, `merchant users page missing expected markers, found ${found}`);
 }
 
 function toAdminGroupsResponse(json: unknown): AdminGroupsResponse {
@@ -484,6 +587,7 @@ async function cleanup() {
     select: { id: true }
   });
   const userIds = users.map((entry) => entry.id);
+  const cleanupTargetIds = Array.from(new Set([...userIds, ...cleanupKnownUserIds]));
   const tokenIds = userIds.length
     ? await prisma.apiToken.findMany({
         where: { userId: { in: userIds } },
@@ -491,16 +595,16 @@ async function cleanup() {
       })
     : [];
 
-  if (userIds.length > 0) {
+  if (cleanupTargetIds.length > 0) {
     await prisma.securityAuditLog.deleteMany({
       where: {
-        OR: [{ actorUserId: { in: userIds } }, { targetId: { in: userIds } }]
+        OR: [{ actorUserId: { in: cleanupTargetIds } }, { targetId: { in: cleanupTargetIds } }]
       }
     });
 
     await prisma.adminAuditLog.deleteMany({
       where: {
-        OR: [{ adminUserId: { in: userIds } }, { targetId: { in: userIds } }]
+        OR: [{ adminUserId: { in: cleanupTargetIds } }, { targetId: { in: cleanupTargetIds } }]
       }
     });
   }
