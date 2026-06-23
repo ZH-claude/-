@@ -21,7 +21,7 @@ const CONTACT_CHANNELS = [
     id: 'wechat',
     title: '微信',
     subtitle: '扫码添加微信好友',
-    image: '/contact/wechat-recharge.jpg',
+    image: '/contact/wechat-recharge-20260623.jpg',
     note: '支持微信好友支付后人工发放兑换码。'
   },
   {
