@@ -39,8 +39,8 @@ const INTEGRATION_GUIDES: IntegrationGuide[] = [
   {
     id: 'claude-code',
     label: 'Claude Code',
-    code: (model) => `$env:ANTHROPIC_API_KEY="Your API Key"
-$env:ANTHROPIC_AUTH_TOKEN="Your API Key"
+    code: (model) => `$env:ANTHROPIC_API_KEY="你的 API 密钥"
+$env:ANTHROPIC_AUTH_TOKEN="你的 API 密钥"
 $env:ANTHROPIC_BASE_URL="${PUBLIC_API_BASE_URL}/"
 claude --model "${model}"`
   },
@@ -50,15 +50,15 @@ claude --model "${model}"`
     code: (model) => `from openai import OpenAI
 
 client = OpenAI(
-    api_key="Your API Key",
+    api_key="你的 API 密钥",
     base_url="${OPENAI_COMPAT_BASE_URL}"
 )
 
 response = client.chat.completions.create(
     model="${model}",
     messages=[
-        {"role": "system", "content": "You are a helpful assistant."},
-        {"role": "user", "content": "Hello, how are you?"}
+        {"role": "system", "content": "你是一个有帮助的助手。"},
+        {"role": "user", "content": "你好，请简单介绍一下你自己。"}
     ],
     max_tokens=1024,
     temperature=0.7
@@ -79,8 +79,8 @@ const client = new OpenAI({
 const response = await client.chat.completions.create({
   model: "${model}",
   messages: [
-    { role: "system", content: "You are a helpful assistant." },
-    { role: "user", content: "Hello, how are you?" },
+    { role: "system", content: "你是一个有帮助的助手。" },
+    { role: "user", content: "你好，请简单介绍一下你自己。" },
   ],
   max_tokens: 1024,
   temperature: 0.7,
@@ -103,8 +103,8 @@ public class Main {
     {
       "model": "${model}",
       "messages": [
-        {"role": "system", "content": "You are a helpful assistant."},
-        {"role": "user", "content": "Hello, how are you?"}
+        {"role": "system", "content": "你是一个有帮助的助手。"},
+        {"role": "user", "content": "你好，请简单介绍一下你自己。"}
       ],
       "max_tokens": 1024,
       "temperature": 0.7
@@ -142,8 +142,8 @@ func main() {
   body := []byte(\`{
     "model": "${model}",
     "messages": [
-      {"role": "system", "content": "You are a helpful assistant."},
-      {"role": "user", "content": "Hello, how are you?"}
+      {"role": "system", "content": "你是一个有帮助的助手。"},
+      {"role": "user", "content": "你好，请简单介绍一下你自己。"}
     ],
     "max_tokens": 1024,
     "temperature": 0.7
@@ -167,7 +167,7 @@ func main() {
     label: 'Shell',
     code: (model) => `#!/usr/bin/env bash
 
-API_KEY="Your API Key"
+API_KEY="你的 API 密钥"
 MODEL_ID="${model}"
 BASE_URL="${PUBLIC_API_BASE_URL}"
 
@@ -179,11 +179,11 @@ curl -X POST "$BASE_URL/v1/chat/completions" \\
     "messages": [
       {
         "role": "system",
-        "content": "You are a helpful assistant."
+        "content": "你是一个有帮助的助手。"
       },
       {
         "role": "user",
-        "content": "Hello, how are you?"
+        "content": "你好，请简单介绍一下你自己。"
       }
     ],
     "max_tokens": 1024,
@@ -546,11 +546,11 @@ function PricingIntegrationDialog({
 
         <div className="pricing-integration-summary">
           <div>
-            <span>Base URL</span>
+            <span>接口地址</span>
             <code>{OPENAI_COMPAT_BASE_URL}</code>
           </div>
           <div>
-            <span>API Endpoint</span>
+            <span>接口路径</span>
             <code>/chat/completions</code>
           </div>
           <div>
@@ -567,7 +567,7 @@ function PricingIntegrationDialog({
           <div className="pricing-guide-heading">
             <div>
               <h3>使用以下代码示例来集成我们的 API：</h3>
-              <p>先在令牌页面创建 API Key，再把示例里的模型名替换为当前模型。</p>
+              <p>先在令牌页面创建 API 密钥，再把示例里的模型名替换为当前模型。</p>
             </div>
             <button className="ghost-button compact-button" onClick={() => void onCopy(model, guide)} type="button">
               <CopyOutlined />
