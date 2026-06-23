@@ -37,6 +37,14 @@ const OPENAI_COMPAT_BASE_URL = `${PUBLIC_API_BASE_URL}/v1`;
 
 const INTEGRATION_GUIDES: IntegrationGuide[] = [
   {
+    id: 'claude-code',
+    label: 'Claude Code',
+    code: (model) => `$env:ANTHROPIC_API_KEY="Your API Key"
+$env:ANTHROPIC_AUTH_TOKEN="Your API Key"
+$env:ANTHROPIC_BASE_URL="${PUBLIC_API_BASE_URL}/"
+claude --model "${model}"`
+  },
+  {
     id: 'python',
     label: 'Python',
     code: (model) => `from openai import OpenAI
@@ -88,30 +96,34 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 
-String apiKey = System.getenv("NEWAICODE_API_KEY");
-String body = """
-{
-  "model": "${model}",
-  "messages": [
-    {"role": "system", "content": "You are a helpful assistant."},
-    {"role": "user", "content": "Hello, how are you?"}
-  ],
-  "max_tokens": 1024,
-  "temperature": 0.7
-}
-""";
+public class Main {
+  public static void main(String[] args) throws Exception {
+    String apiKey = System.getenv("NEWAICODE_API_KEY");
+    String body = """
+    {
+      "model": "${model}",
+      "messages": [
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": "Hello, how are you?"}
+      ],
+      "max_tokens": 1024,
+      "temperature": 0.7
+    }
+    """;
 
-HttpRequest request = HttpRequest.newBuilder()
-    .uri(URI.create("${OPENAI_COMPAT_BASE_URL}/chat/completions"))
-    .header("Content-Type", "application/json")
-    .header("Authorization", "Bearer " + apiKey)
-    .POST(HttpRequest.BodyPublishers.ofString(body))
-    .build();
+    HttpRequest request = HttpRequest.newBuilder()
+        .uri(URI.create("${OPENAI_COMPAT_BASE_URL}/chat/completions"))
+        .header("Content-Type", "application/json")
+        .header("Authorization", "Bearer " + apiKey)
+        .POST(HttpRequest.BodyPublishers.ofString(body))
+        .build();
 
-HttpResponse<String> response = HttpClient.newHttpClient()
-    .send(request, HttpResponse.BodyHandlers.ofString());
+    HttpResponse<String> response = HttpClient.newHttpClient()
+        .send(request, HttpResponse.BodyHandlers.ofString());
 
-System.out.println(response.body());`
+    System.out.println(response.body());
+  }
+}`
   },
   {
     id: 'go',
@@ -121,6 +133,7 @@ System.out.println(response.body());`
 import (
   "bytes"
   "fmt"
+  "io"
   "net/http"
   "os"
 )
@@ -140,9 +153,13 @@ func main() {
   request.Header.Set("Content-Type", "application/json")
   request.Header.Set("Authorization", "Bearer "+os.Getenv("NEWAICODE_API_KEY"))
 
-  response, _ := http.DefaultClient.Do(request)
+  response, err := http.DefaultClient.Do(request)
+  if err != nil {
+    panic(err)
+  }
   defer response.Body.Close()
-  fmt.Println(response.Status)
+  responseBody, _ := io.ReadAll(response.Body)
+  fmt.Println(string(responseBody))
 }`
   },
   {
@@ -172,13 +189,6 @@ curl -X POST "$BASE_URL/v1/chat/completions" \\
     "max_tokens": 1024,
     "temperature": 0.7
   }'`
-  },
-  {
-    id: 'claude-code',
-    label: 'Claude Code',
-    code: (model) => `$env:ANTHROPIC_AUTH_TOKEN="Your API Key"
-$env:ANTHROPIC_BASE_URL="${PUBLIC_API_BASE_URL}/"
-claude --model "${model}"`
   }
 ];
 
@@ -200,7 +210,7 @@ export default function PricingPage() {
   const [copiedModel, setCopiedModel] = useState('');
   const [copiedGuide, setCopiedGuide] = useState('');
   const [selectedModel, setSelectedModel] = useState<PricingModel | null>(null);
-  const [activeGuide, setActiveGuide] = useState<IntegrationGuideId>('python');
+  const [activeGuide, setActiveGuide] = useState<IntegrationGuideId>('claude-code');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(true);
 
@@ -278,7 +288,7 @@ export default function PricingPage() {
 
   function openIntegrationGuide(model: PricingModel) {
     setSelectedModel(model);
-    setActiveGuide('python');
+    setActiveGuide('claude-code');
     setCopiedModel('');
     setCopiedGuide('');
     setError('');
