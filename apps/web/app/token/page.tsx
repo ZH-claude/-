@@ -793,13 +793,8 @@ function buildClaudeCodePowerShellConfig(apiKey: string, model: string) {
   const quotedModel = quotePowerShellString(model);
 
   return [
-    `$env:ANTHROPIC_API_KEY=${quotedApiKey}`,
     `$env:ANTHROPIC_AUTH_TOKEN=${quotedApiKey}`,
     `$env:ANTHROPIC_BASE_URL=${quotePowerShellString(publicAnthropicBaseUrl)}`,
-    `$env:NO_PROXY=${quotePowerShellString(publicNoProxyHosts)}`,
-    `$env:ANTHROPIC_MODEL=${quotedModel}`,
-    `$env:ANTHROPIC_DEFAULT_SONNET_MODEL=${quotedModel}`,
-    `$env:ANTHROPIC_DEFAULT_OPUS_MODEL=${quotedModel}`,
     `claude --model ${quotedModel}`
   ].join('\n');
 }

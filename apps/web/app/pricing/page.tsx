@@ -39,8 +39,7 @@ const INTEGRATION_GUIDES: IntegrationGuide[] = [
   {
     id: 'claude-code',
     label: 'Claude Code',
-    code: (model) => `$env:ANTHROPIC_API_KEY="你的 API 密钥"
-$env:ANTHROPIC_AUTH_TOKEN="你的 API 密钥"
+    code: (model) => `$env:ANTHROPIC_AUTH_TOKEN="你的 API 密钥"
 $env:ANTHROPIC_BASE_URL="${PUBLIC_API_BASE_URL}/"
 claude --model "${model}"`
   },
