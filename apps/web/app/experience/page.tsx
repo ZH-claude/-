@@ -16,6 +16,7 @@ import { ModelBrandMark, type ModelBrandId } from '../components/model-brand-mar
 import { getProfile } from '../lib/auth-api';
 import { formatBillingCny, formatUsdPerMillionFromUnits } from '../lib/billing-format';
 import {
+  ExperienceApiError,
   listExperienceModels,
   sendExperienceChat,
   type ExperienceChatMessage,
@@ -40,6 +41,8 @@ type ModelFamily = {
 };
 
 const DEFAULT_SYSTEM_PROMPT = '你是一个简洁、准确的 AI 助手。';
+
+const INSUFFICIENT_BALANCE_REPLY = '余额不足，请前往充值';
 
 const MODEL_FAMILIES: ModelFamily[] = [
   { id: 'all', label: '全部模型', mark: 'All', hint: 'All models', className: 'all' },
@@ -168,6 +171,18 @@ export default function ExperiencePage() {
         setBalanceCents(result.billing.balanceAfterCents);
       }
     } catch (nextError) {
+      if (isInsufficientBalanceError(nextError)) {
+        const assistantMessage: LocalMessage = {
+          id: createMessageId(),
+          role: 'assistant',
+          content: INSUFFICIENT_BALANCE_REPLY
+        };
+        setMessages([...nextMessages, assistantMessage]);
+        setLastResult(null);
+        setError('');
+        return;
+      }
+
       setMessages(messages);
       setError(nextError instanceof Error ? nextError.message : '模型体验请求失败');
     } finally {
@@ -440,6 +455,14 @@ export default function ExperiencePage() {
 
 function createMessageId() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
+function isInsufficientBalanceError(error: unknown) {
+  if (error instanceof ExperienceApiError) {
+    return error.code === 'insufficient_balance' || error.status === 402;
+  }
+
+  return error instanceof Error && /insufficient balance|余额不足/i.test(error.message);
 }
 
 function formatTokenCount(value: number) {

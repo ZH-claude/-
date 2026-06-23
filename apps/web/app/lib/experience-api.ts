@@ -36,6 +36,19 @@ export type ExperienceChatResponse = {
   };
 };
 
+export class ExperienceApiError extends Error {
+  status: number;
+  code: string | null;
+
+  constructor(message: string, status: number, code: string | null) {
+    super(message);
+    this.name = 'ExperienceApiError';
+    this.status = status;
+    this.code = code;
+    Object.setPrototypeOf(this, ExperienceApiError.prototype);
+  }
+}
+
 const API_BASE_URL = '/api';
 
 export async function listExperienceModels() {
@@ -84,7 +97,11 @@ async function request<T>(
       data && typeof data === 'object' && 'message' in data
         ? String((data as { message: unknown }).message)
         : `请求失败：${response.status}`;
-    throw new Error(message);
+    const code =
+      data && typeof data === 'object' && 'code' in data
+        ? String((data as { code: unknown }).code)
+        : null;
+    throw new ExperienceApiError(message, response.status, code);
   }
 
   return data as T;
