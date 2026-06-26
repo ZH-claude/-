@@ -40,6 +40,7 @@ export function MerchantUpstreamWorkbench({
   const [providerBaseUrl, setProviderBaseUrl] = useState('');
   const [providerApiKey, setProviderApiKey] = useState('');
   const [providerStatus, setProviderStatus] = useState<ProviderStatus>('active');
+  const [providerMaxConcurrency, setProviderMaxConcurrency] = useState('');
   const [editingProviderId, setEditingProviderId] = useState<string | null>(null);
   const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null);
   const [checkingProviderId, setCheckingProviderId] = useState<string | null>(null);
@@ -101,7 +102,8 @@ export function MerchantUpstreamWorkbench({
         name: providerName.trim(),
         kind,
         baseUrl: providerBaseUrl.trim(),
-        status: providerStatus
+        status: providerStatus,
+        maxConcurrency: parseOptionalPositiveInteger(providerMaxConcurrency)
       };
       const saved = editingProviderId
         ? await updateUpstreamProvider(editingProviderId, {
@@ -147,6 +149,7 @@ export function MerchantUpstreamWorkbench({
     setProviderBaseUrl(provider.baseUrl);
     setProviderApiKey('');
     setProviderStatus(provider.status === 'disabled' ? 'disabled' : 'active');
+    setProviderMaxConcurrency(provider.maxConcurrency === null ? '' : String(provider.maxConcurrency));
     setMessage('正在修改上游。密钥不填写表示继续使用原来的密钥。');
   }
 
@@ -156,6 +159,7 @@ export function MerchantUpstreamWorkbench({
     setProviderBaseUrl('');
     setProviderApiKey('');
     setProviderStatus('active');
+    setProviderMaxConcurrency('');
   }
 
   return (
@@ -214,6 +218,16 @@ export function MerchantUpstreamWorkbench({
                   <option value="disabled">停用</option>
                 </select>
               </label>
+              <label>
+                最大并发数
+                <input
+                  min={1}
+                  onChange={(event) => setProviderMaxConcurrency(event.target.value)}
+                  placeholder="留空表示不限"
+                  type="number"
+                  value={providerMaxConcurrency}
+                />
+              </label>
               <div className="form-actions">
                 <button className="primary-button" disabled={isSaving} type="submit">
                   <SaveOutlined />
@@ -240,6 +254,8 @@ export function MerchantUpstreamWorkbench({
                     <th>名称</th>
                     <th>地址</th>
                     <th>密钥</th>
+                    <th>并发</th>
+                    <th>熔断</th>
                     <th>状态</th>
                     <th>检查</th>
                     <th>操作</th>
@@ -254,6 +270,8 @@ export function MerchantUpstreamWorkbench({
                       </td>
                       <td>{provider.baseUrl}</td>
                       <td>{provider.apiKeyPreview}</td>
+                      <td>{formatMaxConcurrency(provider.maxConcurrency)}</td>
+                      <td>{formatCircuitState(provider)}</td>
                       <td>{formatStatus(provider.status)}</td>
                       <td>
                         {formatHealth(provider.healthStatus)}
@@ -285,7 +303,7 @@ export function MerchantUpstreamWorkbench({
                   ))}
                   {!visibleProviders.length && !isLoading ? (
                     <tr>
-                      <td colSpan={6}>暂无{copy.providerName}</td>
+                      <td colSpan={8}>暂无{copy.providerName}</td>
                     </tr>
                   ) : null}
                 </tbody>
@@ -313,6 +331,22 @@ export function MerchantUpstreamWorkbench({
                 <div>
                   <dt>密钥预览</dt>
                   <dd>{selectedProvider.apiKeyPreview}</dd>
+                </div>
+                <div>
+                  <dt>最大并发</dt>
+                  <dd>{formatMaxConcurrency(selectedProvider.maxConcurrency)}</dd>
+                </div>
+                <div>
+                  <dt>熔断状态</dt>
+                  <dd>{formatCircuitState(selectedProvider)}</dd>
+                </div>
+                <div>
+                  <dt>最近成功</dt>
+                  <dd>{formatOptionalDate(selectedProvider.lastSuccessAt)}</dd>
+                </div>
+                <div>
+                  <dt>最近失败</dt>
+                  <dd>{formatOptionalDate(selectedProvider.lastFailureAt)}</dd>
                 </div>
                 <div>
                   <dt>健康状态</dt>
@@ -401,4 +435,47 @@ function formatHealth(status: string) {
   }
 
   return '未检查';
+}
+
+function formatMaxConcurrency(value: number | null) {
+  return value === null ? '不限制' : `${formatNumber(value)} 并发`;
+}
+
+function formatCircuitState(provider: UpstreamProvider) {
+  if (provider.circuitOpenedUntil && new Date(provider.circuitOpenedUntil) > new Date()) {
+    return `熔断至 ${formatOptionalDate(provider.circuitOpenedUntil)}`;
+  }
+
+  if (provider.consecutiveFailures > 0) {
+    return `连续失败 ${formatNumber(provider.consecutiveFailures)} 次`;
+  }
+
+  return '正常';
+}
+
+function formatOptionalDate(value: string | null) {
+  if (!value) {
+    return '-';
+  }
+
+  return new Intl.DateTimeFormat('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  }).format(new Date(value));
+}
+
+function parseOptionalPositiveInteger(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const numericValue = Number(trimmed);
+  if (!Number.isInteger(numericValue) || numericValue < 1) {
+    throw new Error('最大并发数必须是大于 0 的整数');
+  }
+
+  return numericValue;
 }

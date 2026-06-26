@@ -64,11 +64,90 @@ export type Announcement = {
   content: string;
   category: AnnouncementCategory;
   status: string;
+  isPinned: boolean;
+  scheduledAt: string | null;
   publishedAt: string | null;
+  translations?: TranslationMap | null;
+  translationWorkflow?: AnnouncementTranslationWorkflow | null;
   createdBy?: string;
   createdByAdminId?: string;
   createdAt: string;
   updatedAt?: string;
+};
+
+export type TranslationMap = Record<string, Record<string, string | boolean>>;
+
+export type AnnouncementTranslationWorkflowEntry = {
+  language: string;
+  status: string;
+  locked: boolean;
+  source: string | null;
+  hasTitle: boolean;
+  hasContent: boolean;
+  updatedAt: string | null;
+};
+
+export type AnnouncementTranslationWorkflow = {
+  languages: string[];
+  counts: {
+    total: number;
+    machineDraft: number;
+    humanReviewed: number;
+    manualLocked: number;
+    locked: number;
+    untranslated: number;
+  };
+  entries: AnnouncementTranslationWorkflowEntry[];
+};
+
+export type AnnouncementPreview = {
+  id: string;
+  language: string;
+  title: string;
+  content: string;
+  fallback: boolean;
+  source: {
+    title: string;
+    content: string;
+  };
+  translation: {
+    language: string | null;
+    status: string;
+    locked: boolean;
+    source: string | null;
+    hasTitle: boolean;
+    hasContent: boolean;
+    updatedAt: string | null;
+  };
+  category: AnnouncementCategory;
+  status: string;
+  isPinned: boolean;
+  scheduledAt: string | null;
+  publishedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type PrepareAnnouncementTranslationsResponse = Announcement & {
+  preparedTranslationLanguages: string[];
+  translationErrors: string[];
+  changed: boolean;
+};
+
+export type TranslationGlossaryTerm = {
+  id: string;
+  sourceTerm: string;
+  replacementTerm: string;
+  note: string | null;
+  isActive: boolean;
+  createdByAdminId: string | null;
+  updatedByAdminId: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type TranslationGlossaryListResponse = {
+  items: TranslationGlossaryTerm[];
 };
 
 export type SiteFontFamily = 'system' | 'serif' | 'rounded' | 'mono';
@@ -91,6 +170,7 @@ export type SiteContentConfig = {
     textColor: string;
     accentColor: string;
   };
+  translations?: TranslationMap | null;
   updatedAt: string | null;
 };
 
@@ -107,6 +187,7 @@ export type SiteContentPayload = {
   popupFontFamily: SiteFontFamily;
   popupTextColor: string;
   popupAccentColor: string;
+  translations?: TranslationMap | null;
 };
 
 export type DashboardAlert = {
@@ -126,6 +207,8 @@ export type DashboardUsersSummary = {
   admins: number;
   ordinary: number;
   newToday: number;
+  newYesterday: number;
+  newTodayDelta: number;
 };
 
 export type DashboardWalletSummary = {
@@ -137,7 +220,19 @@ export type DashboardUsageSummary = {
   callCount: number;
   spendCents: number;
   totalTokens: number;
+  activeUsers: number;
+  rechargeCents: number;
+  rechargeCount: number;
   statusCounts: Record<string, number>;
+};
+
+export type DashboardPerformanceSummary = {
+  windowStart: string;
+  requestCount: number;
+  errorCount: number;
+  errorRatePercent: number;
+  averageLatencyMs: number;
+  averageUpstreamLatencyMs: number;
 };
 
 export type DashboardUpstreamSummary = {
@@ -179,17 +274,83 @@ export type DashboardSummary = {
   generatedAt: string;
   window: {
     todayStart: string;
+    monthStart: string;
     last24HoursStart: string;
   };
   users: DashboardUsersSummary;
   wallets: DashboardWalletSummary;
   today: DashboardUsageSummary;
+  performance: DashboardPerformanceSummary;
+  month: DashboardUsageSummary & {
+    windowStart: string;
+    newUsers: number;
+    performance: DashboardPerformanceSummary;
+  };
   upstreams: DashboardUpstreamSummary;
   models: DashboardModelsSummary;
   rechargeCodes: DashboardRechargeSummary;
   totals: DashboardTotalsSummary;
   topUsers: DashboardUserStats[];
   recentAlerts: DashboardAlert[];
+};
+
+export type DailyConsumptionDay = {
+  date: string;
+  windowStart: string;
+  windowEnd: string;
+  callCount: number;
+  spendCents: number;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  activeUsers: number;
+  rechargeCents: number;
+  rechargeCount: number;
+  requestLogCount: number;
+  errorRequestCount: number;
+  errorRatePercent: number;
+  averageLatencyMs: number;
+  averageUpstreamLatencyMs: number;
+  statusCounts: Record<string, number>;
+};
+
+export type DailyUserCostAlert = {
+  date: string;
+  userId: string;
+  username: string;
+  spendCents: number;
+  totalTokens: number;
+  requestCount: number;
+  thresholdCents: number;
+  lastUsedAt: string | null;
+};
+
+export type DailyConsumptionReport = {
+  generatedAt: string;
+  window: {
+    days: number;
+    start: string;
+    end: string;
+    timezone: string;
+  };
+  costAlert: {
+    userDailyThresholdCents: number;
+    alerts: DailyUserCostAlert[];
+  };
+  totals: {
+    callCount: number;
+    spendCents: number;
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+    activeUserDays: number;
+    rechargeCents: number;
+    rechargeCount: number;
+    requestLogCount: number;
+    errorRequestCount: number;
+    errorRatePercent: number;
+  };
+  days: DailyConsumptionDay[];
 };
 
 export type AnnouncementCategory = 'announcement' | 'update_log' | 'usage_guide';
@@ -201,6 +362,11 @@ export type UpstreamProvider = {
   baseUrl: string;
   apiKeyPreview: string;
   status: string;
+  maxConcurrency: number | null;
+  consecutiveFailures: number;
+  circuitOpenedUntil: string | null;
+  lastFailureAt: string | null;
+  lastSuccessAt: string | null;
   healthStatus: string;
   lastHealthCheckAt: string | null;
   lastHealthLatencyMs: number | null;
@@ -238,6 +404,7 @@ export type AdminModelPrice = {
   id: string;
   model: string;
   displayName: string | null;
+  translations?: TranslationMap | null;
   inputPriceCentsPer1k: number;
   outputPriceCentsPer1k: number;
   modelMultiplier: string;
@@ -292,9 +459,18 @@ export type UpstreamModelMapping = {
 
 export type AdminRechargeCode = {
   id: string;
+  kind: 'balance' | 'vibe_coding';
   amountCents: number;
   amountBaseTokens: number;
   faceValueCnyCents: number;
+  quotaHours: number | null;
+  quotaPeriodDays: number | null;
+  tokenQuota: number | null;
+  vibeCodingPackage?: {
+    quotaHours: number | null;
+    quotaPeriodDays: number | null;
+    tokenQuota: number | null;
+  } | null;
   status: string;
   createdBy?: string;
   usedBy?: string | null;
@@ -394,16 +570,21 @@ export type AdminImageTask = {
 
 export type AdminAiRechargeProduct = {
   id: string;
+  productKind: 'ai_recharge' | 'vibe_coding';
   title: string;
   platform: string;
   planName: string;
   durationDays: number | null;
+  quotaHours: number | null;
+  quotaPeriodDays: number | null;
+  tokenQuota: number | null;
   priceCnyCents: number;
   description: string;
   purchaseNote: string | null;
   deliveryNote: string | null;
   sortOrder: number;
   status: 'active' | 'disabled';
+  translations?: TranslationMap | null;
   createdBy?: string;
   orderCount?: number;
   createdAt: string;
@@ -415,6 +596,7 @@ export type AdminAiRechargePageConfig = {
   introTitle: string | null;
   introContent: string | null;
   introImageDataUrl: string | null;
+  translations?: TranslationMap | null;
   updatedAt: string | null;
 };
 
@@ -444,9 +626,18 @@ export type AdminAiRechargeOrder = {
 export type CreatedRechargeCode = {
   id: string;
   code: string;
+  kind: 'balance' | 'vibe_coding';
   amountCents: number;
   amountBaseTokens: number;
   faceValueCnyCents: number;
+  quotaHours: number | null;
+  quotaPeriodDays: number | null;
+  tokenQuota: number | null;
+  vibeCodingPackage?: {
+    quotaHours: number | null;
+    quotaPeriodDays: number | null;
+    tokenQuota: number | null;
+  } | null;
   status: string;
   createdAt: string;
 };
@@ -587,8 +778,70 @@ export async function createAnnouncement(payload: {
   content: string;
   category: AnnouncementCategory;
   status: 'draft' | 'published' | 'archived';
+  isPinned?: boolean;
+  scheduledAt?: string | null;
+  translations?: TranslationMap | null;
 }) {
   return request<Announcement>('/admin/announcements', {
+    method: 'POST',
+    body: payload
+  });
+}
+
+export async function updateAnnouncement(announcementId: string, payload: {
+  title?: string;
+  content?: string;
+  category?: AnnouncementCategory;
+  status?: 'draft' | 'published' | 'archived';
+  isPinned?: boolean;
+  scheduledAt?: string | null;
+  translations?: TranslationMap | null;
+}) {
+  return request<Announcement>(`/admin/announcements/${encodeURIComponent(announcementId)}/update`, {
+    method: 'POST',
+    body: payload,
+    retryOnNetworkError: true
+  });
+}
+
+export async function previewAnnouncement(announcementId: string, language: string) {
+  const params = new URLSearchParams({ language });
+  return request<AnnouncementPreview>(`/admin/announcements/${encodeURIComponent(announcementId)}/preview?${params.toString()}`);
+}
+
+export async function prepareAnnouncementTranslations(announcementId: string, payload: { targetLanguages?: string[] } = {}) {
+  return request<PrepareAnnouncementTranslationsResponse>(
+    `/admin/announcements/${encodeURIComponent(announcementId)}/prepare-translations`,
+    {
+      method: 'POST',
+      body: payload
+    }
+  );
+}
+
+export async function listTranslationGlossaryTerms() {
+  return request<TranslationGlossaryListResponse>('/admin/translation-glossary');
+}
+
+export async function createTranslationGlossaryTerm(payload: {
+  sourceTerm: string;
+  replacementTerm: string;
+  note?: string | null;
+  isActive?: boolean;
+}) {
+  return request<TranslationGlossaryTerm>('/admin/translation-glossary', {
+    method: 'POST',
+    body: payload
+  });
+}
+
+export async function updateTranslationGlossaryTerm(termId: string, payload: {
+  sourceTerm?: string;
+  replacementTerm?: string;
+  note?: string | null;
+  isActive?: boolean;
+}) {
+  return request<TranslationGlossaryTerm>(`/admin/translation-glossary/${encodeURIComponent(termId)}/update`, {
     method: 'POST',
     body: payload
   });
@@ -617,6 +870,7 @@ export async function createUpstreamProvider(payload: {
   baseUrl: string;
   apiKey: string;
   status: 'active' | 'disabled';
+  maxConcurrency?: number | null;
 }) {
   return request<UpstreamProvider>('/admin/upstreams', {
     method: 'POST',
@@ -630,6 +884,7 @@ export async function updateUpstreamProvider(providerId: string, payload: {
   baseUrl: string;
   apiKey?: string;
   status: 'active' | 'disabled';
+  maxConcurrency?: number | null;
 }) {
   return request<UpstreamProvider>(`/admin/upstreams/${encodeURIComponent(providerId)}/update`, {
     method: 'POST',
@@ -669,6 +924,7 @@ export async function deleteAdminUserData(userId: string) {
 export async function createModelPrice(payload: {
   model: string;
   displayName?: string;
+  translations?: TranslationMap | null;
   pricingMode?: 'manual' | 'deepseek_base' | 'relay_price';
   inputPriceCentsPer1k?: number;
   outputPriceCentsPer1k?: number;
@@ -690,6 +946,7 @@ export async function createModelPrice(payload: {
 export async function updateModelPrice(modelPriceId: string, payload: {
   model: string;
   displayName?: string;
+  translations?: TranslationMap | null;
   pricingMode?: 'manual' | 'deepseek_base' | 'relay_price';
   inputPriceCentsPer1k?: number;
   outputPriceCentsPer1k?: number;
@@ -845,6 +1102,16 @@ export async function getDashboardSummary() {
   return request<DashboardSummary>('/admin/dashboard-summary');
 }
 
+export async function getDailyConsumptionReport(options: { days?: number; userCostAlertCents?: number } = {}) {
+  const params = new URLSearchParams();
+  params.set('days', String(options.days ?? 14));
+  if (options.userCostAlertCents !== undefined) {
+    params.set('userCostAlertCents', String(options.userCostAlertCents));
+  }
+
+  return request<DailyConsumptionReport>(`/admin/daily-consumption-report?${params.toString()}`);
+}
+
 export async function listAdminAiRechargeProducts() {
   return request<AdminAiRechargeProductListResponse>('/admin/ai-recharge/products');
 }
@@ -857,6 +1124,7 @@ export async function updateAdminAiRechargePageConfig(payload: {
   introTitle?: string | null;
   introContent?: string | null;
   introImageDataUrl?: string | null;
+  translations?: TranslationMap | null;
 }) {
   return request<AdminAiRechargePageConfigResponse>('/admin/ai-recharge/page-config', {
     method: 'POST',
@@ -865,16 +1133,21 @@ export async function updateAdminAiRechargePageConfig(payload: {
 }
 
 export async function createAdminAiRechargeProduct(payload: {
+  productKind: 'ai_recharge' | 'vibe_coding';
   title: string;
   platform: string;
   planName: string;
   durationDays?: number | null;
+  quotaHours?: number | null;
+  quotaPeriodDays?: number | null;
+  tokenQuota?: number | null;
   priceCnyCents: number;
   description: string;
   purchaseNote?: string | null;
   deliveryNote?: string | null;
   sortOrder: number;
   status: 'active' | 'disabled';
+  translations?: TranslationMap | null;
 }) {
   return request<AdminAiRechargeProduct>('/admin/ai-recharge/products', {
     method: 'POST',
@@ -883,16 +1156,21 @@ export async function createAdminAiRechargeProduct(payload: {
 }
 
 export async function updateAdminAiRechargeProduct(productId: string, payload: {
+  productKind: 'ai_recharge' | 'vibe_coding';
   title: string;
   platform: string;
   planName: string;
   durationDays?: number | null;
+  quotaHours?: number | null;
+  quotaPeriodDays?: number | null;
+  tokenQuota?: number | null;
   priceCnyCents: number;
   description: string;
   purchaseNote?: string | null;
   deliveryNote?: string | null;
   sortOrder: number;
   status: 'active' | 'disabled';
+  translations?: TranslationMap | null;
 }) {
   return request<AdminAiRechargeProduct>(`/admin/ai-recharge/products/${encodeURIComponent(productId)}/update`, {
     method: 'POST',
@@ -927,7 +1205,14 @@ export async function updateAdminAiRechargeOrderStatus(orderId: string, payload:
   });
 }
 
-export async function createRechargeCodes(payload: { amountCnyCents: number; count: number }) {
+export async function createRechargeCodes(payload: {
+  amountCnyCents?: number;
+  codeKind?: 'balance' | 'vibe_coding';
+  count: number;
+  quotaHours?: number;
+  quotaPeriodDays?: number;
+  tokenQuota?: number;
+}) {
   return request<CreateRechargeCodesResponse>('/admin/recharge-codes', {
     method: 'POST',
     body: payload
@@ -945,6 +1230,7 @@ async function request<T>(
   options: {
     method?: 'GET' | 'POST';
     body?: Record<string, unknown>;
+    retryOnNetworkError?: boolean;
   } = {}
 ) {
   const headers: Record<string, string> = {
@@ -955,12 +1241,13 @@ async function request<T>(
     headers['Content-Type'] = 'application/json';
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    method: options.method ?? 'GET',
+  const method = options.method ?? 'GET';
+  const response = await fetchWithAdminRetry(`${API_BASE_URL}${path}`, {
+    method,
     headers,
     credentials: 'include',
     body: options.body ? JSON.stringify(options.body) : undefined
-  });
+  }, method, options.retryOnNetworkError ?? false);
 
   const data = await response.json().catch(() => null);
 
@@ -973,4 +1260,31 @@ async function request<T>(
   }
 
   return data as T;
+}
+
+async function fetchWithAdminRetry(url: string, init: RequestInit, method: 'GET' | 'POST', retryOnNetworkError = false) {
+  const maxAttempts = method === 'GET' || retryOnNetworkError ? 3 : 1;
+  let lastError: unknown = null;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      return await fetch(url, init);
+    } catch (error) {
+      lastError = error;
+      if (method !== 'GET' || !isRetryableAdminNetworkError(error) || attempt >= maxAttempts) {
+        throw error;
+      }
+      await delay(150 * attempt);
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error('Request failed');
+}
+
+function isRetryableAdminNetworkError(error: unknown) {
+  return error instanceof TypeError && /fetch|network|failed|load/i.test(error.message);
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }

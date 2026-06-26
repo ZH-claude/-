@@ -1,7 +1,7 @@
 import { PrismaPg } from '@prisma/adapter-pg';
 import { hash as bcryptHash } from 'bcryptjs';
 import { randomBytes } from 'node:crypto';
-import { PrismaClient, UserRole, UserStatus } from '../src/generated/prisma/client';
+import { AnnouncementCategory, AnnouncementStatus, PrismaClient, UserRole, UserStatus } from '../src/generated/prisma/client';
 
 type HttpResult<T = unknown> = {
   status: number;
@@ -37,10 +37,57 @@ type AnnouncementResponse = {
   category: string;
   status: string;
   publishedAt: string | null;
+  translations?: Record<string, Record<string, string | boolean>> | null;
+  translationWorkflow?: {
+    languages: string[];
+    counts: {
+      total: number;
+      machineDraft: number;
+      humanReviewed: number;
+      manualLocked: number;
+      locked: number;
+      untranslated: number;
+    };
+    entries: Array<{
+      language: string;
+      status: string;
+      locked: boolean;
+      source: string | null;
+      hasTitle: boolean;
+      hasContent: boolean;
+      updatedAt: string | null;
+    }>;
+  } | null;
 };
+
+type AnnouncementCategoryInput = 'announcement' | 'update_log' | 'usage_guide';
 
 type AnnouncementListResponse = {
   items: AnnouncementResponse[];
+};
+
+type PrepareAnnouncementTranslationsResponse = AnnouncementResponse & {
+  preparedTranslationLanguages: string[];
+  translationErrors: string[];
+  changed: boolean;
+};
+
+type AnnouncementPreviewResponse = {
+  id: string;
+  language: string;
+  title: string;
+  content: string;
+  fallback: boolean;
+  category: string;
+  translation: {
+    language: string | null;
+    status: string;
+    locked: boolean;
+    source: string | null;
+    hasTitle: boolean;
+    hasContent: boolean;
+    updatedAt: string | null;
+  };
 };
 
 type PublicAnnouncementFeed = {
@@ -117,7 +164,8 @@ async function main() {
       '公告与首页',
       '首页与弹窗公告',
       '发布公告',
-      '公告记录'
+      '公告记录',
+      '公告已保存档案'
     ]);
     await assertMerchantPageAccess('/merchant/audit', merchantCookie, userCookie, [
       'merchant-shell-page',
@@ -143,9 +191,43 @@ async function main() {
     const published = await createAnnouncementAsAdmin('published', merchantCookie);
     const draft = await createAnnouncementAsAdmin('draft', merchantCookie);
     const archived = await createAnnouncementAsAdmin('archived', merchantCookie);
+    const barePublished = await createBarePublishedAnnouncement(seeded.userIds.admin);
+    const updateLog = await createAnnouncementAsAdmin('published', merchantCookie, 'update_log', 'update_log');
+    const usageGuide = await createAnnouncementAsAdmin('published', merchantCookie, 'usage_guide', 'usage_guide');
     checks.push('merchant_creates_published_draft_and_archived_announcements');
 
-    for (const item of [published, draft, archived]) {
+    const merchantPageAfterCreate = await getWebPage('/merchant/announcements', merchantCookie);
+    assert(
+      merchantPageAfterCreate.status >= 200 && merchantPageAfterCreate.status < 300,
+      `merchant announcements page after create should render, got ${merchantPageAfterCreate.status}`
+    );
+    for (const marker of ['公告已保存档案']) {
+      assert(merchantPageAfterCreate.text.includes(marker), `merchant announcements archive page missing marker: ${marker}`);
+    }
+    checks.push('merchant_announcements_page_exposes_saved_archive_panel');
+    const selectedArchivedPage = await getWebPage(
+      `/merchant/announcements?selected=${encodeURIComponent(archived.id)}&saved=announcement`,
+      merchantCookie
+    );
+    assert(selectedArchivedPage.status >= 200 && selectedArchivedPage.status < 300, 'selected archived announcement should render');
+    assert(selectedArchivedPage.text.includes('data-announcement-draft-status'), 'merchant announcement page should expose draft marker');
+    assert(selectedArchivedPage.text.includes('merchant-announcement-saved'), 'merchant announcement page should expose saved archive anchor');
+    assert(selectedArchivedPage.text.includes('data-announcement-workflow-panel'), 'merchant announcement page should expose workflow panel');
+    assert(
+      selectedArchivedPage.text.includes('data-announcement-workflow-status-filter'),
+      'merchant announcement page should expose workflow status filter'
+    );
+    assert(
+      selectedArchivedPage.text.includes('data-announcement-workflow-category-filter'),
+      'merchant announcement page should expose workflow category filter'
+    );
+    assert(
+      selectedArchivedPage.text.includes('data-announcement-workflow-machine-draft-count'),
+      'merchant announcement page should expose workflow machine draft count'
+    );
+    checks.push('merchant_announcements_page_exposes_selected_url_shell_and_draft_marker');
+
+    for (const item of [published, draft, archived, barePublished, updateLog, usageGuide]) {
       const stored = await prisma.announcement.findUniqueOrThrow({ where: { id: item.id } });
       assert(stored.createdByAdminId === seeded.userIds.admin, `announcement ${item.id} owner mismatch`);
       assert(stored.title === item.title, `announcement ${item.id} title mismatch`);
@@ -158,16 +240,141 @@ async function main() {
     assert(listedStatuses.get(published.id) === 'published', 'admin list should include published announcement');
     assert(listedStatuses.get(draft.id) === 'draft', 'admin list should include draft announcement');
     assert(listedStatuses.get(archived.id) === 'archived', 'admin list should include archived announcement');
-    checks.push('merchant_announcement_list_includes_all_operational_statuses');
+    const publishedListing = adminList.json.items.find((item) => item.id === published.id);
+    assert(publishedListing, `admin list should include published announcement row ${published.id}`);
+    assert(Boolean(publishedListing.translationWorkflow), 'admin list should expose translation workflow summary');
+    assert(publishedListing.translationWorkflow?.languages.includes('en-US'), 'admin list should expose en-US workflow language');
+    assert(publishedListing.translationWorkflow?.languages.includes('ja-JP'), 'admin list should expose ja-JP workflow language');
+    assert(
+      publishedListing.translationWorkflow?.counts.machineDraft >= 1,
+      'admin list should report machine draft workflow count for published announcement'
+    );
+    assert(
+      publishedListing.translationWorkflow?.counts.humanReviewed >= 1,
+      'admin list should report human reviewed workflow count for published announcement'
+    );
+    assert(
+      publishedListing.translationWorkflow?.counts.locked >= 1,
+      'admin list should report locked translation workflow count for published announcement'
+    );
+    assert(publishedListing.translationWorkflow?.counts.total >= 2, 'admin list should report expected workflow entry count');
+    const enWorkflowEntry = publishedListing.translationWorkflow?.entries.find((entry) => entry.language === 'en-US');
+    const jaWorkflowEntry = publishedListing.translationWorkflow?.entries.find((entry) => entry.language === 'ja-JP');
+    assert(enWorkflowEntry?.status === 'human_reviewed', 'published announcement should expose en-US human reviewed status');
+    assert(jaWorkflowEntry?.status === 'machine_draft', 'published announcement should expose ja-JP machine draft status');
+    assert(enWorkflowEntry?.locked === true, 'published announcement should expose en-US locked workflow flag');
+    assert(jaWorkflowEntry?.locked === false, 'published announcement should expose ja-JP unlocked workflow flag');
+    assert(enWorkflowEntry?.source === 'qa-manual', 'published announcement should expose en-US manual translation source');
+    assert(jaWorkflowEntry?.source === 'qa-draft', 'published announcement should expose ja-JP machine draft source');
+    checks.push('merchant_announcement_list_includes_operational_statuses_sources_and_workflow_summary');
+
+    const updateLogListing = adminList.json.items.find((item) => item.id === updateLog.id);
+    const usageGuideListing = adminList.json.items.find((item) => item.id === usageGuide.id);
+    assertContentWorkflowCategory(updateLogListing, 'update_log', 'update log');
+    assertContentWorkflowCategory(usageGuideListing, 'usage_guide', 'usage guide');
+    checks.push('merchant_content_workflow_covers_announcements_update_logs_and_usage_guides');
+
+    const userPrepareBlocked = await post(
+      `/admin/announcements/${published.id}/prepare-translations`,
+      { targetLanguages: ['fr-FR'] },
+      userCookie
+    );
+    assert(
+      userPrepareBlocked.status === 403,
+      `ordinary user preparing announcement translations should be 403, got ${userPrepareBlocked.status}`
+    );
+    const preparedDrafts = await post<PrepareAnnouncementTranslationsResponse>(
+      `/admin/announcements/${published.id}/prepare-translations`,
+      { targetLanguages: ['en-US', 'fr-FR'] },
+      merchantCookie
+    );
+    assert(
+      preparedDrafts.status >= 200 && preparedDrafts.status < 300,
+      `admin prepare translations failed with ${preparedDrafts.status}`
+    );
+    assert(
+      preparedDrafts.json.preparedTranslationLanguages.some((language) => language === 'fr' || language === 'fr-FR'),
+      'prepare translations should include requested French draft language'
+    );
+    const preparedEnTranslation = preparedDrafts.json.translations?.['en-US'];
+    assert(preparedEnTranslation?.title === previewTranslationTitle('published', 'en-US'), 'prepare translations should preserve locked en title');
+    assert(preparedEnTranslation?._locked === true, 'prepare translations should preserve locked en flag');
+    assert(
+      preparedDrafts.json.translationWorkflow?.entries.some((entry) => entry.language === 'fr' || entry.language === 'fr-FR'),
+      'prepare translations should expose French workflow entry'
+    );
+    checks.push('admin_prepare_translations_endpoint_generates_drafts_and_preserves_locked_manual_copy');
+
+    const userPreviewBlocked = await get(`/admin/announcements/${published.id}/preview?language=ja-JP`, userCookie);
+    assert(userPreviewBlocked.status === 403, `ordinary user previewing announcement should be 403, got ${userPreviewBlocked.status}`);
+    const jaPreview = await get<AnnouncementPreviewResponse>(`/admin/announcements/${published.id}/preview?language=ja-JP`, merchantCookie);
+    assert(jaPreview.status === 200, `admin ja preview failed with ${jaPreview.status}`);
+    assert(jaPreview.json.title === previewTranslationTitle('published', 'ja-JP'), 'ja preview should use translated title');
+    assert(jaPreview.json.content === previewTranslationContent('published', 'ja-JP'), 'ja preview should use translated content');
+    assert(jaPreview.json.fallback === false, 'ja preview should not fallback when translation exists');
+    assert(jaPreview.json.translation.language === 'ja-JP', 'ja preview should report matched language');
+    assert(jaPreview.json.translation.status === 'machine_draft', 'ja preview should expose machine draft status');
+    assert(jaPreview.json.translation.locked === false, 'ja preview should expose unlocked draft');
+    assert(jaPreview.json.translation.source === 'qa-draft', 'ja preview should expose machine draft source');
+
+    const enPreview = await get<AnnouncementPreviewResponse>(`/admin/announcements/${published.id}/preview?language=en-US`, merchantCookie);
+    assert(enPreview.status === 200, `admin en preview failed with ${enPreview.status}`);
+    assert(enPreview.json.title === previewTranslationTitle('published', 'en-US'), 'en preview should use reviewed title');
+    assert(enPreview.json.translation.status === 'human_reviewed', 'en preview should expose human reviewed status');
+    assert(enPreview.json.translation.locked === true, 'en preview should expose locked manual translation');
+    assert(enPreview.json.translation.source === 'qa-manual', 'en preview should expose locked manual translation source');
+
+    const frPreview = await get<AnnouncementPreviewResponse>(`/admin/announcements/${published.id}/preview?language=fr-FR`, merchantCookie);
+    assert(frPreview.status === 200, `admin fr preview failed with ${frPreview.status}`);
+    assert(frPreview.json.title === published.title, 'fr preview should fallback to source title when missing translation');
+    assert(frPreview.json.content === published.content, 'fr preview should fallback to source content when missing translation');
+    assert(frPreview.json.fallback === true, 'fr preview should mark missing translation fallback');
+    assert(frPreview.json.translation.language === null, 'fr preview should report no matched translation');
+
+    const invalidPreview = await get(`/admin/announcements/${published.id}/preview?language=bad%20language`, merchantCookie);
+    assert(invalidPreview.status === 400, `invalid preview language should be 400, got ${invalidPreview.status}`);
+
+    const updateLogJaPreview = await get<AnnouncementPreviewResponse>(`/admin/announcements/${updateLog.id}/preview?language=ja-JP`, merchantCookie);
+    assert(updateLogJaPreview.status === 200, `admin update log ja preview failed with ${updateLogJaPreview.status}`);
+    assert(updateLogJaPreview.json.category === 'update_log', 'update log preview should preserve content category');
+    assert(updateLogJaPreview.json.title === previewTranslationTitle('update_log', 'ja-JP'), 'update log preview should use translated title');
+
+    const usageGuideJaPreview = await get<AnnouncementPreviewResponse>(`/admin/announcements/${usageGuide.id}/preview?language=ja-JP`, merchantCookie);
+    assert(usageGuideJaPreview.status === 200, `admin usage guide ja preview failed with ${usageGuideJaPreview.status}`);
+    assert(usageGuideJaPreview.json.category === 'usage_guide', 'usage guide preview should preserve content category');
+    assert(usageGuideJaPreview.json.title === previewTranslationTitle('usage_guide', 'ja-JP'), 'usage guide preview should use translated title');
+    checks.push('merchant_can_preview_announcement_by_language_with_workflow_status');
 
     const publicFeed = await get<PublicAnnouncementFeed>('/announcements');
     assert(publicFeed.status === 200, `public announcements failed with ${publicFeed.status}`);
-    assertPublicFeedVisibility(publicFeed.json, published.title, draft.title, archived.title, 'backend public announcement feed');
+    assertPublicFeedVisibility(publicFeed.json, published.id, draft.id, archived.id, 'backend public announcement feed');
+    assertPublicSectionContains(publicFeed.json, 'update_log', updateLog.id, 'backend public announcement feed');
+    assertPublicSectionContains(publicFeed.json, 'usage_guide', usageGuide.id, 'backend public announcement feed');
 
     const webFeed = await getWeb<PublicAnnouncementFeed>('/api/announcements');
     assert(webFeed.status === 200, `web announcement proxy failed with ${webFeed.status}`);
-    assertPublicFeedVisibility(webFeed.json, published.title, draft.title, archived.title, 'web public announcement feed');
+    assertPublicFeedVisibility(webFeed.json, published.id, draft.id, archived.id, 'web public announcement feed');
+    assertPublicSectionContains(webFeed.json, 'update_log', updateLog.id, 'web public announcement feed');
+    assertPublicSectionContains(webFeed.json, 'usage_guide', usageGuide.id, 'web public announcement feed');
     checks.push('public_feeds_show_only_published_real_announcements');
+
+    const bareBeforePublicRead = await prisma.announcement.findUniqueOrThrow({ where: { id: barePublished.id } });
+    assert(bareBeforePublicRead.translations === null, 'bare published announcement should start without translations');
+    const localizedPublicFeed = await get<PublicAnnouncementFeed>('/announcements?language=fr-FR');
+    assert(localizedPublicFeed.status === 200, `localized public announcements failed with ${localizedPublicFeed.status}`);
+    const barePublicItem = localizedPublicFeed.json.sections
+      .flatMap((section) => section.items)
+      .find((item) => item.id === barePublished.id);
+    assert(barePublicItem, 'localized public feed should include bare published announcement');
+    assert(barePublicItem.title === barePublished.title, 'localized public feed should fallback to source title without live translation');
+    assert(barePublicItem.content === barePublished.content, 'localized public feed should fallback to source content without live translation');
+    const bareAfterPublicRead = await prisma.announcement.findUniqueOrThrow({ where: { id: barePublished.id } });
+    assert(bareAfterPublicRead.translations === null, 'public feed should not persist translations during read');
+    assert(
+      bareAfterPublicRead.updatedAt.getTime() === bareBeforePublicRead.updatedAt.getTime(),
+      'public feed should not update announcement row while localizing'
+    );
+    checks.push('public_announcement_feed_does_not_live_translate_or_write_translations');
 
     const adminAudit = await get<AuditListResponse>('/admin/audit-logs?page=1&limit=100', merchantCookie);
     assert(adminAudit.status === 200, `admin audit logs failed with ${adminAudit.status}`);
@@ -175,14 +382,23 @@ async function main() {
     const adminAuditText = JSON.stringify(seededAdminAuditItems);
     assert(seededAdminAuditItems.length >= 3, 'admin audit should include seeded announcement audit entries');
     assert(adminAuditText.includes('announcement_created'), 'seeded admin audit entries should include announcement_created');
+    assert(
+      adminAuditText.includes('announcement_translation_drafts_prepared'),
+      'seeded admin audit entries should include translation draft preparation'
+    );
     assert(adminAudit.json.total >= 3, 'admin audit total should include created announcements');
     assertNoSensitiveText(adminAuditText, sensitiveMarkers(), 'admin audit response');
 
     const securityAudit = await get<AuditListResponse>('/admin/security-audit-logs?page=1&limit=100', merchantCookie);
     assert(securityAudit.status === 200, `security audit logs failed with ${securityAudit.status}`);
-    const securityAuditText = JSON.stringify(securityAudit.json);
-    assert(securityAudit.json.items.length > 0, 'security audit should include login records');
-    assertNoSensitiveText(securityAuditText, sensitiveMarkers(), 'security audit response');
+    const seededSecurityAuditItems = pickSecurityAuditItems(securityAudit.json.items, [
+      seeded.userIds.admin,
+      seeded.userIds.user
+    ]);
+    const securityAuditText = JSON.stringify(seededSecurityAuditItems);
+    assert(seededSecurityAuditItems.length >= 2, 'security audit should include seeded login records');
+    assert(securityAuditText.includes('user_login_succeeded'), 'seeded security audit entries should include login success');
+    assertNoSensitiveText(securityAuditText, sensitiveSecurityAuditMarkers(), 'security audit response');
     checks.push('audit_logs_are_queryable_paginated_and_redacted');
 
     residualBefore = await countResidual();
@@ -270,21 +486,97 @@ async function seedFixture(): Promise<SeededContext> {
   });
 }
 
-async function createAnnouncementAsAdmin(status: 'published' | 'draft' | 'archived', cookie: string) {
-  const result = await post<AnnouncementResponse>('/admin/announcements', createAnnouncementPayload(status, status), cookie);
+async function createAnnouncementAsAdmin(
+  status: 'published' | 'draft' | 'archived',
+  cookie: string,
+  category: AnnouncementCategoryInput = 'announcement',
+  label = status
+) {
+  const result = await post<AnnouncementResponse>('/admin/announcements', createAnnouncementPayload(label, status, category), cookie);
   assert(result.status === 200 || result.status === 201, `create ${status} announcement failed with ${result.status}`);
   assert(result.json.status === status, `created ${status} announcement returned status ${result.json.status}`);
+  assert(result.json.category === category, `created ${label} content returned category ${result.json.category}`);
   announcementIds.push(result.json.id);
   return result.json;
 }
 
-function createAnnouncementPayload(label: string, status: 'published' | 'draft' | 'archived') {
+async function createBarePublishedAnnouncement(adminUserId: string): Promise<AnnouncementResponse> {
+  const now = new Date();
+  const announcement = await prisma.announcement.create({
+    data: {
+      title: `${usernamePrefix}_bare_source_Azure Planet Relay`,
+      content: `${usernamePrefix}_bare_source_content_Azure Planet Relay`,
+      category: AnnouncementCategory.ANNOUNCEMENT,
+      status: AnnouncementStatus.PUBLISHED,
+      publishedAt: now,
+      createdByAdminId: adminUserId
+    }
+  });
+  announcementIds.push(announcement.id);
+  return {
+    id: announcement.id,
+    title: announcement.title,
+    content: announcement.content,
+    category: announcement.category.toLowerCase(),
+    status: announcement.status.toLowerCase(),
+    publishedAt: announcement.publishedAt?.toISOString() ?? null,
+    translations: null
+  };
+}
+
+function createAnnouncementPayload(
+  label: string,
+  status: 'published' | 'draft' | 'archived',
+  category: AnnouncementCategoryInput = 'announcement'
+) {
   return {
     title: `${usernamePrefix}_${label}_公告`,
     content: `${usernamePrefix}_${label}_真实公告内容`,
-    category: 'announcement',
-    status
+    category,
+    status,
+    translations: {
+      'en-US': {
+        title: previewTranslationTitle(label, 'en-US'),
+        content: previewTranslationContent(label, 'en-US'),
+        _locked: true,
+        _status: 'human_reviewed',
+        _source: 'qa-manual',
+        _updatedAt: '2026-06-24T00:00:00.000Z'
+      },
+      'ja-JP': {
+        title: previewTranslationTitle(label, 'ja-JP'),
+        content: previewTranslationContent(label, 'ja-JP'),
+        _locked: false,
+        _status: 'machine_draft',
+        _source: 'qa-draft',
+        _updatedAt: '2026-06-24T00:00:01.000Z'
+      }
+    }
   };
+}
+
+function assertContentWorkflowCategory(
+  item: AnnouncementResponse | undefined,
+  category: AnnouncementCategoryInput,
+  label: string
+) {
+  assert(item, `admin list should include ${label} row`);
+  assert(item.category === category, `${label} row should preserve category ${category}`);
+  assert(item.status === 'published', `${label} row should be published`);
+  assert(Boolean(item.translationWorkflow), `${label} row should expose translation workflow summary`);
+  assert(item.translationWorkflow?.languages.includes('en-US'), `${label} workflow should expose en-US`);
+  assert(item.translationWorkflow?.languages.includes('ja-JP'), `${label} workflow should expose ja-JP`);
+  assert(item.translationWorkflow?.counts.humanReviewed >= 1, `${label} workflow should count human reviewed translations`);
+  assert(item.translationWorkflow?.counts.machineDraft >= 1, `${label} workflow should count machine draft translations`);
+  assert(item.translationWorkflow?.counts.locked >= 1, `${label} workflow should count locked translations`);
+}
+
+function previewTranslationTitle(label: string, language: 'en-US' | 'ja-JP') {
+  return `${usernamePrefix}_${label}_${language}_title`;
+}
+
+function previewTranslationContent(label: string, language: 'en-US' | 'ja-JP') {
+  return `${usernamePrefix}_${label}_${language}_content`;
 }
 
 async function assertMerchantPageAccess(path: string, merchantCookie: string, userCookie: string, markers: string[]) {
@@ -302,17 +594,24 @@ async function assertMerchantPageAccess(path: string, merchantCookie: string, us
 
 function assertPublicFeedVisibility(
   feed: PublicAnnouncementFeed,
-  publishedTitle: string,
-  draftTitle: string,
-  archivedTitle: string,
+  publishedId: string,
+  draftId: string,
+  archivedId: string,
   label: string
 ) {
+  const visibleIds = new Set(feed.sections.flatMap((section) => section.items.map((item) => item.id)));
+  assert(visibleIds.has(publishedId), `${label} should include published announcement`);
+  assert(!visibleIds.has(draftId), `${label} leaked draft announcement`);
+  assert(!visibleIds.has(archivedId), `${label} leaked archived announcement`);
   const text = JSON.stringify(feed);
-  assert(text.includes(publishedTitle), `${label} should include published announcement`);
-  assert(!text.includes(draftTitle), `${label} leaked draft announcement`);
-  assert(!text.includes(archivedTitle), `${label} leaked archived announcement`);
   assert(!text.includes('"createdByAdminId"'), `${label} leaked createdByAdminId`);
   assert(!text.includes('"createdBy"'), `${label} leaked createdBy`);
+}
+
+function assertPublicSectionContains(feed: PublicAnnouncementFeed, sectionKey: string, itemId: string, label: string) {
+  const section = feed.sections.find((entry) => entry.key === sectionKey);
+  assert(section, `${label} should include ${sectionKey} section`);
+  assert(section.items.some((item) => item.id === itemId), `${label} should include ${itemId} in ${sectionKey} section`);
 }
 
 function pickAdminAuditItems(items: AuditListResponse['items'], adminUserId: string, announcementIds: string[]) {
@@ -332,6 +631,20 @@ function pickAdminAuditItems(items: AuditListResponse['items'], adminUserId: str
     }
 
     return typeof item.targetId === 'string' && announcementIds.includes(item.targetId);
+  });
+}
+
+function pickSecurityAuditItems(items: AuditListResponse['items'], userIds: string[]) {
+  return items.filter((entry) => {
+    const item = entry as {
+      actor?: { id?: unknown };
+      targetId?: unknown;
+    };
+
+    const actorId = typeof item.actor?.id === 'string' ? item.actor.id : null;
+    const targetId = typeof item.targetId === 'string' ? item.targetId : null;
+
+    return (actorId !== null && userIds.includes(actorId)) || (targetId !== null && userIds.includes(targetId));
   });
 }
 
@@ -431,6 +744,13 @@ function sensitiveMarkers() {
     'REDIS_URL',
     'postgresql://',
     'Bearer '
+  ];
+}
+
+function sensitiveSecurityAuditMarkers() {
+  return [
+    password,
+    ...sensitiveMarkers().filter((marker) => marker !== 'password')
   ];
 }
 

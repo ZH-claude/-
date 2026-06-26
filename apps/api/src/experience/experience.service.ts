@@ -41,8 +41,8 @@ export class ExperienceService {
     @Inject(TokensService) private readonly tokensService: TokensService
   ) {}
 
-  async listModels(user: AuthenticatedUser) {
-    const models = await this.modelCatalogService.listAvailableModelsForGroup(user.group.id);
+  async listModels(user: AuthenticatedUser, language?: string | null) {
+    const models = await this.modelCatalogService.listAvailableModelsForGroup(user.group.id, language);
 
     return {
       items: models.map((model) => ({

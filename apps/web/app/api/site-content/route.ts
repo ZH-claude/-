@@ -8,7 +8,8 @@ export async function GET(request: NextRequest) {
   const upstream = await fetch(targetUrl, {
     method: 'GET',
     headers: {
-      Accept: request.headers.get('accept') ?? 'application/json'
+      Accept: request.headers.get('accept') ?? 'application/json',
+      'Accept-Language': request.headers.get('accept-language') ?? ''
     },
     cache: 'no-store',
     redirect: 'manual'

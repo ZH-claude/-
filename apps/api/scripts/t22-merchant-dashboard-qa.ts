@@ -9,7 +9,8 @@ import {
   UpstreamProviderStatus,
   UsageEventStatus,
   UserRole,
-  UserStatus
+  UserStatus,
+  WalletTransactionType
 } from '../src/generated/prisma/client';
 import { encryptUpstreamApiKey, maskUpstreamApiKey } from '../src/admin/upstream-key-crypto';
 
@@ -25,6 +26,7 @@ type DashboardSummary = {
   generatedAt: string;
   window: {
     todayStart: string;
+    monthStart: string;
     last24HoursStart: string;
   };
   users: {
@@ -35,6 +37,8 @@ type DashboardSummary = {
     admins: number;
     ordinary: number;
     newToday: number;
+    newYesterday: number;
+    newTodayDelta: number;
   };
   wallets: {
     totalBalanceCents: number;
@@ -44,7 +48,36 @@ type DashboardSummary = {
     callCount: number;
     spendCents: number;
     totalTokens: number;
+    activeUsers: number;
+    rechargeCents: number;
+    rechargeCount: number;
     statusCounts: Record<string, number>;
+  };
+  performance: {
+    windowStart: string;
+    requestCount: number;
+    errorCount: number;
+    errorRatePercent: number;
+    averageLatencyMs: number;
+    averageUpstreamLatencyMs: number;
+  };
+  month: {
+    windowStart: string;
+    newUsers: number;
+    callCount: number;
+    spendCents: number;
+    totalTokens: number;
+    activeUsers: number;
+    rechargeCents: number;
+    rechargeCount: number;
+    statusCounts: Record<string, number>;
+    performance: {
+      requestCount: number;
+      errorCount: number;
+      errorRatePercent: number;
+      averageLatencyMs: number;
+      averageUpstreamLatencyMs: number;
+    };
   };
   upstreams: {
     total: number;
@@ -78,6 +111,61 @@ type DashboardSummary = {
   }>;
 };
 
+type DailyConsumptionReport = {
+  generatedAt: string;
+  window: {
+    days: number;
+    start: string;
+    end: string;
+    timezone: string;
+  };
+  costAlert: {
+    userDailyThresholdCents: number;
+    alerts: Array<{
+      date: string;
+      userId: string;
+      username: string;
+      spendCents: number;
+      totalTokens: number;
+      requestCount: number;
+      thresholdCents: number;
+      lastUsedAt: string | null;
+    }>;
+  };
+  totals: {
+    callCount: number;
+    spendCents: number;
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+    activeUserDays: number;
+    rechargeCents: number;
+    rechargeCount: number;
+    requestLogCount: number;
+    errorRequestCount: number;
+    errorRatePercent: number;
+  };
+  days: Array<{
+    date: string;
+    windowStart: string;
+    windowEnd: string;
+    callCount: number;
+    spendCents: number;
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+    activeUsers: number;
+    rechargeCents: number;
+    rechargeCount: number;
+    requestLogCount: number;
+    errorRequestCount: number;
+    errorRatePercent: number;
+    averageLatencyMs: number;
+    averageUpstreamLatencyMs: number;
+    statusCounts: Record<string, number>;
+  }>;
+};
+
 type Baseline = {
   users: {
     total: number;
@@ -87,6 +175,8 @@ type Baseline = {
     admins: number;
     ordinary: number;
     newToday: number;
+    newYesterday: number;
+    newTodayDelta: number;
   };
   wallets: {
     totalBalanceCents: number;
@@ -96,7 +186,34 @@ type Baseline = {
     callCount: number;
     spendCents: number;
     totalTokens: number;
+    activeUsers: number;
+    rechargeCents: number;
+    rechargeCount: number;
     statusCounts: Record<string, number>;
+  };
+  performance: {
+    requestCount: number;
+    errorCount: number;
+    errorRatePercent: number;
+    averageLatencyMs: number;
+    averageUpstreamLatencyMs: number;
+  };
+  month: {
+    newUsers: number;
+    callCount: number;
+    spendCents: number;
+    totalTokens: number;
+    activeUsers: number;
+    rechargeCents: number;
+    rechargeCount: number;
+    statusCounts: Record<string, number>;
+    performance: {
+      requestCount: number;
+      errorCount: number;
+      errorRatePercent: number;
+      averageLatencyMs: number;
+      averageUpstreamLatencyMs: number;
+    };
   };
   upstreams: {
     total: number;
@@ -196,7 +313,9 @@ let residualAfter: Residual | null = null;
 async function main() {
   let expected: Baseline;
   let adminSummary: HttpResult<DashboardSummary>;
+  let adminDailyReport: HttpResult<DailyConsumptionReport>;
   let userSummary: HttpResult<unknown>;
+  let userDailyReport: HttpResult<unknown>;
 
   try {
     const seed = await seedFixture();
@@ -225,9 +344,28 @@ async function main() {
     assertNoSensitiveLeak(adminSummary.text || JSON.stringify(adminSummary.json));
     checks.push('admin_dashboard_summary_returns_real_numbers_without_sensitive_payload');
 
+    adminDailyReport = await request<DailyConsumptionReport>(
+      'GET',
+      '/admin/daily-consumption-report?days=7&userCostAlertCents=80',
+      undefined,
+      adminLogin.cookies
+    );
+    assert(adminDailyReport.status === 200, `daily consumption report request for admin failed with ${adminDailyReport.status}`);
+    assert(adminDailyReport.json, 'admin daily consumption report response missing json payload');
+    assertDailyConsumptionReport(adminDailyReport.json);
+    assertNoSensitiveLeak(adminDailyReport.text || JSON.stringify(adminDailyReport.json));
+    checks.push('admin_daily_consumption_report_returns_daily_usage_recharge_and_cost_alerts');
+
     userSummary = await request<unknown>('GET', '/admin/dashboard-summary', undefined, userLogin.cookies);
     assert(userSummary.status === 403, `ordinary user should get 403 from dashboard summary, got ${userSummary.status}`);
     checks.push('ordinary_user_forbidden_from_dashboard_summary');
+
+    userDailyReport = await request<unknown>('GET', '/admin/daily-consumption-report?days=7', undefined, userLogin.cookies);
+    assert(
+      userDailyReport.status === 403,
+      `ordinary user should get 403 from daily consumption report, got ${userDailyReport.status}`
+    );
+    checks.push('ordinary_user_forbidden_from_daily_consumption_report');
 
     residualBefore = await countResidual();
     checks.push('residual_state_counted_before_cleanup');
@@ -239,7 +377,8 @@ async function main() {
           suffix,
           checks,
           expected,
-          summary: adminSummary.json
+          summary: adminSummary.json,
+          dailyReport: adminDailyReport.json
         },
         null,
         2
@@ -420,6 +559,20 @@ async function seedFixture() {
       createdByAdminId: admin.id
     }
   });
+  await prisma.walletTransaction.create({
+    data: {
+      userId: user.id,
+      type: WalletTransactionType.RECHARGE,
+      amountCents: usedRecharge.amountCents,
+      balanceAfterCents: 8200,
+      rechargeCodeId: usedRecharge.id,
+      idempotencyKey: `${prefix}_recharge_tx`
+    }
+  });
+  await prisma.wallet.update({
+    where: { userId: user.id },
+    data: { balanceCents: 8200 }
+  });
 
   seededData.userIds = [user.id, admin.id];
   seededData.providerId = provider.id;
@@ -439,15 +592,33 @@ async function seedFixture() {
 async function captureExpectedSummary() {
   const now = new Date();
   const todayStart = startOfChinaDay(now);
+  const monthStart = startOfChinaMonth(now);
+  const yesterdayStart = new Date(todayStart.getTime() - 24 * 60 * 60 * 1000);
+  const last24HoursStart = new Date(now.getTime() - 24 * 60 * 60 * 1000);
   const userWhere = { deletedAt: null };
 
   const [
     userGroups,
     newUsersToday,
+    newUsersYesterday,
     walletAggregate,
     todayUsageAggregate,
     todayUsageCount,
     todayUsageStatusGroups,
+    todayActiveUserGroups,
+    todayRechargeAggregate,
+    last24RequestCount,
+    last24RequestErrorCount,
+    last24RequestLatencyAggregate,
+    monthNewUsers,
+    monthUsageAggregate,
+    monthUsageCount,
+    monthUsageStatusGroups,
+    monthActiveUserGroups,
+    monthRechargeAggregate,
+    monthRequestCount,
+    monthRequestErrorCount,
+    monthRequestLatencyAggregate,
     upstreamTotal,
     upstreamStatusGroups,
     upstreamHealthGroups,
@@ -464,6 +635,12 @@ async function captureExpectedSummary() {
       where: {
         ...userWhere,
         createdAt: { gte: todayStart }
+      }
+    }),
+    prisma.user.count({
+      where: {
+        ...userWhere,
+        createdAt: { gte: yesterdayStart, lt: todayStart }
       }
     }),
     prisma.wallet.aggregate({
@@ -487,6 +664,103 @@ async function captureExpectedSummary() {
       by: ['status'],
       where: { createdAt: { gte: todayStart } },
       _count: { _all: true }
+    }),
+    prisma.usageEvent.groupBy({
+      by: ['userId'],
+      where: {
+        createdAt: { gte: todayStart },
+        totalTokens: { gt: 0 },
+        user: userWhere
+      },
+      _count: { _all: true }
+    }),
+    prisma.walletTransaction.aggregate({
+      where: {
+        type: WalletTransactionType.RECHARGE,
+        rechargeCodeId: { not: null },
+        createdAt: { gte: todayStart },
+        user: userWhere
+      },
+      _sum: { amountCents: true },
+      _count: { _all: true }
+    }),
+    prisma.requestLog.count({
+      where: { createdAt: { gte: last24HoursStart } }
+    }),
+    prisma.requestLog.count({
+      where: {
+        createdAt: { gte: last24HoursStart },
+        OR: [
+          { errorCode: { not: null } },
+          { statusCode: { gte: 500 } }
+        ]
+      }
+    }),
+    prisma.requestLog.aggregate({
+      where: { createdAt: { gte: last24HoursStart } },
+      _avg: {
+        latencyMs: true,
+        upstreamLatencyMs: true
+      }
+    }),
+    prisma.user.count({
+      where: {
+        ...userWhere,
+        createdAt: { gte: monthStart }
+      }
+    }),
+    prisma.usageEvent.aggregate({
+      where: { createdAt: { gte: monthStart } },
+      _sum: {
+        costCents: true,
+        totalTokens: true
+      }
+    }),
+    prisma.usageEvent.count({
+      where: { createdAt: { gte: monthStart } }
+    }),
+    prisma.usageEvent.groupBy({
+      by: ['status'],
+      where: { createdAt: { gte: monthStart } },
+      _count: { _all: true }
+    }),
+    prisma.usageEvent.groupBy({
+      by: ['userId'],
+      where: {
+        createdAt: { gte: monthStart },
+        totalTokens: { gt: 0 },
+        user: userWhere
+      },
+      _count: { _all: true }
+    }),
+    prisma.walletTransaction.aggregate({
+      where: {
+        type: WalletTransactionType.RECHARGE,
+        rechargeCodeId: { not: null },
+        createdAt: { gte: monthStart },
+        user: userWhere
+      },
+      _sum: { amountCents: true },
+      _count: { _all: true }
+    }),
+    prisma.requestLog.count({
+      where: { createdAt: { gte: monthStart } }
+    }),
+    prisma.requestLog.count({
+      where: {
+        createdAt: { gte: monthStart },
+        OR: [
+          { errorCode: { not: null } },
+          { statusCode: { gte: 500 } }
+        ]
+      }
+    }),
+    prisma.requestLog.aggregate({
+      where: { createdAt: { gte: monthStart } },
+      _avg: {
+        latencyMs: true,
+        upstreamLatencyMs: true
+      }
     }),
     prisma.upstreamProvider.count(),
     prisma.upstreamProvider.groupBy({
@@ -539,6 +813,12 @@ async function captureExpectedSummary() {
     UsageEventStatus.FAILED,
     UsageEventStatus.METERING_UNKNOWN
   ]);
+  const monthUsageStatusCounts = enumCountMap(monthUsageStatusGroups, 'status', [
+    UsageEventStatus.BILLABLE,
+    UsageEventStatus.FREE,
+    UsageEventStatus.FAILED,
+    UsageEventStatus.METERING_UNKNOWN
+  ]);
   const modelTotal = Object.values(modelStatusCounts).reduce((sum, count) => sum + count, 0);
   const upstreamModelTotal = Object.values(upstreamModelStatusCounts).reduce((sum, count) => sum + count, 0);
   const rechargeTotal = Object.values(rechargeStatusCounts).reduce((sum, count) => sum + count, 0);
@@ -551,7 +831,9 @@ async function captureExpectedSummary() {
       riskLocked: userStatusCounts.risk_locked,
       admins: userRoleCounts.admin,
       ordinary: userRoleCounts.user,
-      newToday: newUsersToday
+      newToday: newUsersToday,
+      newYesterday: newUsersYesterday,
+      newTodayDelta: newUsersToday - newUsersYesterday
     },
     wallets: {
       totalBalanceCents: walletAggregate._sum.balanceCents ?? 0,
@@ -561,7 +843,34 @@ async function captureExpectedSummary() {
       callCount: todayUsageCount,
       spendCents: todayUsageAggregate._sum.costCents ?? 0,
       totalTokens: todayUsageAggregate._sum.totalTokens ?? 0,
+      activeUsers: todayActiveUserGroups.length,
+      rechargeCents: todayRechargeAggregate._sum.amountCents ?? 0,
+      rechargeCount: todayRechargeAggregate._count._all ?? 0,
       statusCounts: usageStatusCounts
+    },
+    performance: {
+      requestCount: last24RequestCount,
+      errorCount: last24RequestErrorCount,
+      errorRatePercent: last24RequestCount > 0 ? Number(((last24RequestErrorCount / last24RequestCount) * 100).toFixed(2)) : 0,
+      averageLatencyMs: Math.round(last24RequestLatencyAggregate._avg.latencyMs ?? 0),
+      averageUpstreamLatencyMs: Math.round(last24RequestLatencyAggregate._avg.upstreamLatencyMs ?? 0)
+    },
+    month: {
+      newUsers: monthNewUsers,
+      callCount: monthUsageCount,
+      spendCents: monthUsageAggregate._sum.costCents ?? 0,
+      totalTokens: monthUsageAggregate._sum.totalTokens ?? 0,
+      activeUsers: monthActiveUserGroups.length,
+      rechargeCents: monthRechargeAggregate._sum.amountCents ?? 0,
+      rechargeCount: monthRechargeAggregate._count._all ?? 0,
+      statusCounts: monthUsageStatusCounts,
+      performance: {
+        requestCount: monthRequestCount,
+        errorCount: monthRequestErrorCount,
+        errorRatePercent: monthRequestCount > 0 ? Number(((monthRequestErrorCount / monthRequestCount) * 100).toFixed(2)) : 0,
+        averageLatencyMs: Math.round(monthRequestLatencyAggregate._avg.latencyMs ?? 0),
+        averageUpstreamLatencyMs: Math.round(monthRequestLatencyAggregate._avg.upstreamLatencyMs ?? 0)
+      }
     },
     upstreams: {
       total: upstreamTotal,
@@ -596,11 +905,16 @@ function assertDashboardNumbers(summary: DashboardSummary, expected: Baseline) {
   assertEqual(summary.users.admins, expected.users.admins, 'users.admins');
   assertEqual(summary.users.ordinary, expected.users.ordinary, 'users.ordinary');
   assertEqual(summary.users.newToday, expected.users.newToday, 'users.newToday');
+  assertEqual(summary.users.newYesterday, expected.users.newYesterday, 'users.newYesterday');
+  assertEqual(summary.users.newTodayDelta, expected.users.newTodayDelta, 'users.newTodayDelta');
   assertEqual(summary.wallets.totalBalanceCents, expected.wallets.totalBalanceCents, 'wallets.totalBalanceCents');
   assertEqual(summary.wallets.totalSpendCents, expected.wallets.totalSpendCents, 'wallets.totalSpendCents');
   assertEqual(summary.today.callCount, expected.today.callCount, 'today.callCount');
   assertEqual(summary.today.spendCents, expected.today.spendCents, 'today.spendCents');
   assertEqual(summary.today.totalTokens, expected.today.totalTokens, 'today.totalTokens');
+  assertEqual(summary.today.activeUsers, expected.today.activeUsers, 'today.activeUsers');
+  assertEqual(summary.today.rechargeCents, expected.today.rechargeCents, 'today.rechargeCents');
+  assertEqual(summary.today.rechargeCount, expected.today.rechargeCount, 'today.rechargeCount');
   assertEqual(summary.today.statusCounts.billable, expected.today.statusCounts.billable, 'today.statusCounts.billable');
   assertEqual(summary.today.statusCounts.free, expected.today.statusCounts.free, 'today.statusCounts.free');
   assertEqual(summary.today.statusCounts.failed, expected.today.statusCounts.failed, 'today.statusCounts.failed');
@@ -609,6 +923,47 @@ function assertDashboardNumbers(summary: DashboardSummary, expected: Baseline) {
     expected.today.statusCounts.metering_unknown,
     'today.statusCounts.metering_unknown'
   );
+  assertEqual(summary.performance.requestCount, expected.performance.requestCount, 'performance.requestCount');
+  assertEqual(summary.performance.errorCount, expected.performance.errorCount, 'performance.errorCount');
+  assertEqual(summary.performance.errorRatePercent, expected.performance.errorRatePercent, 'performance.errorRatePercent');
+  assertEqual(summary.performance.averageLatencyMs, expected.performance.averageLatencyMs, 'performance.averageLatencyMs');
+  assertEqual(
+    summary.performance.averageUpstreamLatencyMs,
+    expected.performance.averageUpstreamLatencyMs,
+    'performance.averageUpstreamLatencyMs'
+  );
+  assert(summary.today.rechargeCents >= 7000, 'today.rechargeCents should include seeded redeemed recharge transaction');
+  assert(summary.today.activeUsers >= 1, 'today.activeUsers should count seeded token-consuming user');
+  assertEqual(summary.month.newUsers, expected.month.newUsers, 'month.newUsers');
+  assertEqual(summary.month.callCount, expected.month.callCount, 'month.callCount');
+  assertEqual(summary.month.spendCents, expected.month.spendCents, 'month.spendCents');
+  assertEqual(summary.month.totalTokens, expected.month.totalTokens, 'month.totalTokens');
+  assertEqual(summary.month.activeUsers, expected.month.activeUsers, 'month.activeUsers');
+  assertEqual(summary.month.rechargeCents, expected.month.rechargeCents, 'month.rechargeCents');
+  assertEqual(summary.month.rechargeCount, expected.month.rechargeCount, 'month.rechargeCount');
+  assertEqual(summary.month.statusCounts.billable, expected.month.statusCounts.billable, 'month.statusCounts.billable');
+  assertEqual(summary.month.statusCounts.free, expected.month.statusCounts.free, 'month.statusCounts.free');
+  assertEqual(summary.month.statusCounts.failed, expected.month.statusCounts.failed, 'month.statusCounts.failed');
+  assertEqual(
+    summary.month.statusCounts.metering_unknown,
+    expected.month.statusCounts.metering_unknown,
+    'month.statusCounts.metering_unknown'
+  );
+  assertEqual(summary.month.performance.requestCount, expected.month.performance.requestCount, 'month.performance.requestCount');
+  assertEqual(summary.month.performance.errorCount, expected.month.performance.errorCount, 'month.performance.errorCount');
+  assertEqual(
+    summary.month.performance.errorRatePercent,
+    expected.month.performance.errorRatePercent,
+    'month.performance.errorRatePercent'
+  );
+  assertEqual(summary.month.performance.averageLatencyMs, expected.month.performance.averageLatencyMs, 'month.performance.averageLatencyMs');
+  assertEqual(
+    summary.month.performance.averageUpstreamLatencyMs,
+    expected.month.performance.averageUpstreamLatencyMs,
+    'month.performance.averageUpstreamLatencyMs'
+  );
+  assert(summary.month.rechargeCents >= 7000, 'month.rechargeCents should include seeded redeemed recharge transaction');
+  assert(summary.month.activeUsers >= 1, 'month.activeUsers should count seeded token-consuming user');
   assertEqual(summary.upstreams.total, expected.upstreams.total, 'upstreams.total');
   assertEqual(summary.upstreams.active, expected.upstreams.active, 'upstreams.active');
   assertEqual(summary.upstreams.disabled, expected.upstreams.disabled, 'upstreams.disabled');
@@ -631,6 +986,46 @@ function assertDashboardNumbers(summary: DashboardSummary, expected: Baseline) {
     alertText.includes(seededData.providerName) || alertText.includes(seededData.modelName),
     'dashboard recent alerts should include the seeded real request/upstream alert'
   );
+}
+
+function assertDailyConsumptionReport(report: DailyConsumptionReport) {
+  assert(report.window.days === 7, `daily report should honor days=7, got ${report.window.days}`);
+  assert(report.window.timezone === 'Asia/Shanghai', `daily report timezone mismatch: ${report.window.timezone}`);
+  assert(report.days.length === 7, `daily report should return 7 day buckets, got ${report.days.length}`);
+  assert(report.costAlert.userDailyThresholdCents === 80, 'daily report should honor userCostAlertCents=80');
+
+  const todayKey = chinaDateKey(new Date());
+  const today = report.days.find((day) => day.date === todayKey);
+  assert(
+    today,
+    `daily report should include current China day bucket ${todayKey}; got ${report.days.map((day) => day.date).join(', ')}`
+  );
+  assert(today.callCount >= 2, `today.callCount should include seeded usage events, got ${today.callCount}`);
+  assert(today.spendCents >= 90, `today.spendCents should include seeded cost, got ${today.spendCents}`);
+  assert(today.promptTokens >= 120, `today.promptTokens should include seeded input tokens, got ${today.promptTokens}`);
+  assert(today.completionTokens >= 80, `today.completionTokens should include seeded output tokens, got ${today.completionTokens}`);
+  assert(today.totalTokens >= 200, `today.totalTokens should include seeded tokens, got ${today.totalTokens}`);
+  assert(today.activeUsers >= 1, `today.activeUsers should include seeded token-consuming user, got ${today.activeUsers}`);
+  assert(today.rechargeCents >= 7000, `today.rechargeCents should include seeded recharge, got ${today.rechargeCents}`);
+  assert(today.rechargeCount >= 1, `today.rechargeCount should include seeded recharge transaction, got ${today.rechargeCount}`);
+  assert(today.requestLogCount >= 1, `today.requestLogCount should include seeded request log, got ${today.requestLogCount}`);
+  assert(today.errorRequestCount >= 1, `today.errorRequestCount should include seeded error request, got ${today.errorRequestCount}`);
+  assert(today.statusCounts.billable >= 1, 'today.statusCounts.billable should include seeded billable usage');
+  assert(today.statusCounts.failed >= 1, 'today.statusCounts.failed should include seeded failed usage');
+  assert(today.averageLatencyMs >= 0, 'today.averageLatencyMs should be numeric');
+  assert(today.averageUpstreamLatencyMs >= 0, 'today.averageUpstreamLatencyMs should be numeric');
+
+  assert(report.totals.callCount >= today.callCount, 'daily report totals.callCount should include today bucket');
+  assert(report.totals.spendCents >= today.spendCents, 'daily report totals.spendCents should include today bucket');
+  assert(report.totals.rechargeCents >= today.rechargeCents, 'daily report totals.rechargeCents should include today bucket');
+  assert(report.totals.errorRatePercent >= 0, 'daily report totals.errorRatePercent should be numeric');
+
+  const seededAlert = report.costAlert.alerts.find((alert) => alert.username === seededData.usernames.user);
+  assert(seededAlert, 'daily report should include seeded user in daily cost alerts with low QA threshold');
+  assert(seededAlert.date === todayKey, `seeded cost alert date mismatch: expected ${todayKey}, got ${seededAlert.date}`);
+  assert(seededAlert.spendCents >= 90, `seeded cost alert spend should include seeded cost, got ${seededAlert.spendCents}`);
+  assert(seededAlert.totalTokens >= 200, `seeded cost alert tokens should include seeded tokens, got ${seededAlert.totalTokens}`);
+  assert(seededAlert.requestCount >= 2, `seeded cost alert request count should include seeded events, got ${seededAlert.requestCount}`);
 }
 
 function assertNoSensitiveLeak(serialized: string) {
@@ -692,6 +1087,21 @@ function startOfChinaDay(date: Date) {
   const chinaOffsetMs = 8 * 60 * 60 * 1000;
   const chinaTime = new Date(date.getTime() + chinaOffsetMs);
   return new Date(Date.UTC(chinaTime.getUTCFullYear(), chinaTime.getUTCMonth(), chinaTime.getUTCDate()) - chinaOffsetMs);
+}
+
+function chinaDateKey(date: Date) {
+  const chinaOffsetMs = 8 * 60 * 60 * 1000;
+  const chinaTime = new Date(date.getTime() + chinaOffsetMs);
+  const year = chinaTime.getUTCFullYear();
+  const month = String(chinaTime.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(chinaTime.getUTCDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function startOfChinaMonth(date: Date) {
+  const chinaOffsetMs = 8 * 60 * 60 * 1000;
+  const chinaTime = new Date(date.getTime() + chinaOffsetMs);
+  return new Date(Date.UTC(chinaTime.getUTCFullYear(), chinaTime.getUTCMonth(), 1) - chinaOffsetMs);
 }
 
 function enumCountMap<T extends string>(

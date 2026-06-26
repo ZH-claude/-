@@ -2,7 +2,7 @@
 
 创建日期：2026-06-14  
 目标：建设一个可部署到云服务器的前后端完整 API 中转站。你的平台作为第三方中转层，用户请求先进入你的系统，再由你的系统转发到另一个上游中转站。  
-当前状态：T22 商家端独立化已完成并通过收尾检查；T23-M01 上线前验收基线已完成；T21 云服务器部署资产已完成并通过本地验证，但真实云服务器部署、HTTPS 证书和公网重启恢复验证仍待服务器 SSH、域名 DNS、生产 `.env` 和真实 smoke 账号。
+当前状态：T22 商家端独立化已完成并通过收尾检查；T23 本地上线前验收 M01-M08 已完成并纳入 `npm run qa:release-gate`；T21 云服务器部署资产已完成并通过本地验证，但真实云服务器部署、HTTPS 证书、公网重启恢复和生产 strict smoke 仍待服务器 SSH、域名 DNS、生产 `.env`、真实上游 Key、真实 smoke 账号、真实通知/支付/监控条件。
 数据库密码通过 `POSTGRES_PASSWORD` 配置，真实值只写入未提交的 `.env` 或服务器密钥管理。  
 Redis MVP 阶段默认不启用密码；如生产环境需要启用，通过 `REDIS_PASSWORD` 或托管 Redis 密钥配置，真实值不写入开发文档。
 
@@ -314,11 +314,11 @@ Loki/Prometheus/Grafana
 | [x] | T20 | 可观测性 | 结构化日志、trace_id、监控面板、告警 | 单次请求可追踪到上游和计费事件 |
 | [ ] | T21 | 云服务器部署 | HTTPS、域名、备份、回滚文档 | 生产环境可访问，重启后服务自动恢复 |
 | [x] | T22 | 商家端独立化 | 登录角色分流、商家端固定导航、后台 Dashboard、管理模块拆页 | 商家账号进入独立工作台，普通用户无法访问 |
-| [ ] | T23 | 上线前验收 | 压测、安全检查、账单核对、运维手册 | 完成上线检查表并修复阻塞项 |
+| [x] | T23 | 本地上线前验收与生产阻塞清单 | release gate、压测、安全检查、账单核对、运维 dry-run、上线决策报告 | 本地最终全栈验收通过；生产发布仍受 T21 外部条件阻塞 |
 
 ## 11. 下一次对话建议任务
 
-T22 商家端独立化已完成，T23-M01 上线前验收基线已完成。下一次如果能提供服务器 SSH、域名 DNS、生产 `.env` 和真实 smoke 账号，应回到 T21 做真实云服务器部署；如果暂时没有这些条件，则继续 T23-M02/M03 的真实 smoke 准备和账单核对准备。
+T22 商家端独立化已完成，T23 本地上线前验收 M01-M08 已完成并通过 release gate。下一次如果能提供服务器 SSH、域名 DNS、生产 `.env`、真实上游 Key、真实 smoke 账号、真实通知渠道、支付商户参数和外部监控，应回到 T21 做真实云服务器部署和生产 strict smoke；如果暂时没有这些条件，只能继续做本地可验证的产品体验、风控、UI 和运营能力，不能把当前状态写成生产发布完成。
 
 T22 商家端独立化进展记录（2026-06-16）：
 
@@ -409,6 +409,13 @@ T23 上线前验收进展记录（2026-06-16）：
 - 已明确功能接口预留边界：当前 MVP 是单平台老板模式；多商家独立上游 Key、客户按商家归属转发、商家独立账单和商家独立风控未实现，只作为后续商用升级验收项。
 - 已新增 `docs/quality/t23-m01-prelaunch-baseline-self-check.md`，记录第 1 项自检、真实检查计划、QA 口径、Review 重点和剩余风险。
 - 未勾选 T23：生产 strict smoke、账单核对、压测限流、安全权限复核、运维演练和上线决策报告尚未完成。
+
+T23 上线前验收收尾记录（2026-06-26）：
+
+- M02-M08 本地 readiness 已完成并纳入 `npm run qa:release-gate`：生产 strict-smoke 准备、账单核对、安全权限、运维 dry-run、上线决策、最终全栈 readiness、语言目录、公告翻译、VibeCoding 套餐/权益、手机号找回、固定上游、成本风控和 1000 用户本地性能基线均有硬门槛。
+- 已新增并维护 `docs/product/prelaunch-acceptance-plan.md`、`docs/quality/release-gate.md`、`docs/quality/production-strict-smoke-evidence-template.json`、`docs/quality/t23-m02-production-strict-smoke-readiness-self-check.md`、`docs/quality/t23-m03-billing-reconciliation-self-check.md`、`docs/quality/t23-m04-performance-baseline-self-check.md`、`docs/quality/t23-m06-ops-rehearsal-self-check.md`、`docs/quality/t23-m07-launch-decision-report.md`、`docs/quality/t23-m08-final-fullstack-readiness-self-check.md` 和 `docs/quality/t30-phone-auth-recovery-self-check.md`。
+- 最新本地全栈验证已通过 `npm run qa:release-gate`，其中 release gate 会启动托管临时 Postgres、应用迁移、构建 API/Web、跑真实 API/真实数据库 QA、Chrome 本地化烟测、商家端保存烟测、VibeCoding/排行榜/手机号找回烟测，并验证截图证据。
+- 生产发布仍未完成：真实云服务器、正式域名 DNS、生产 `.env`、真实上游 Key、真实 smoke 账号、真实通知渠道、支付商户参数、外部监控和真实恢复演练仍是 P0/P1 外部阻塞项；当前状态只能作为受控内测门槛，不能宣称客户生产上线完成。
 
 T20 完成记录（2026-06-16）：
 

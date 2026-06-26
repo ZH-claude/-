@@ -8,8 +8,8 @@ import { ModelCatalogService } from '../model-catalog.service';
 export class PricingService {
   constructor(@Inject(ModelCatalogService) private readonly modelCatalogService: ModelCatalogService) {}
 
-  async getModelPricing(user: AuthenticatedUser) {
-    const models = await this.modelCatalogService.listAvailableModelsForGroup(user.group.id);
+  async getModelPricing(user: AuthenticatedUser, language?: string | null) {
+    const models = await this.modelCatalogService.listAvailableModelsForGroup(user.group.id, language);
 
     return {
       group: {

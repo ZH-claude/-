@@ -3,15 +3,18 @@ import {
   Body,
   Controller,
   Get,
+  Headers,
   Inject,
   Param,
   Post,
+  Query,
   Req,
   UseGuards
 } from '@nestjs/common';
 import { AdminGuard } from '../admin/admin.guard';
 import { AuthGuard } from '../auth/auth.guard';
 import type { AuthenticatedRequest, AuthenticatedUser } from '../auth/auth.types';
+import { getRequestedLanguage } from '../i18n/localized-content';
 import { AiRechargeService } from './ai-recharge.service';
 
 @Controller('admin/ai-recharge')
@@ -21,7 +24,7 @@ export class AdminAiRechargeController {
 
   @Get('page-config')
   getPageConfig() {
-    return this.aiRechargeService.getPageConfig();
+    return this.aiRechargeService.getPageConfig(null, { includeTranslations: true });
   }
 
   @Post('page-config')
@@ -79,13 +82,13 @@ export class AiRechargeController {
   constructor(@Inject(AiRechargeService) private readonly aiRechargeService: AiRechargeService) {}
 
   @Get('page-config')
-  getPageConfig() {
-    return this.aiRechargeService.getPageConfig();
+  getPageConfig(@Query('language') language: unknown, @Headers('accept-language') acceptLanguage: unknown) {
+    return this.aiRechargeService.getPageConfig(getRequestedLanguage(language, acceptLanguage));
   }
 
   @Get('products')
-  listProducts() {
-    return this.aiRechargeService.listPublicProducts();
+  listProducts(@Query('language') language: unknown, @Headers('accept-language') acceptLanguage: unknown) {
+    return this.aiRechargeService.listPublicProducts(getRequestedLanguage(language, acceptLanguage));
   }
 
   @Get('orders')

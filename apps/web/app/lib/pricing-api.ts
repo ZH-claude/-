@@ -1,3 +1,5 @@
+import { createApiClientError } from './api-error-copy';
+
 export type PricingModel = {
   model: string;
   displayName: string | null;
@@ -28,15 +30,16 @@ export type PricingResponse = {
 
 const API_BASE_URL = '/api';
 
-export async function getModelPricing() {
-  return request<PricingResponse>('/pricing/models');
+export async function getModelPricing(language?: string) {
+  return request<PricingResponse>(withLanguage('/pricing/models', language), language);
 }
 
-async function request<T>(path: string) {
+async function request<T>(path: string, language?: string) {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: 'GET',
     headers: {
-      Accept: 'application/json'
+      Accept: 'application/json',
+      ...(language ? { 'Accept-Language': language } : {})
     },
     credentials: 'include'
   });
@@ -44,12 +47,17 @@ async function request<T>(path: string) {
   const data = await response.json().catch(() => null);
 
   if (!response.ok) {
-    const message =
-      data && typeof data === 'object' && 'message' in data
-        ? String((data as { message: unknown }).message)
-        : `请求失败：${response.status}`;
-    throw new Error(`${response.status}: ${message}`);
+    throw createApiClientError(language, response.status, data);
   }
 
   return data as T;
+}
+
+function withLanguage(path: string, language?: string) {
+  if (!language) {
+    return path;
+  }
+
+  const separator = path.includes('?') ? '&' : '?';
+  return `${path}${separator}${new URLSearchParams({ language }).toString()}`;
 }

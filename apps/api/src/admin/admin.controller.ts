@@ -25,6 +25,17 @@ export class AdminController {
     return this.adminService.getDashboardSummary();
   }
 
+  @Get('daily-consumption-report')
+  getDailyConsumptionReport(
+    @Query('days') daysValue?: string,
+    @Query('userCostAlertCents') userCostAlertCentsValue?: string
+  ) {
+    const days = this.parsePositiveInt(daysValue, 14, 90);
+    const userDailyCostAlertCents = this.parseOptionalNonNegativeInt(userCostAlertCentsValue, 100000000);
+
+    return this.adminService.getDailyConsumptionReport({ days, userDailyCostAlertCents });
+  }
+
   @Get('users')
   listUsers(
     @Query('page') pageValue?: string,
@@ -51,6 +62,74 @@ export class AdminController {
   @Get('announcements')
   listAnnouncements() {
     return this.adminService.listAnnouncements();
+  }
+
+  @Get('announcements/:id/preview')
+  previewAnnouncement(
+    @Param('id') announcementId: string,
+    @Query('language') language?: string
+  ) {
+    return this.adminService.previewAnnouncement(announcementId, language);
+  }
+
+  @Post('announcements/:id/prepare-translations')
+  prepareAnnouncementTranslations(
+    @Req() request: AuthenticatedRequest,
+    @Param('id') announcementId: string,
+    @Body() body: unknown
+  ) {
+    if (!request.auth?.user?.id) {
+      throw new BadRequestException('Admin context missing');
+    }
+
+    return this.adminService.prepareAnnouncementTranslations(
+      request.auth.user.id,
+      announcementId,
+      this.toRecord(body)
+    );
+  }
+
+  @Get('translation-glossary')
+  listTranslationGlossaryTerms() {
+    return this.adminService.listTranslationGlossaryTerms();
+  }
+
+  @Post('translation-glossary')
+  createTranslationGlossaryTerm(
+    @Req() request: AuthenticatedRequest,
+    @Body() body: unknown
+  ) {
+    if (!request.auth?.user?.id) {
+      throw new BadRequestException('Admin context missing');
+    }
+
+    return this.adminService.createTranslationGlossaryTerm(request.auth.user.id, this.toRecord(body));
+  }
+
+  @Post('translation-glossary/:id/update')
+  updateTranslationGlossaryTerm(
+    @Req() request: AuthenticatedRequest,
+    @Param('id') termId: string,
+    @Body() body: unknown
+  ) {
+    if (!request.auth?.user?.id) {
+      throw new BadRequestException('Admin context missing');
+    }
+
+    return this.adminService.updateTranslationGlossaryTerm(request.auth.user.id, termId, this.toRecord(body));
+  }
+
+  @Post('announcements/:id/update')
+  updateAnnouncement(
+    @Req() request: AuthenticatedRequest,
+    @Param('id') announcementId: string,
+    @Body() body: unknown
+  ) {
+    if (!request.auth?.user?.id) {
+      throw new BadRequestException('Admin context missing');
+    }
+
+    return this.adminService.updateAnnouncement(request.auth.user.id, announcementId, this.toRecord(body));
   }
 
   @Get('audit-logs')
@@ -280,6 +359,19 @@ export class AdminController {
     const parsed = Number(value);
     if (!Number.isInteger(parsed) || parsed <= 0 || parsed > max) {
       throw new BadRequestException('Invalid pagination value');
+    }
+
+    return parsed;
+  }
+
+  private parseOptionalNonNegativeInt(value: string | undefined, max: number) {
+    if (value === undefined || value === '') {
+      return undefined;
+    }
+
+    const parsed = Number(value);
+    if (!Number.isInteger(parsed) || parsed < 0 || parsed > max) {
+      throw new BadRequestException('Invalid numeric value');
     }
 
     return parsed;

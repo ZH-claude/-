@@ -12,6 +12,11 @@ type UsageLogQuery = {
   limit?: unknown;
 };
 
+type UsageLeaderboardQuery = {
+  period?: unknown;
+  limit?: unknown;
+};
+
 type NormalizedUsageLogFilters = {
   from?: Date;
   to?: Date;
@@ -148,6 +153,55 @@ export class UsageLogsService {
           keyPreview: entry.token.keyPreview
         }))
       }
+    };
+  }
+
+  async listTokenLeaderboard(user: AuthenticatedUser, query: UsageLeaderboardQuery) {
+    const limit = this.optionalLimit(query.limit);
+    const period = this.normalizeLeaderboardPeriod(query.period);
+    const since = this.getLeaderboardSince(period);
+    const where: Prisma.UsageEventWhereInput = {
+      status: { in: [UsageEventStatus.BILLABLE, UsageEventStatus.FREE] },
+      ...(since ? { createdAt: { gte: since } } : {})
+    };
+
+    const groups = await this.prisma.usageEvent.groupBy({
+      by: ['userId'],
+      where,
+      _sum: {
+        promptTokens: true,
+        completionTokens: true,
+        totalTokens: true,
+        costCents: true
+      },
+      _count: { _all: true },
+      orderBy: {
+        _sum: {
+          totalTokens: 'desc'
+        }
+      },
+      take: limit
+    });
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: groups.map((group) => group.userId) } },
+      select: { id: true, username: true }
+    });
+    const usernameById = new Map(users.map((entry) => [entry.id, entry.username]));
+
+    return {
+      period,
+      generatedAt: new Date().toISOString(),
+      items: groups.map((group, index) => ({
+        rank: index + 1,
+        userId: group.userId === user.id ? group.userId : null,
+        username: this.maskLeaderboardUsername(usernameById.get(group.userId) ?? 'user', group.userId === user.id),
+        isCurrentUser: group.userId === user.id,
+        requestCount: group._count._all,
+        promptTokens: group._sum.promptTokens ?? 0,
+        completionTokens: group._sum.completionTokens ?? 0,
+        totalTokens: group._sum.totalTokens ?? 0,
+        totalCostCents: group._sum.costCents ?? 0
+      }))
     };
   }
 
@@ -290,6 +344,36 @@ export class UsageLogsService {
       status: this.optionalStatus(query.status),
       limit: this.optionalLimit(query.limit)
     };
+  }
+
+  private normalizeLeaderboardPeriod(value: unknown): '7d' | '30d' | 'all' {
+    if (value === undefined || value === null || value === '') {
+      return '7d';
+    }
+    if (typeof value !== 'string') {
+      throw new BadRequestException('period must be 7d, 30d, or all');
+    }
+    const period = value.trim().toLowerCase();
+    if (period === '7d' || period === '30d' || period === 'all') {
+      return period;
+    }
+    throw new BadRequestException('period must be 7d, 30d, or all');
+  }
+
+  private getLeaderboardSince(period: '7d' | '30d' | 'all') {
+    if (period === 'all') {
+      return null;
+    }
+    const days = period === '30d' ? 30 : 7;
+    return new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  }
+
+  private maskLeaderboardUsername(username: string, isCurrentUser: boolean) {
+    if (isCurrentUser || username.length <= 2) {
+      return username;
+    }
+
+    return `${username.slice(0, 1)}***${username.slice(-1)}`;
   }
 
   private requiredRequestId(value: unknown) {

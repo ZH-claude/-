@@ -1,5 +1,6 @@
-import { Body, Controller, Get, Inject, Post, Req, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Inject, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
+import { getRequestedLanguage } from '../i18n/localized-content';
 import { AuthGuard } from './auth.guard';
 import { AuthService } from './auth.service';
 import { AuthenticatedRequest } from './auth.types';
@@ -33,10 +34,35 @@ export class AuthController {
     return { user: result.user };
   }
 
+  @Post('phone-login')
+  async phoneLogin(
+    @Body() body: unknown,
+    @Req() request: AuthenticatedRequest,
+    @Res({ passthrough: true }) reply: FastifyReply
+  ) {
+    const result = await this.authService.login(this.toRecord(body), this.getIpAddress(request));
+    this.setSessionCookie(reply, result.token);
+    return { user: result.user };
+  }
+
+  @Post('password-recovery/request')
+  requestPasswordRecovery(@Body() body: unknown, @Req() request: AuthenticatedRequest) {
+    return this.authService.requestPasswordRecovery(this.toRecord(body), this.getIpAddress(request));
+  }
+
+  @Post('password-recovery/reset')
+  resetPasswordByPhone(@Body() body: unknown, @Req() request: AuthenticatedRequest) {
+    return this.authService.resetPasswordByPhone(this.toRecord(body), this.getIpAddress(request));
+  }
+
   @UseGuards(AuthGuard)
   @Get('me')
-  me(@Req() request: AuthenticatedRequest) {
-    return this.authService.getProfile(this.requireAuth(request).user);
+  me(
+    @Req() request: AuthenticatedRequest,
+    @Query('language') language: unknown,
+    @Headers('accept-language') acceptLanguage: unknown
+  ) {
+    return this.authService.getProfile(this.requireAuth(request).user, getRequestedLanguage(language, acceptLanguage));
   }
 
   @UseGuards(AuthGuard)
@@ -72,7 +98,9 @@ export class AuthController {
   }
 
   private getIpAddress(request: AuthenticatedRequest) {
-    return request.ip ?? request.socket?.remoteAddress;
+    const forwardedFor = request.headers['x-forwarded-for'];
+    const forwardedIp = Array.isArray(forwardedFor) ? forwardedFor[0] : forwardedFor;
+    return forwardedIp?.split(',')[0]?.trim() || request.ip || request.socket?.remoteAddress;
   }
 
   private setSessionCookie(reply: FastifyReply, token: string) {

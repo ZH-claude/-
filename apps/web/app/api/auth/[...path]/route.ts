@@ -19,10 +19,15 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
 async function proxyAuthRequest(request: NextRequest, context: RouteContext) {
   const { path } = await context.params;
-  const targetUrl = `${INTERNAL_API_BASE_URL}/auth/${path.map(encodeURIComponent).join('/')}`;
+  const targetUrl = `${INTERNAL_API_BASE_URL}/auth/${path.map(encodeURIComponent).join('/')}${request.nextUrl.search}`;
   const headers = new Headers({
     Accept: request.headers.get('accept') ?? 'application/json'
   });
+
+  const acceptLanguage = request.headers.get('accept-language');
+  if (acceptLanguage) {
+    headers.set('Accept-Language', acceptLanguage);
+  }
 
   const contentType = request.headers.get('content-type');
   if (contentType) {

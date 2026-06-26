@@ -90,6 +90,11 @@ enum RechargeCodeStatus {
   DISABLED
 }
 
+enum RechargeCodeKind {
+  BALANCE
+  VIBE_CODING
+}
+
 enum PaymentChannel {
   ALIPAY
   WECHAT
@@ -108,12 +113,23 @@ enum AiRechargeProductStatus {
   DISABLED
 }
 
+enum AiRechargeProductKind {
+  AI_RECHARGE
+  VIBE_CODING
+}
+
 enum AiRechargeOrderStatus {
   PENDING
   PROCESSING
   FULFILLED
   CANCELED
   FAILED
+}
+
+enum VibeCodingEntitlementStatus {
+  ACTIVE
+  EXPIRED
+  REVOKED
 }
 
 enum NotificationChannelType {
@@ -169,85 +185,93 @@ model UserGroup {
 }
 
 model User {
-  id                 String              @id @default(uuid()) @db.Uuid
-  username           String              @unique
-  passwordHash       String              @map("password_hash")
-  status             UserStatus          @default(ACTIVE)
-  role               UserRole            @default(USER)
-  groupId            String              @map("group_id") @db.Uuid
-  group              UserGroup           @relation(fields: [groupId], references: [id])
-  inviteCode         String              @unique @map("invite_code")
-  invitedByUserId    String?             @map("invited_by_user_id") @db.Uuid
-  invitedBy          User?               @relation("UserInvites", fields: [invitedByUserId], references: [id])
-  invitedUsers       User[]              @relation("UserInvites")
-  timezone           String              @default("UTC")
-  lastLoginAt        DateTime?           @map("last_login_at")
-  lastLoginIp        String?             @map("last_login_ip")
-  rateLimitRequestsPerMinute Int?        @map("rate_limit_requests_per_minute")
-  riskLockedUntil    DateTime?           @map("risk_locked_until")
-  riskReason         String?             @map("risk_reason")
-  wallet             Wallet?
-  sessions           Session[]
-  apiTokens          ApiToken[]
-  usageEvents        UsageEvent[]
-  relayRateLimitEvents RelayRateLimitEvent[]
-  walletTransactions WalletTransaction[]
-  createdAt          DateTime            @default(now()) @map("created_at")
-  updatedAt          DateTime            @updatedAt @map("updated_at")
-  deletedAt          DateTime?           @map("deleted_at")
-  announcements      Announcement[]      @relation("AnnouncementCreator")
-  adminActions       AdminAuditLog[]     @relation("AdminAuditActor")
-  securityAuditLogs  SecurityAuditLog[]  @relation("SecurityAuditActor")
-  requestLogs        RequestLog[]        @relation("RequestLogUser")
-  upstreamProviders  UpstreamProvider[]  @relation("UpstreamProviderCreator")
-  createdRechargeCodes RechargeCode[]    @relation("RechargeCodeCreator")
-  usedRechargeCodes    RechargeCode[]    @relation("RechargeCodeUser")
-  paymentOrders         PaymentOrder[]
-  notificationPreference NotificationPreference?
-  notificationChannels   NotificationChannel[]
-  notificationDeliveries NotificationDelivery[]
-  referralRewardsAsInviter ReferralReward[] @relation("ReferralRewardInviter")
-  referralRewardsAsInvitee ReferralReward[] @relation("ReferralRewardInvitee")
-  asyncTasks              AsyncTask[]
-  createdAiRechargeProducts AiRechargeProduct[] @relation("AiRechargeProductCreator")
-  aiRechargeOrders       AiRechargeOrder[]
-  updatedAiRechargePageConfigs AiRechargePageConfig[] @relation("AiRechargePageConfigUpdater")
-  updatedSiteContentConfigs SiteContentConfig[] @relation("SiteContentConfigUpdater")
+  id                              String                    @id @default(uuid()) @db.Uuid
+  username                        String                    @unique
+  phoneNumber                     String?                   @unique @map("phone_number")
+  phoneVerifiedAt                 DateTime?                 @map("phone_verified_at")
+  passwordHash                    String                    @map("password_hash")
+  status                          UserStatus                @default(ACTIVE)
+  role                            UserRole                  @default(USER)
+  groupId                         String                    @map("group_id") @db.Uuid
+  group                           UserGroup                 @relation(fields: [groupId], references: [id])
+  inviteCode                      String                    @unique @map("invite_code")
+  invitedByUserId                 String?                   @map("invited_by_user_id") @db.Uuid
+  invitedBy                       User?                     @relation("UserInvites", fields: [invitedByUserId], references: [id])
+  invitedUsers                    User[]                    @relation("UserInvites")
+  timezone                        String                    @default("UTC")
+  lastLoginAt                     DateTime?                 @map("last_login_at")
+  lastLoginIp                     String?                   @map("last_login_ip")
+  rateLimitRequestsPerMinute      Int?                      @map("rate_limit_requests_per_minute")
+  riskLockedUntil                 DateTime?                 @map("risk_locked_until")
+  riskReason                      String?                   @map("risk_reason")
+  wallet                          Wallet?
+  sessions                        Session[]
+  passwordRecoveryCodes           PasswordRecoveryCode[]
+  apiTokens                       ApiToken[]
+  usageEvents                     UsageEvent[]
+  relayRateLimitEvents            RelayRateLimitEvent[]
+  upstreamAssignments             UserUpstreamAssignment[]
+  walletTransactions              WalletTransaction[]
+  createdAt                       DateTime                  @default(now()) @map("created_at")
+  updatedAt                       DateTime                  @updatedAt @map("updated_at")
+  deletedAt                       DateTime?                 @map("deleted_at")
+  announcements                   Announcement[]            @relation("AnnouncementCreator")
+  adminActions                    AdminAuditLog[]           @relation("AdminAuditActor")
+  securityAuditLogs               SecurityAuditLog[]        @relation("SecurityAuditActor")
+  requestLogs                     RequestLog[]              @relation("RequestLogUser")
+  upstreamProviders               UpstreamProvider[]        @relation("UpstreamProviderCreator")
+  createdRechargeCodes            RechargeCode[]            @relation("RechargeCodeCreator")
+  usedRechargeCodes               RechargeCode[]            @relation("RechargeCodeUser")
+  paymentOrders                   PaymentOrder[]
+  vibeCodingEntitlements          VibeCodingEntitlement[]
+  notificationPreference          NotificationPreference?
+  notificationChannels            NotificationChannel[]
+  notificationDeliveries          NotificationDelivery[]
+  referralRewardsAsInviter        ReferralReward[]          @relation("ReferralRewardInviter")
+  referralRewardsAsInvitee        ReferralReward[]          @relation("ReferralRewardInvitee")
+  asyncTasks                      AsyncTask[]
+  createdAiRechargeProducts       AiRechargeProduct[]       @relation("AiRechargeProductCreator")
+  aiRechargeOrders                AiRechargeOrder[]
+  updatedAiRechargePageConfigs    AiRechargePageConfig[]    @relation("AiRechargePageConfigUpdater")
+  updatedSiteContentConfigs       SiteContentConfig[]       @relation("SiteContentConfigUpdater")
+  createdTranslationGlossaryTerms TranslationGlossaryTerm[] @relation("TranslationGlossaryTermCreator")
+  updatedTranslationGlossaryTerms TranslationGlossaryTerm[] @relation("TranslationGlossaryTermUpdater")
 
   @@index([groupId], map: "users_group_id_idx")
   @@index([invitedByUserId], map: "users_invited_by_user_id_idx")
+  @@index([deletedAt, createdAt], map: "users_deleted_created_at_idx")
   @@map("users")
 }
 
 model ApiToken {
-  id            String                @id @default(uuid()) @db.Uuid
-  userId        String                @map("user_id") @db.Uuid
-  user          User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  name          String
-  tokenHash     String                @unique @map("token_hash")
-  keyPreview    String                @map("key_preview")
-  encryptedApiKey String?             @map("encrypted_api_key")
-  status        ApiTokenStatus        @default(ACTIVE)
-  quotaCents    Int?                  @map("quota_cents")
-  usedCents     Int                   @default(0) @map("used_cents")
-  expiresAt     DateTime?             @map("expires_at")
-  note          String?
-  lastUsedAt    DateTime?             @map("last_used_at")
-  rateLimitRequestsPerMinute      Int?      @map("rate_limit_requests_per_minute")
-  modelRateLimitRequestsPerMinute Int?      @map("model_rate_limit_requests_per_minute")
-  ipRateLimitRequestsPerMinute    Int?      @map("ip_rate_limit_requests_per_minute")
-  ipWhitelist                     String[]  @default([]) @map("ip_whitelist")
-  activationTtlSeconds            Int?      @map("activation_ttl_seconds")
-  activatedAt                     DateTime? @map("activated_at")
-  activationExpiresAt             DateTime? @map("activation_expires_at")
-  revokedAt     DateTime?             @map("revoked_at")
-  deletedAt     DateTime?             @map("deleted_at")
-  modelAccesses ApiTokenModelAccess[]
-  usageEvents   UsageEvent[]
-  relayRateLimitEvents RelayRateLimitEvent[]
-  requestLogs   RequestLog[]           @relation("RequestLogToken")
-  createdAt     DateTime              @default(now()) @map("created_at")
-  updatedAt     DateTime              @updatedAt @map("updated_at")
+  id                              String                @id @default(uuid()) @db.Uuid
+  userId                          String                @map("user_id") @db.Uuid
+  user                            User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name                            String
+  tokenHash                       String                @unique @map("token_hash")
+  keyPreview                      String                @map("key_preview")
+  encryptedApiKey                 String?               @map("encrypted_api_key")
+  status                          ApiTokenStatus        @default(ACTIVE)
+  quotaCents                      Int?                  @map("quota_cents")
+  usedCents                       Int                   @default(0) @map("used_cents")
+  expiresAt                       DateTime?             @map("expires_at")
+  note                            String?
+  lastUsedAt                      DateTime?             @map("last_used_at")
+  rateLimitRequestsPerMinute      Int?                  @map("rate_limit_requests_per_minute")
+  modelRateLimitRequestsPerMinute Int?                  @map("model_rate_limit_requests_per_minute")
+  ipRateLimitRequestsPerMinute    Int?                  @map("ip_rate_limit_requests_per_minute")
+  ipWhitelist                     String[]              @default([]) @map("ip_whitelist")
+  activationTtlSeconds            Int?                  @map("activation_ttl_seconds")
+  activatedAt                     DateTime?             @map("activated_at")
+  activationExpiresAt             DateTime?             @map("activation_expires_at")
+  revokedAt                       DateTime?             @map("revoked_at")
+  deletedAt                       DateTime?             @map("deleted_at")
+  modelAccesses                   ApiTokenModelAccess[]
+  usageEvents                     UsageEvent[]
+  relayRateLimitEvents            RelayRateLimitEvent[]
+  requestLogs                     RequestLog[]          @relation("RequestLogToken")
+  createdAt                       DateTime              @default(now()) @map("created_at")
+  updatedAt                       DateTime              @updatedAt @map("updated_at")
 
   @@index([userId, status], map: "api_tokens_user_status_idx")
   @@index([expiresAt], map: "api_tokens_expires_at_idx")
@@ -297,48 +321,55 @@ model WalletTransaction {
 
   @@index([userId, createdAt], map: "wallet_transactions_user_created_at_idx")
   @@index([type], map: "wallet_transactions_type_idx")
+  @@index([type, createdAt], map: "wallet_transactions_type_created_at_idx")
   @@map("wallet_transactions")
 }
 
 model RechargeCode {
-  id                String              @id @default(uuid()) @db.Uuid
-  codeHash          String              @unique @map("code_hash")
-  amountCents       Int                 @map("amount_cents")
-  faceValueCnyCents Int                 @default(0) @map("face_value_cny_cents")
-  status            RechargeCodeStatus  @default(UNUSED)
-  createdByAdminId  String              @map("created_by_admin_id") @db.Uuid
-  createdByAdmin    User                @relation("RechargeCodeCreator", fields: [createdByAdminId], references: [id], onDelete: Restrict)
-  usedByUserId      String?             @map("used_by_user_id") @db.Uuid
-  usedByUser        User?               @relation("RechargeCodeUser", fields: [usedByUserId], references: [id], onDelete: Restrict)
-  usedAt            DateTime?           @map("used_at")
-  walletTransaction WalletTransaction?
-  createdAt         DateTime            @default(now()) @map("created_at")
-  updatedAt         DateTime            @updatedAt @map("updated_at")
+  id                    String                 @id @default(uuid()) @db.Uuid
+  codeHash              String                 @unique @map("code_hash")
+  kind                  RechargeCodeKind       @default(BALANCE)
+  amountCents           Int                    @map("amount_cents")
+  faceValueCnyCents     Int                    @default(0) @map("face_value_cny_cents")
+  quotaHours            Int?                   @map("quota_hours")
+  quotaPeriodDays       Int?                   @map("quota_period_days")
+  tokenQuota            Int?                   @map("token_quota")
+  status                RechargeCodeStatus     @default(UNUSED)
+  createdByAdminId      String                 @map("created_by_admin_id") @db.Uuid
+  createdByAdmin        User                   @relation("RechargeCodeCreator", fields: [createdByAdminId], references: [id], onDelete: Restrict)
+  usedByUserId          String?                @map("used_by_user_id") @db.Uuid
+  usedByUser            User?                  @relation("RechargeCodeUser", fields: [usedByUserId], references: [id], onDelete: Restrict)
+  usedAt                DateTime?              @map("used_at")
+  walletTransaction     WalletTransaction?
+  vibeCodingEntitlement VibeCodingEntitlement? @relation("VibeCodingEntitlementRechargeCode")
+  createdAt             DateTime               @default(now()) @map("created_at")
+  updatedAt             DateTime               @updatedAt @map("updated_at")
 
   @@index([status, createdAt], map: "recharge_codes_status_created_at_idx")
+  @@index([kind, status, createdAt], map: "recharge_codes_kind_status_created_at_idx")
   @@index([createdByAdminId, createdAt], map: "recharge_codes_created_by_admin_id_idx")
   @@index([usedByUserId, usedAt], map: "recharge_codes_used_by_user_id_idx")
   @@map("recharge_codes")
 }
 
 model PaymentOrder {
-  id                String                @id @default(uuid()) @db.Uuid
-  orderNo           String                @unique @map("order_no")
-  userId            String                @map("user_id") @db.Uuid
-  user              User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                String             @id @default(uuid()) @db.Uuid
+  orderNo           String             @unique @map("order_no")
+  userId            String             @map("user_id") @db.Uuid
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   channel           PaymentChannel
-  status            PaymentOrderStatus    @default(PENDING)
-  faceValueCnyCents Int                   @map("face_value_cny_cents")
-  amountCents       Int                   @map("amount_cents")
-  providerTradeNo   String?               @map("provider_trade_no")
-  providerPayload   Json?                 @map("provider_payload")
-  payUrl            String?               @map("pay_url")
-  qrCodeContent     String?               @map("qr_code_content")
-  expiresAt         DateTime              @map("expires_at")
-  paidAt            DateTime?             @map("paid_at")
+  status            PaymentOrderStatus @default(PENDING)
+  faceValueCnyCents Int                @map("face_value_cny_cents")
+  amountCents       Int                @map("amount_cents")
+  providerTradeNo   String?            @map("provider_trade_no")
+  providerPayload   Json?              @map("provider_payload")
+  payUrl            String?            @map("pay_url")
+  qrCodeContent     String?            @map("qr_code_content")
+  expiresAt         DateTime           @map("expires_at")
+  paidAt            DateTime?          @map("paid_at")
   walletTransaction WalletTransaction?
-  createdAt         DateTime              @default(now()) @map("created_at")
-  updatedAt         DateTime              @updatedAt @map("updated_at")
+  createdAt         DateTime           @default(now()) @map("created_at")
+  updatedAt         DateTime           @updatedAt @map("updated_at")
 
   @@index([userId, createdAt], map: "payment_orders_user_created_at_idx")
   @@index([status, expiresAt], map: "payment_orders_status_expires_at_idx")
@@ -347,46 +378,53 @@ model PaymentOrder {
 }
 
 model AiRechargeProduct {
-  id                String                  @id @default(uuid()) @db.Uuid
-  title             String
-  platform          String
-  planName          String                  @map("plan_name")
-  durationDays      Int?                    @map("duration_days")
-  priceCnyCents     Int                     @map("price_cny_cents")
-  description       String
-  purchaseNote      String?                 @map("purchase_note")
-  deliveryNote      String?                 @map("delivery_note")
-  sortOrder         Int                     @default(100) @map("sort_order")
-  status            AiRechargeProductStatus @default(ACTIVE)
-  createdByAdminId  String                  @map("created_by_admin_id") @db.Uuid
-  createdByAdmin    User                    @relation("AiRechargeProductCreator", fields: [createdByAdminId], references: [id], onDelete: Restrict)
-  orders            AiRechargeOrder[]
-  createdAt         DateTime                @default(now()) @map("created_at")
-  updatedAt         DateTime                @updatedAt @map("updated_at")
+  id               String                  @id @default(uuid()) @db.Uuid
+  productKind      AiRechargeProductKind   @default(AI_RECHARGE) @map("product_kind")
+  title            String
+  platform         String
+  planName         String                  @map("plan_name")
+  durationDays     Int?                    @map("duration_days")
+  quotaHours       Int?                    @map("quota_hours")
+  quotaPeriodDays  Int?                    @map("quota_period_days")
+  tokenQuota       Int?                    @map("token_quota")
+  priceCnyCents    Int                     @map("price_cny_cents")
+  description      String
+  purchaseNote     String?                 @map("purchase_note")
+  deliveryNote     String?                 @map("delivery_note")
+  translations     Json?
+  sortOrder        Int                     @default(100) @map("sort_order")
+  status           AiRechargeProductStatus @default(ACTIVE)
+  createdByAdminId String                  @map("created_by_admin_id") @db.Uuid
+  createdByAdmin   User                    @relation("AiRechargeProductCreator", fields: [createdByAdminId], references: [id], onDelete: Restrict)
+  orders           AiRechargeOrder[]
+  createdAt        DateTime                @default(now()) @map("created_at")
+  updatedAt        DateTime                @updatedAt @map("updated_at")
 
   @@index([status, sortOrder, createdAt], map: "ai_recharge_products_public_idx")
+  @@index([productKind, status, sortOrder, createdAt], map: "ai_recharge_products_kind_status_idx")
   @@index([createdByAdminId, createdAt], map: "ai_recharge_products_created_by_admin_idx")
   @@map("ai_recharge_products")
 }
 
 model AiRechargeOrder {
-  id                   String                @id @default(uuid()) @db.Uuid
-  orderNo              String                @unique @map("order_no")
-  userId               String                @map("user_id") @db.Uuid
-  user                 User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  productId            String                @map("product_id") @db.Uuid
-  product              AiRechargeProduct     @relation(fields: [productId], references: [id], onDelete: Restrict)
-  productTitleSnapshot String                @map("product_title_snapshot")
-  platformSnapshot     String                @map("platform_snapshot")
-  planNameSnapshot     String                @map("plan_name_snapshot")
-  amountCnyCents       Int                   @map("amount_cny_cents")
-  customerAccount      String                @map("customer_account")
-  customerContact      String                @map("customer_contact")
-  customerNote         String?               @map("customer_note")
-  merchantNote         String?               @map("merchant_note")
-  status               AiRechargeOrderStatus @default(PENDING)
-  createdAt            DateTime              @default(now()) @map("created_at")
-  updatedAt            DateTime              @updatedAt @map("updated_at")
+  id                    String                 @id @default(uuid()) @db.Uuid
+  orderNo               String                 @unique @map("order_no")
+  userId                String                 @map("user_id") @db.Uuid
+  user                  User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  productId             String                 @map("product_id") @db.Uuid
+  product               AiRechargeProduct      @relation(fields: [productId], references: [id], onDelete: Restrict)
+  productTitleSnapshot  String                 @map("product_title_snapshot")
+  platformSnapshot      String                 @map("platform_snapshot")
+  planNameSnapshot      String                 @map("plan_name_snapshot")
+  amountCnyCents        Int                    @map("amount_cny_cents")
+  customerAccount       String                 @map("customer_account")
+  customerContact       String                 @map("customer_contact")
+  customerNote          String?                @map("customer_note")
+  merchantNote          String?                @map("merchant_note")
+  status                AiRechargeOrderStatus  @default(PENDING)
+  vibeCodingEntitlement VibeCodingEntitlement? @relation("VibeCodingEntitlementAiRechargeOrder")
+  createdAt             DateTime               @default(now()) @map("created_at")
+  updatedAt             DateTime               @updatedAt @map("updated_at")
 
   @@index([userId, createdAt], map: "ai_recharge_orders_user_created_at_idx")
   @@index([productId, createdAt], map: "ai_recharge_orders_product_created_at_idx")
@@ -394,56 +432,100 @@ model AiRechargeOrder {
   @@map("ai_recharge_orders")
 }
 
+model VibeCodingEntitlement {
+  id                      String                      @id @default(uuid()) @db.Uuid
+  userId                  String                      @map("user_id") @db.Uuid
+  user                    User                        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sourceRechargeCodeId    String?                     @unique @map("source_recharge_code_id") @db.Uuid
+  sourceRechargeCode      RechargeCode?               @relation("VibeCodingEntitlementRechargeCode", fields: [sourceRechargeCodeId], references: [id], onDelete: Restrict)
+  sourceAiRechargeOrderId String?                     @unique @map("source_ai_recharge_order_id") @db.Uuid
+  sourceAiRechargeOrder   AiRechargeOrder?            @relation("VibeCodingEntitlementAiRechargeOrder", fields: [sourceAiRechargeOrderId], references: [id], onDelete: Restrict)
+  quotaHours              Int                         @map("quota_hours")
+  quotaPeriodDays         Int                         @map("quota_period_days")
+  tokenQuota              Int                         @map("token_quota")
+  usedTokenQuota          Int                         @default(0) @map("used_token_quota")
+  startsAt                DateTime                    @map("starts_at")
+  expiresAt               DateTime                    @map("expires_at")
+  status                  VibeCodingEntitlementStatus @default(ACTIVE)
+  createdAt               DateTime                    @default(now()) @map("created_at")
+  updatedAt               DateTime                    @updatedAt @map("updated_at")
+
+  @@index([userId, status, expiresAt], map: "vibe_coding_entitlements_user_status_expires_idx")
+  @@index([status, expiresAt], map: "vibe_coding_entitlements_status_expires_idx")
+  @@map("vibe_coding_entitlements")
+}
+
 model AiRechargePageConfig {
-  id                 String   @id @default("default")
-  introTitle         String?  @map("intro_title")
-  introContent       String?  @map("intro_content")
-  introImageDataUrl  String?  @map("intro_image_data_url")
-  updatedByAdminId   String?  @map("updated_by_admin_id") @db.Uuid
-  updatedByAdmin     User?    @relation("AiRechargePageConfigUpdater", fields: [updatedByAdminId], references: [id], onDelete: SetNull)
-  createdAt          DateTime @default(now()) @map("created_at")
-  updatedAt          DateTime @updatedAt @map("updated_at")
+  id                String   @id @default("default")
+  introTitle        String?  @map("intro_title")
+  introContent      String?  @map("intro_content")
+  introImageDataUrl String?  @map("intro_image_data_url")
+  translations      Json?
+  updatedByAdminId  String?  @map("updated_by_admin_id") @db.Uuid
+  updatedByAdmin    User?    @relation("AiRechargePageConfigUpdater", fields: [updatedByAdminId], references: [id], onDelete: SetNull)
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
 
   @@index([updatedByAdminId], map: "ai_recharge_page_configs_updated_by_admin_idx")
   @@map("ai_recharge_page_configs")
 }
 
 model SiteContentConfig {
-  id                 String   @id @default("default")
-  homeTitle          String?  @map("home_title")
-  homeSubtitle       String?  @map("home_subtitle")
-  homeContent        String?  @map("home_content")
-  homeFontFamily     String   @default("system") @map("home_font_family")
-  homeTextColor      String   @default("#111827") @map("home_text_color")
-  homeAccentColor    String   @default("#2563eb") @map("home_accent_color")
-  popupEnabled       Boolean  @default(false) @map("popup_enabled")
-  popupTitle         String?  @map("popup_title")
-  popupContent       String?  @map("popup_content")
-  popupFontFamily    String   @default("system") @map("popup_font_family")
-  popupTextColor     String   @default("#111827") @map("popup_text_color")
-  popupAccentColor   String   @default("#2563eb") @map("popup_accent_color")
-  updatedByAdminId   String?  @map("updated_by_admin_id") @db.Uuid
-  updatedByAdmin     User?    @relation("SiteContentConfigUpdater", fields: [updatedByAdminId], references: [id], onDelete: SetNull)
-  createdAt          DateTime @default(now()) @map("created_at")
-  updatedAt          DateTime @updatedAt @map("updated_at")
+  id               String   @id @default("default")
+  homeTitle        String?  @map("home_title")
+  homeSubtitle     String?  @map("home_subtitle")
+  homeContent      String?  @map("home_content")
+  homeFontFamily   String   @default("system") @map("home_font_family")
+  homeTextColor    String   @default("#111827") @map("home_text_color")
+  homeAccentColor  String   @default("#2563eb") @map("home_accent_color")
+  popupEnabled     Boolean  @default(false) @map("popup_enabled")
+  popupTitle       String?  @map("popup_title")
+  popupContent     String?  @map("popup_content")
+  translations     Json?
+  popupFontFamily  String   @default("system") @map("popup_font_family")
+  popupTextColor   String   @default("#111827") @map("popup_text_color")
+  popupAccentColor String   @default("#2563eb") @map("popup_accent_color")
+  updatedByAdminId String?  @map("updated_by_admin_id") @db.Uuid
+  updatedByAdmin   User?    @relation("SiteContentConfigUpdater", fields: [updatedByAdminId], references: [id], onDelete: SetNull)
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
 
   @@index([updatedByAdminId], map: "site_content_configs_updated_by_admin_idx")
   @@map("site_content_configs")
 }
 
+model TranslationGlossaryTerm {
+  id               String   @id @default(uuid()) @db.Uuid
+  sourceTerm       String   @unique @map("source_term")
+  replacementTerm  String   @map("replacement_term")
+  note             String?
+  isActive         Boolean  @default(true) @map("is_active")
+  createdByAdminId String?  @map("created_by_admin_id") @db.Uuid
+  createdByAdmin   User?    @relation("TranslationGlossaryTermCreator", fields: [createdByAdminId], references: [id], onDelete: SetNull)
+  updatedByAdminId String?  @map("updated_by_admin_id") @db.Uuid
+  updatedByAdmin   User?    @relation("TranslationGlossaryTermUpdater", fields: [updatedByAdminId], references: [id], onDelete: SetNull)
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  @@index([isActive, sourceTerm], map: "translation_glossary_terms_active_source_idx")
+  @@index([createdByAdminId], map: "translation_glossary_terms_created_by_admin_idx")
+  @@index([updatedByAdminId], map: "translation_glossary_terms_updated_by_admin_idx")
+  @@map("translation_glossary_terms")
+}
+
 model NotificationPreference {
-  id                         String   @id @default(uuid()) @db.Uuid
-  userId                     String   @unique @map("user_id") @db.Uuid
-  user                       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  balanceLowEnabled          Boolean  @default(false) @map("balance_low_enabled")
-  balanceLowThresholdCents   Int?     @map("balance_low_threshold_cents")
+  id                         String    @id @default(uuid()) @db.Uuid
+  userId                     String    @unique @map("user_id") @db.Uuid
+  user                       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  balanceLowEnabled          Boolean   @default(false) @map("balance_low_enabled")
+  balanceLowThresholdCents   Int?      @map("balance_low_threshold_cents")
   balanceLowLastNotifiedAt   DateTime? @map("balance_low_last_notified_at")
-  securityAlertsEnabled      Boolean  @default(true) @map("security_alerts_enabled")
-  systemAnnouncementsEnabled Boolean  @default(true) @map("system_announcements_enabled")
-  promotionsEnabled          Boolean  @default(false) @map("promotions_enabled")
-  modelPriceUpdatesEnabled   Boolean  @default(false) @map("model_price_updates_enabled")
-  createdAt                  DateTime @default(now()) @map("created_at")
-  updatedAt                  DateTime @updatedAt @map("updated_at")
+  securityAlertsEnabled      Boolean   @default(true) @map("security_alerts_enabled")
+  systemAnnouncementsEnabled Boolean   @default(true) @map("system_announcements_enabled")
+  promotionsEnabled          Boolean   @default(false) @map("promotions_enabled")
+  modelPriceUpdatesEnabled   Boolean   @default(false) @map("model_price_updates_enabled")
+  createdAt                  DateTime  @default(now()) @map("created_at")
+  updatedAt                  DateTime  @updatedAt @map("updated_at")
 
   @@map("notification_preferences")
 }
@@ -521,20 +603,46 @@ model Session {
   @@map("sessions")
 }
 
+model PasswordRecoveryCode {
+  id                 String    @id @default(uuid()) @db.Uuid
+  userId             String    @map("user_id") @db.Uuid
+  user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  phoneDigest        String    @map("phone_digest")
+  codeHash           String    @map("code_hash")
+  providerConfigured Boolean   @default(false) @map("provider_configured")
+  attemptCount       Int       @default(0) @map("attempt_count")
+  maxAttempts        Int       @default(5) @map("max_attempts")
+  expiresAt          DateTime  @map("expires_at")
+  consumedAt         DateTime? @map("consumed_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  @@index([userId, createdAt], map: "password_recovery_codes_user_created_at_idx")
+  @@index([phoneDigest, createdAt], map: "password_recovery_codes_phone_created_at_idx")
+  @@index([expiresAt], map: "password_recovery_codes_expires_at_idx")
+  @@index([consumedAt, expiresAt], map: "password_recovery_codes_consumed_expires_idx")
+  @@map("password_recovery_codes")
+}
+
 model Announcement {
-  id               String             @id @default(uuid()) @db.Uuid
+  id               String               @id @default(uuid()) @db.Uuid
   title            String
   content          String
+  translations     Json?
   category         AnnouncementCategory @default(ANNOUNCEMENT)
-  status           AnnouncementStatus @default(DRAFT)
-  publishedAt      DateTime?          @map("published_at")
-  createdByAdminId String             @map("created_by_admin_id") @db.Uuid
-  createdByAdmin   User               @relation("AnnouncementCreator", fields: [createdByAdminId], references: [id])
-  createdAt        DateTime           @default(now()) @map("created_at")
-  updatedAt        DateTime           @updatedAt @map("updated_at")
+  status           AnnouncementStatus   @default(DRAFT)
+  isPinned         Boolean              @default(false) @map("is_pinned")
+  scheduledAt      DateTime?            @map("scheduled_at")
+  publishedAt      DateTime?            @map("published_at")
+  createdByAdminId String               @map("created_by_admin_id") @db.Uuid
+  createdByAdmin   User                 @relation("AnnouncementCreator", fields: [createdByAdminId], references: [id])
+  createdAt        DateTime             @default(now()) @map("created_at")
+  updatedAt        DateTime             @updatedAt @map("updated_at")
 
   @@index([createdByAdminId], map: "announcements_created_by_admin_id_idx")
   @@index([status], map: "announcements_status_idx")
+  @@index([status, scheduledAt], map: "announcements_status_scheduled_at_idx")
+  @@index([status, isPinned, scheduledAt, publishedAt], map: "announcements_public_workflow_idx")
   @@index([status, category, publishedAt], map: "announcements_public_feed_idx")
   @@map("announcements")
 }
@@ -568,6 +676,7 @@ model SecurityAuditLog {
 
   @@index([actorUserId, createdAt], map: "security_audit_logs_actor_created_at_idx")
   @@index([action, createdAt], map: "security_audit_logs_action_created_at_idx")
+  @@index([action, ipAddress, createdAt], map: "security_audit_logs_action_ip_created_at_idx")
   @@index([createdAt], map: "security_audit_logs_created_at_idx")
   @@map("security_audit_logs")
 }
@@ -602,25 +711,32 @@ model AsyncTask {
 }
 
 model UpstreamProvider {
-  id                  String                 @id @default(uuid()) @db.Uuid
-  name                String                 @unique
-  kind                UpstreamProviderKind   @default(GENERIC)
-  baseUrl             String                 @map("base_url")
-  encryptedApiKey     String                 @map("encrypted_api_key")
-  apiKeyPreview       String                 @map("api_key_preview")
-  status              UpstreamProviderStatus @default(ACTIVE)
-  healthStatus        UpstreamHealthStatus   @default(UNKNOWN) @map("health_status")
-  lastHealthCheckAt   DateTime?              @map("last_health_check_at")
-  lastHealthLatencyMs Int?                   @map("last_health_latency_ms")
-  lastHealthError     String?                @map("last_health_error")
-  createdByAdminId    String                 @map("created_by_admin_id") @db.Uuid
-  createdByAdmin      User                   @relation("UpstreamProviderCreator", fields: [createdByAdminId], references: [id])
+  id                  String                    @id @default(uuid()) @db.Uuid
+  name                String                    @unique
+  kind                UpstreamProviderKind      @default(GENERIC)
+  baseUrl             String                    @map("base_url")
+  encryptedApiKey     String                    @map("encrypted_api_key")
+  apiKeyPreview       String                    @map("api_key_preview")
+  status              UpstreamProviderStatus    @default(ACTIVE)
+  maxConcurrency      Int?                      @map("max_concurrency")
+  consecutiveFailures Int                       @default(0) @map("consecutive_failures")
+  circuitOpenedUntil  DateTime?                 @map("circuit_opened_until")
+  lastFailureAt       DateTime?                 @map("last_failure_at")
+  lastSuccessAt       DateTime?                 @map("last_success_at")
+  healthStatus        UpstreamHealthStatus      @default(UNKNOWN) @map("health_status")
+  lastHealthCheckAt   DateTime?                 @map("last_health_check_at")
+  lastHealthLatencyMs Int?                      @map("last_health_latency_ms")
+  lastHealthError     String?                   @map("last_health_error")
+  createdByAdminId    String                    @map("created_by_admin_id") @db.Uuid
+  createdByAdmin      User                      @relation("UpstreamProviderCreator", fields: [createdByAdminId], references: [id])
   upstreamModels      UpstreamModel[]
+  userAssignments     UserUpstreamAssignment[]
+  concurrencySlots    UpstreamConcurrencySlot[]
   usageEvents         UsageEvent[]
-  requestLogs         RequestLog[]         @relation("RequestLogUpstreamProvider")
+  requestLogs         RequestLog[]              @relation("RequestLogUpstreamProvider")
   asyncTasks          AsyncTask[]
-  createdAt           DateTime               @default(now()) @map("created_at")
-  updatedAt           DateTime               @updatedAt @map("updated_at")
+  createdAt           DateTime                  @default(now()) @map("created_at")
+  updatedAt           DateTime                  @updatedAt @map("updated_at")
 
   @@index([status], map: "upstream_providers_status_idx")
   @@index([healthStatus], map: "upstream_providers_health_status_idx")
@@ -628,52 +744,53 @@ model UpstreamProvider {
 }
 
 model ModelPrice {
-  id                    String                @id @default(uuid()) @db.Uuid
-  model                 String                @unique
-  displayName           String?               @map("display_name")
-  inputPriceCentsPer1k  Int                   @default(0) @map("input_price_cents_per_1k")
-  outputPriceCentsPer1k Int                   @default(0) @map("output_price_cents_per_1k")
-  modelMultiplier       Decimal               @default(1.0) @map("model_multiplier") @db.Decimal(10, 4)
-  pricingMode           ModelPricingMode      @default(MANUAL) @map("pricing_mode")
-  upstreamInputPricePerMillion  Decimal?      @map("upstream_input_price_per_million") @db.Decimal(12, 4)
-  upstreamOutputPricePerMillion Decimal?      @map("upstream_output_price_per_million") @db.Decimal(12, 4)
-  upstreamCurrency      String?               @map("upstream_currency")
-  upstreamExchangeRate  Decimal?              @map("upstream_exchange_rate") @db.Decimal(12, 6)
-  marginPercent         Decimal?              @map("margin_percent") @db.Decimal(8, 4)
-  status                ModelStatus           @default(ACTIVE)
-  groupAccesses         ModelGroupAccess[]
-  upstreamModels        UpstreamModel[]       @relation("ModelUpstreamMappings")
-  tokenAccesses         ApiTokenModelAccess[]
-  createdAt             DateTime              @default(now()) @map("created_at")
-  updatedAt             DateTime              @updatedAt @map("updated_at")
+  id                            String                @id @default(uuid()) @db.Uuid
+  model                         String                @unique
+  displayName                   String?               @map("display_name")
+  translations                  Json?
+  inputPriceCentsPer1k          Int                   @default(0) @map("input_price_cents_per_1k")
+  outputPriceCentsPer1k         Int                   @default(0) @map("output_price_cents_per_1k")
+  modelMultiplier               Decimal               @default(1.0) @map("model_multiplier") @db.Decimal(10, 4)
+  pricingMode                   ModelPricingMode      @default(MANUAL) @map("pricing_mode")
+  upstreamInputPricePerMillion  Decimal?              @map("upstream_input_price_per_million") @db.Decimal(12, 4)
+  upstreamOutputPricePerMillion Decimal?              @map("upstream_output_price_per_million") @db.Decimal(12, 4)
+  upstreamCurrency              String?               @map("upstream_currency")
+  upstreamExchangeRate          Decimal?              @map("upstream_exchange_rate") @db.Decimal(12, 6)
+  marginPercent                 Decimal?              @map("margin_percent") @db.Decimal(8, 4)
+  status                        ModelStatus           @default(ACTIVE)
+  groupAccesses                 ModelGroupAccess[]
+  upstreamModels                UpstreamModel[]       @relation("ModelUpstreamMappings")
+  tokenAccesses                 ApiTokenModelAccess[]
+  createdAt                     DateTime              @default(now()) @map("created_at")
+  updatedAt                     DateTime              @updatedAt @map("updated_at")
 
   @@index([status], map: "model_prices_status_idx")
   @@map("model_prices")
 }
 
 model UpstreamModel {
-  id             String           @id @default(uuid()) @db.Uuid
-  providerId     String           @map("provider_id") @db.Uuid
-  provider       UpstreamProvider @relation(fields: [providerId], references: [id], onDelete: Cascade)
-  publicModel    String           @map("public_model")
-  modelPrice     ModelPrice       @relation("ModelUpstreamMappings", fields: [publicModel], references: [model], onDelete: Cascade)
-  upstreamModel  String           @map("upstream_model")
-  priority       Int              @default(1)
-  timeoutMs      Int              @default(5000) @map("timeout_ms")
-  upstreamPrompt String?          @map("upstream_prompt")
-  pricingMode    ModelPricingMode? @map("pricing_mode")
-  inputPriceCentsPer1k  Int?      @map("input_price_cents_per_1k")
-  outputPriceCentsPer1k Int?      @map("output_price_cents_per_1k")
-  modelMultiplier       Decimal?  @map("model_multiplier") @db.Decimal(10, 4)
-  upstreamInputPricePerMillion  Decimal? @map("upstream_input_price_per_million") @db.Decimal(12, 4)
-  upstreamOutputPricePerMillion Decimal? @map("upstream_output_price_per_million") @db.Decimal(12, 4)
-  upstreamCurrency      String?   @map("upstream_currency")
-  upstreamExchangeRate  Decimal?  @map("upstream_exchange_rate") @db.Decimal(12, 6)
-  marginPercent         Decimal?  @map("margin_percent") @db.Decimal(8, 4)
-  status         ModelStatus      @default(ACTIVE)
-  supportsStream Boolean          @default(true) @map("supports_stream")
-  createdAt      DateTime         @default(now()) @map("created_at")
-  updatedAt      DateTime         @updatedAt @map("updated_at")
+  id                            String            @id @default(uuid()) @db.Uuid
+  providerId                    String            @map("provider_id") @db.Uuid
+  provider                      UpstreamProvider  @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  publicModel                   String            @map("public_model")
+  modelPrice                    ModelPrice        @relation("ModelUpstreamMappings", fields: [publicModel], references: [model], onDelete: Cascade)
+  upstreamModel                 String            @map("upstream_model")
+  priority                      Int               @default(1)
+  timeoutMs                     Int               @default(5000) @map("timeout_ms")
+  upstreamPrompt                String?           @map("upstream_prompt")
+  pricingMode                   ModelPricingMode? @map("pricing_mode")
+  inputPriceCentsPer1k          Int?              @map("input_price_cents_per_1k")
+  outputPriceCentsPer1k         Int?              @map("output_price_cents_per_1k")
+  modelMultiplier               Decimal?          @map("model_multiplier") @db.Decimal(10, 4)
+  upstreamInputPricePerMillion  Decimal?          @map("upstream_input_price_per_million") @db.Decimal(12, 4)
+  upstreamOutputPricePerMillion Decimal?          @map("upstream_output_price_per_million") @db.Decimal(12, 4)
+  upstreamCurrency              String?           @map("upstream_currency")
+  upstreamExchangeRate          Decimal?          @map("upstream_exchange_rate") @db.Decimal(12, 6)
+  marginPercent                 Decimal?          @map("margin_percent") @db.Decimal(8, 4)
+  status                        ModelStatus       @default(ACTIVE)
+  supportsStream                Boolean           @default(true) @map("supports_stream")
+  createdAt                     DateTime          @default(now()) @map("created_at")
+  updatedAt                     DateTime          @updatedAt @map("updated_at")
 
   @@unique([providerId, publicModel, upstreamModel], map: "upstream_models_provider_public_upstream_key")
   @@index([providerId], map: "upstream_models_provider_id_idx")
@@ -720,6 +837,7 @@ model UsageEvent {
   @@index([tokenId, createdAt], map: "usage_events_token_created_at_idx")
   @@index([model, createdAt], map: "usage_events_model_created_at_idx")
   @@index([status, createdAt], map: "usage_events_status_created_at_idx")
+  @@index([createdAt, userId], map: "usage_events_created_at_user_idx")
   @@map("usage_events")
 }
 
@@ -739,6 +857,38 @@ model RelayRateLimitEvent {
   @@index([tokenId, model, createdAt], map: "relay_rate_limit_events_token_model_created_at_idx")
   @@index([tokenId, ipAddress, createdAt], map: "relay_rate_limit_events_token_ip_created_at_idx")
   @@map("relay_rate_limit_events")
+}
+
+model UserUpstreamAssignment {
+  id                 String           @id @default(uuid()) @db.Uuid
+  userId             String           @map("user_id") @db.Uuid
+  user               User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  publicModel        String           @map("public_model")
+  upstreamProviderId String           @map("upstream_provider_id") @db.Uuid
+  upstreamProvider   UpstreamProvider @relation(fields: [upstreamProviderId], references: [id], onDelete: Cascade)
+  lastUsedAt         DateTime?        @map("last_used_at")
+  createdAt          DateTime         @default(now()) @map("created_at")
+  updatedAt          DateTime         @updatedAt @map("updated_at")
+
+  @@unique([userId, publicModel], map: "user_upstream_assignments_user_model_key")
+  @@index([publicModel, upstreamProviderId], map: "user_upstream_assignments_model_provider_idx")
+  @@index([upstreamProviderId], map: "user_upstream_assignments_provider_idx")
+  @@map("user_upstream_assignments")
+}
+
+model UpstreamConcurrencySlot {
+  id                 String           @id @default(uuid()) @db.Uuid
+  requestId          String           @unique @map("request_id")
+  upstreamProviderId String           @map("upstream_provider_id") @db.Uuid
+  upstreamProvider   UpstreamProvider @relation(fields: [upstreamProviderId], references: [id], onDelete: Cascade)
+  userId             String?          @map("user_id") @db.Uuid
+  publicModel        String           @map("public_model")
+  expiresAt          DateTime         @map("expires_at")
+  createdAt          DateTime         @default(now()) @map("created_at")
+
+  @@index([upstreamProviderId, expiresAt], map: "upstream_concurrency_slots_provider_expires_idx")
+  @@index([userId, createdAt], map: "upstream_concurrency_slots_user_created_at_idx")
+  @@map("upstream_concurrency_slots")
 }
 
 model RequestLog {
@@ -766,5 +916,6 @@ model RequestLog {
   @@index([tokenId, createdAt], map: "request_logs_token_created_at_idx")
   @@index([statusCode, createdAt], map: "request_logs_status_created_at_idx")
   @@index([errorCode, createdAt], map: "request_logs_error_created_at_idx")
+  @@index([createdAt], map: "request_logs_created_at_idx")
   @@map("request_logs")
 }

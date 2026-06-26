@@ -10,7 +10,7 @@ import {
   type UpstreamBillingTarget
 } from '../billing/billing.service';
 import { estimateChatCompletionCostCents } from '../billing/balance-guard';
-import { ModelPricingMode, ModelStatus, UpstreamProviderKind, UpstreamProviderStatus } from '../generated/prisma/client';
+import { ModelPricingMode, ModelStatus, UpstreamHealthStatus, UpstreamProviderKind, UpstreamProviderStatus } from '../generated/prisma/client';
 import { deepSeekBaseUsdUnitsPer1k } from '../billing/token-pricing';
 import { PrismaService } from '../prisma.service';
 import { RequestLogsService } from '../request-logs/request-logs.service';
@@ -109,6 +109,7 @@ type StreamBillingContext = {
   principal: BillingPrincipal;
   model: BillableModel;
   upstream: UpstreamBillingTarget;
+  upstreamConcurrencySlotId?: string | null;
 };
 
 type UpstreamMappingCandidate = {
@@ -127,6 +128,12 @@ type UpstreamMappingCandidate = {
     baseUrl: string;
     encryptedApiKey: string;
     kind: UpstreamProviderKind;
+    maxConcurrency: number | null;
+    consecutiveFailures: number;
+    circuitOpenedUntil: Date | null;
+    lastFailureAt: Date | null;
+    lastSuccessAt: Date | null;
+    healthStatus: UpstreamHealthStatus;
   };
 };
 
@@ -134,6 +141,8 @@ type UpstreamAttemptResult = {
   mapping: UpstreamMappingCandidate;
   response: Response;
   latencyMs: number;
+  concurrencySlotId: string | null;
+  attemptCount: number;
 };
 
 export class RelayHttpError extends Error {
@@ -161,6 +170,11 @@ class UpstreamAttemptFailureError extends Error {
 
 const UPSTREAM_TIMEOUT_MS = 120_000;
 const DEFAULT_UPSTREAM_ROUTE_TIMEOUT_MS = 5000;
+const DEFAULT_UPSTREAM_CONCURRENCY_SLOT_TTL_SECONDS = 3600;
+const MAX_UPSTREAM_CONCURRENCY_SLOT_TTL_SECONDS = 24 * 60 * 60;
+const DEFAULT_UPSTREAM_CIRCUIT_FAILURE_THRESHOLD = 3;
+const DEFAULT_UPSTREAM_CIRCUIT_OPEN_SECONDS = 60;
+const MAX_UPSTREAM_CIRCUIT_OPEN_SECONDS = 60 * 60;
 
 @Injectable()
 export class RelayService {
@@ -473,7 +487,7 @@ export class RelayService {
         clientIp: input.clientIp
       });
 
-      const mappings = await this.findUpstreamMappings(body.model, Boolean(body.stream));
+      const mappings = await this.findUpstreamMappings(body.model, Boolean(body.stream), auth.user.id);
       const billingPrincipal = {
         userId: auth.user.id,
         tokenId: auth.token.id
@@ -487,6 +501,8 @@ export class RelayService {
 
         try {
           attempt = await this.fetchConfiguredUpstream({
+            requestId: input.requestId,
+            userId: auth.user.id,
             mappings,
             body,
             stream: true,
@@ -500,13 +516,15 @@ export class RelayService {
             providerId: failure.mapping.provider.id,
             upstreamModel: failure.mapping.upstreamModel
           };
-          await this.billingService.recordFailedChat({
-            requestId: input.requestId,
-            principal: billingPrincipal,
-            model: this.buildBillableModelForRoute(allowedModel, failure.mapping),
-            upstream: billingTarget,
-            errorCode: normalizedError.code
-          });
+          if (this.shouldRecordFailedUsageForUpstreamError(normalizedError.code)) {
+            await this.billingService.recordFailedChat({
+              requestId: input.requestId,
+              principal: billingPrincipal,
+              model: this.buildBillableModelForRoute(allowedModel, failure.mapping),
+              upstream: billingTarget,
+              errorCode: normalizedError.code
+            });
+          }
           await this.recordRequestLogSafe({
             requestId: input.requestId,
             userId: auth.user.id,
@@ -543,7 +561,7 @@ export class RelayService {
           latencyMs: Date.now() - startedAt,
           upstreamLatencyMs: attempt.latencyMs,
           upstreamStatusCode: attempt.response.status,
-          upstreamStatus: 'stream_started'
+          upstreamStatus: attempt.attemptCount > 1 ? 'stream_started_after_failover' : 'stream_started'
         });
 
         return {
@@ -555,7 +573,8 @@ export class RelayService {
             requestId: input.requestId,
             principal: billingPrincipal,
             model: this.buildBillableModelForRoute(allowedModel, attempt.mapping),
-            upstream: billingTarget
+            upstream: billingTarget,
+            upstreamConcurrencySlotId: attempt.concurrencySlotId
           }
         };
       }
@@ -564,6 +583,8 @@ export class RelayService {
 
       try {
         attempt = await this.fetchConfiguredUpstream({
+          requestId: input.requestId,
+          userId: auth.user.id,
           mappings,
           body,
           stream: false
@@ -576,13 +597,15 @@ export class RelayService {
           providerId: failure.mapping.provider.id,
           upstreamModel: failure.mapping.upstreamModel
         };
-        await this.billingService.recordFailedChat({
-          requestId: input.requestId,
-          principal: billingPrincipal,
-          model: this.buildBillableModelForRoute(allowedModel, failure.mapping),
-          upstream: billingTarget,
-          errorCode: normalizedError.code
-        });
+        if (this.shouldRecordFailedUsageForUpstreamError(normalizedError.code)) {
+          await this.billingService.recordFailedChat({
+            requestId: input.requestId,
+            principal: billingPrincipal,
+            model: this.buildBillableModelForRoute(allowedModel, failure.mapping),
+            upstream: billingTarget,
+            errorCode: normalizedError.code
+          });
+        }
         await this.recordRequestLogSafe({
           requestId: input.requestId,
           userId: auth.user.id,
@@ -606,18 +629,44 @@ export class RelayService {
         providerId: attempt.mapping.provider.id,
         upstreamModel: attempt.mapping.upstreamModel
       };
-      let upstreamBodyJson: unknown;
       try {
-        upstreamBodyJson = await this.readUpstreamJson(attempt.response);
-      } catch (error) {
-        await this.billingService.recordFailedChat({
+        let upstreamBodyJson: unknown;
+        try {
+          upstreamBodyJson = await this.readUpstreamJson(attempt.response);
+        } catch (error) {
+          await this.billingService.recordFailedChat({
+            requestId: input.requestId,
+            principal: billingPrincipal,
+            model: this.buildBillableModelForRoute(allowedModel, attempt.mapping),
+            upstream: billingTarget,
+            errorCode: this.normalizeError(error).code
+          });
+          const normalizedError = this.normalizeError(error);
+          await this.recordRequestLogSafe({
+            requestId: input.requestId,
+            userId: auth.user.id,
+            tokenId: auth.token.id,
+            upstreamProviderId: attempt.mapping.provider.id,
+            method: 'POST',
+            path: requestPath,
+            model: body.model,
+            statusCode: normalizedError.status,
+            errorCode: normalizedError.code,
+            latencyMs: Date.now() - startedAt,
+            upstreamLatencyMs: attempt.latencyMs,
+            upstreamStatusCode: attempt.response.status,
+            upstreamStatus: 'malformed_response'
+          });
+          throw error;
+        }
+
+        const billingRecord = await this.billingService.recordCompletedChat({
           requestId: input.requestId,
           principal: billingPrincipal,
           model: this.buildBillableModelForRoute(allowedModel, attempt.mapping),
           upstream: billingTarget,
-          errorCode: this.normalizeError(error).code
+          responseBody: upstreamBodyJson
         });
-        const normalizedError = this.normalizeError(error);
         await this.recordRequestLogSafe({
           requestId: input.requestId,
           userId: auth.user.id,
@@ -626,45 +675,23 @@ export class RelayService {
           method: 'POST',
           path: requestPath,
           model: body.model,
-          statusCode: normalizedError.status,
-          errorCode: normalizedError.code,
+          statusCode: attempt.response.status,
+          errorCode: null,
           latencyMs: Date.now() - startedAt,
           upstreamLatencyMs: attempt.latencyMs,
           upstreamStatusCode: attempt.response.status,
-          upstreamStatus: 'malformed_response'
+          upstreamStatus: attempt.attemptCount > 1 ? 'success_after_failover' : 'success'
         });
-        throw error;
+
+        return {
+          stream: false,
+          status: attempt.response.status,
+          headers: this.buildJsonHeaders(input.requestId, attempt.response, billingRecord.usageEventId),
+          body: upstreamBodyJson
+        };
+      } finally {
+        await this.releaseUpstreamConcurrencySlotSafe(attempt.concurrencySlotId);
       }
-
-      const billingRecord = await this.billingService.recordCompletedChat({
-        requestId: input.requestId,
-        principal: billingPrincipal,
-        model: this.buildBillableModelForRoute(allowedModel, attempt.mapping),
-        upstream: billingTarget,
-        responseBody: upstreamBodyJson
-      });
-      await this.recordRequestLogSafe({
-        requestId: input.requestId,
-        userId: auth.user.id,
-        tokenId: auth.token.id,
-        upstreamProviderId: attempt.mapping.provider.id,
-        method: 'POST',
-        path: requestPath,
-        model: body.model,
-        statusCode: attempt.response.status,
-        errorCode: null,
-        latencyMs: Date.now() - startedAt,
-        upstreamLatencyMs: attempt.latencyMs,
-        upstreamStatusCode: attempt.response.status,
-        upstreamStatus: 'success'
-      });
-
-      return {
-        stream: false,
-        status: attempt.response.status,
-        headers: this.buildJsonHeaders(input.requestId, attempt.response, billingRecord.usageEventId),
-        body: upstreamBodyJson
-      };
     } catch (error) {
       const normalizedError = this.normalizeError(error);
       await this.recordRequestLogIfAbsentSafe({
@@ -1150,50 +1177,412 @@ export class RelayService {
   }
 
   private async fetchConfiguredUpstream(input: {
+    requestId: string;
+    userId: string;
     mappings: UpstreamMappingCandidate[];
     body: ChatCompletionBody;
     stream: boolean;
     acceptHeader?: string;
   }): Promise<UpstreamAttemptResult> {
-    const mapping = input.mappings[0];
-    if (!mapping) {
+    if (input.mappings.length === 0) {
       throw this.createError(400, 'model_unavailable', 'invalid_request_error', 'Model is unavailable');
     }
 
-    const upstreamBody = this.buildUpstreamBody(input.body, mapping);
-    const body = input.stream ? this.withStreamUsageOptions(upstreamBody) : upstreamBody;
-    const upstreamStartedAt = Date.now();
+    let lastFailure: UpstreamAttemptFailureError | null = null;
+
+    for (const [attemptIndex, mapping] of input.mappings.entries()) {
+      const upstreamBody = this.buildUpstreamBody(input.body, mapping);
+      const body = input.stream ? this.withStreamUsageOptions(upstreamBody) : upstreamBody;
+      const upstreamStartedAt = Date.now();
+      let concurrencySlotId: string | null = null;
+
+      try {
+        concurrencySlotId = await this.acquireUpstreamConcurrencySlot({
+          requestId: input.requestId,
+          userId: input.userId,
+          publicModel: input.body.model,
+          mapping
+        });
+
+        const response = await this.fetchUpstreamChatCompletion(
+          mapping.provider.baseUrl,
+          decryptUpstreamApiKey(mapping.provider.encryptedApiKey),
+          body,
+          {
+            stream: input.stream,
+            acceptHeader: input.acceptHeader,
+            timeoutMs: this.normalizeUpstreamTimeoutMs(mapping.timeoutMs)
+          }
+        );
+        const latencyMs = Date.now() - upstreamStartedAt;
+
+        if (response.ok) {
+          await this.recordUpstreamAttemptSuccess(mapping, latencyMs);
+          return {
+            mapping,
+            response,
+            latencyMs,
+            concurrencySlotId,
+            attemptCount: attemptIndex + 1
+          };
+        }
+
+        const upstreamError = await this.createUpstreamError(response);
+        await this.releaseUpstreamConcurrencySlotSafe(concurrencySlotId);
+        concurrencySlotId = null;
+        const failure = new UpstreamAttemptFailureError(upstreamError, mapping, latencyMs, response.status, 'http_error');
+        await this.recordUpstreamAttemptFailure(failure);
+        lastFailure = failure;
+        if (this.canFailoverUpstreamAttempt(failure) && attemptIndex < input.mappings.length - 1) {
+          continue;
+        }
+
+        throw failure;
+      } catch (error) {
+        await this.releaseUpstreamConcurrencySlotSafe(concurrencySlotId);
+        const failure =
+          error instanceof UpstreamAttemptFailureError
+            ? error
+            : new UpstreamAttemptFailureError(
+                error,
+                mapping,
+                Date.now() - upstreamStartedAt,
+                null,
+                this.normalizeError(error).code === 'upstream_concurrency_exceeded' ? 'concurrency_limited' : 'failed'
+              );
+
+        if (!(error instanceof UpstreamAttemptFailureError)) {
+          await this.recordUpstreamAttemptFailure(failure);
+        }
+
+        lastFailure = failure;
+        if (this.canFailoverUpstreamAttempt(failure) && attemptIndex < input.mappings.length - 1) {
+          continue;
+        }
+
+        throw failure;
+      }
+    }
+
+    if (lastFailure) {
+      throw lastFailure;
+    }
+
+    throw this.createError(400, 'model_unavailable', 'invalid_request_error', 'Model is unavailable');
+  }
+
+  private async recordUpstreamAttemptSuccess(mapping: UpstreamMappingCandidate, latencyMs: number) {
+    await this.prisma.upstreamProvider
+      .update({
+        where: { id: mapping.provider.id },
+        data: {
+          healthStatus: UpstreamHealthStatus.HEALTHY,
+          consecutiveFailures: 0,
+          circuitOpenedUntil: null,
+          lastSuccessAt: new Date(),
+          lastHealthLatencyMs: latencyMs,
+          lastHealthError: null
+        }
+      })
+      .catch((error) => {
+        console.warn('upstream_success_state_update_failed', error instanceof Error ? error.message : 'unknown error');
+      });
+  }
+
+  private async recordUpstreamAttemptFailure(failure: UpstreamAttemptFailureError) {
+    if (!this.shouldCountProviderFailure(failure)) {
+      return;
+    }
+
+    const now = new Date();
+    const threshold = this.getUpstreamCircuitFailureThreshold();
+
+    await this.prisma
+      .$transaction(async (tx) => {
+        const provider = await tx.upstreamProvider.findUnique({
+          where: { id: failure.mapping.provider.id },
+          select: {
+            consecutiveFailures: true,
+            circuitOpenedUntil: true
+          }
+        });
+
+        if (!provider) {
+          return;
+        }
+
+        const nextFailureCount = provider.consecutiveFailures + 1;
+        const circuitOpenedUntil =
+          threshold !== null && nextFailureCount >= threshold
+            ? new Date(now.getTime() + this.getUpstreamCircuitOpenMs())
+            : provider.circuitOpenedUntil;
+
+        await tx.upstreamProvider.update({
+          where: { id: failure.mapping.provider.id },
+          data: {
+            healthStatus: UpstreamHealthStatus.UNHEALTHY,
+            consecutiveFailures: nextFailureCount,
+            circuitOpenedUntil,
+            lastFailureAt: now,
+            lastHealthError: this.truncateUpstreamFailureMessage(failure.causeError)
+          }
+        });
+      })
+      .catch((error) => {
+        console.warn('upstream_failure_state_update_failed', error instanceof Error ? error.message : 'unknown error');
+      });
+  }
+
+  private shouldCountProviderFailure(failure: UpstreamAttemptFailureError) {
+    const normalizedError = this.normalizeError(failure.causeError);
+    return normalizedError.code !== 'upstream_concurrency_exceeded';
+  }
+
+  private canFailoverUpstreamAttempt(failure: UpstreamAttemptFailureError) {
+    const normalizedError = this.normalizeError(failure.causeError);
+    if (normalizedError.code === 'upstream_concurrency_exceeded') {
+      return false;
+    }
+
+    if (failure.upstreamStatusCode === null) {
+      return true;
+    }
+
+    return failure.upstreamStatusCode === 408 || failure.upstreamStatusCode === 429 || failure.upstreamStatusCode >= 500;
+  }
+
+  private truncateUpstreamFailureMessage(error: unknown) {
+    const message = error instanceof Error ? error.message : 'Upstream request failed';
+    return message.length > 240 ? message.slice(0, 237) + '...' : message;
+  }
+
+  private getUpstreamCircuitFailureThreshold() {
+    const rawValue = process.env.RELAY_UPSTREAM_CIRCUIT_FAILURE_THRESHOLD;
+    if (rawValue === undefined || rawValue === '') {
+      return DEFAULT_UPSTREAM_CIRCUIT_FAILURE_THRESHOLD;
+    }
+
+    const value = Number(rawValue);
+    if (!Number.isInteger(value) || value < 1) {
+      return null;
+    }
+
+    return value;
+  }
+
+  private getUpstreamCircuitOpenMs() {
+    const rawValue = process.env.RELAY_UPSTREAM_CIRCUIT_OPEN_SECONDS;
+    const seconds = rawValue === undefined || rawValue === '' ? DEFAULT_UPSTREAM_CIRCUIT_OPEN_SECONDS : Number(rawValue);
+    if (!Number.isInteger(seconds) || seconds < 1) {
+      return DEFAULT_UPSTREAM_CIRCUIT_OPEN_SECONDS * 1000;
+    }
+
+    return Math.min(seconds, MAX_UPSTREAM_CIRCUIT_OPEN_SECONDS) * 1000;
+  }
+
+  private orderUpstreamMappingsForFailover(
+    mappings: UpstreamMappingCandidate[],
+    primary: UpstreamMappingCandidate | undefined,
+    now = new Date()
+  ) {
+    const ordered = [
+      ...(primary ? [primary] : []),
+      ...mappings.filter((mapping) => mapping.id !== primary?.id)
+    ];
+    const available = ordered.filter((mapping) => !this.isUpstreamCircuitOpen(mapping, now));
+    const circuitOpen = ordered.filter((mapping) => this.isUpstreamCircuitOpen(mapping, now));
+    return available.length > 0 ? available : circuitOpen;
+  }
+
+  private isUpstreamCircuitOpen(mapping: UpstreamMappingCandidate, now = new Date()) {
+    return Boolean(mapping.provider.circuitOpenedUntil && mapping.provider.circuitOpenedUntil > now);
+  }
+
+  private getMappingSortKey(mapping: UpstreamMappingCandidate) {
+    return `${mapping.priority.toString().padStart(8, '0')}:${mapping.id}`;
+  }
+
+  private async selectFixedUpstreamMapping(
+    mappings: UpstreamMappingCandidate[],
+    publicModel: string,
+    userId: string
+  ) {
+    if (mappings.length <= 1) {
+      return mappings[0];
+    }
+
+    const providerCandidates = new Map<string, UpstreamMappingCandidate>();
+    for (const mapping of mappings) {
+      if (!providerCandidates.has(mapping.provider.id)) {
+        providerCandidates.set(mapping.provider.id, mapping);
+      }
+    }
+
+    const candidates = Array.from(providerCandidates.values());
+    if (candidates.length <= 1) {
+      return candidates[0];
+    }
+
+    const providerIds = candidates.map((candidate) => candidate.provider.id);
+    const now = new Date();
+
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`relay:assignment:${userId}:${publicModel}`}))`;
+
+      const existing = await tx.userUpstreamAssignment.findUnique({
+        where: {
+          userId_publicModel: {
+            userId,
+            publicModel
+          }
+        }
+      });
+
+      if (existing) {
+        const assigned = providerCandidates.get(existing.upstreamProviderId);
+        if (assigned) {
+          return assigned;
+        }
+      }
+
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`relay:assignment-model:${publicModel}`}))`;
+
+      const countRows = await tx.userUpstreamAssignment.groupBy({
+        by: ['upstreamProviderId'],
+        where: {
+          publicModel,
+          upstreamProviderId: { in: providerIds }
+        },
+        _count: { _all: true }
+      });
+      const assignmentCounts = new Map(countRows.map((row) => [row.upstreamProviderId, row._count._all]));
+      const assignableCandidates = candidates.filter((candidate) => !this.isUpstreamCircuitOpen(candidate));
+      const selected = [...(assignableCandidates.length > 0 ? assignableCandidates : candidates)].sort((left, right) => {
+        const countDelta =
+          (assignmentCounts.get(left.provider.id) ?? 0) - (assignmentCounts.get(right.provider.id) ?? 0);
+        if (countDelta !== 0) {
+          return countDelta;
+        }
+
+        const priorityDelta = left.priority - right.priority;
+        if (priorityDelta !== 0) {
+          return priorityDelta;
+        }
+
+        return left.id.localeCompare(right.id);
+      })[0];
+
+      if (!selected) {
+        return mappings[0];
+      }
+
+      if (existing) {
+        await tx.userUpstreamAssignment.update({
+          where: { id: existing.id },
+          data: {
+            upstreamProviderId: selected.provider.id,
+            lastUsedAt: now
+          }
+        });
+      } else {
+        await tx.userUpstreamAssignment.create({
+          data: {
+            userId,
+            publicModel,
+            upstreamProviderId: selected.provider.id,
+            lastUsedAt: now
+          }
+        });
+      }
+
+      return selected;
+    });
+  }
+
+  private async acquireUpstreamConcurrencySlot(input: {
+    requestId: string;
+    userId: string;
+    publicModel: string;
+    mapping: UpstreamMappingCandidate;
+  }) {
+    const maxConcurrency = this.normalizeUpstreamConcurrencyLimit(input.mapping.provider.maxConcurrency);
+    if (maxConcurrency === null) {
+      return null;
+    }
+
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + this.getUpstreamConcurrencySlotTtlMs());
+
+    const slot = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`relay:upstream-concurrency:${input.mapping.provider.id}`}))`;
+      await tx.upstreamConcurrencySlot.deleteMany({
+        where: {
+          upstreamProviderId: input.mapping.provider.id,
+          expiresAt: { lt: now }
+        }
+      });
+
+      const activeCount = await tx.upstreamConcurrencySlot.count({
+        where: {
+          upstreamProviderId: input.mapping.provider.id,
+          expiresAt: { gte: now }
+        }
+      });
+
+      if (activeCount >= maxConcurrency) {
+        throw this.createError(
+          429,
+          'upstream_concurrency_exceeded',
+          'rate_limit_error',
+          'Upstream concurrency limit reached. Please retry shortly.'
+        );
+      }
+
+      return tx.upstreamConcurrencySlot.create({
+        data: {
+          requestId: input.requestId,
+          upstreamProviderId: input.mapping.provider.id,
+          userId: input.userId,
+          publicModel: input.publicModel,
+          expiresAt
+        },
+        select: { id: true }
+      });
+    });
+
+    return slot.id;
+  }
+
+  private async releaseUpstreamConcurrencySlotSafe(slotId: string | null | undefined) {
+    if (!slotId) {
+      return;
+    }
 
     try {
-      const response = await this.fetchUpstreamChatCompletion(
-        mapping.provider.baseUrl,
-        decryptUpstreamApiKey(mapping.provider.encryptedApiKey),
-        body,
-        {
-          stream: input.stream,
-          acceptHeader: input.acceptHeader,
-          timeoutMs: this.normalizeUpstreamTimeoutMs(mapping.timeoutMs)
-        }
-      );
-      const latencyMs = Date.now() - upstreamStartedAt;
-
-      if (response.ok) {
-        return {
-          mapping,
-          response,
-          latencyMs
-        };
-      }
-
-      const upstreamError = await this.createUpstreamError(response);
-      throw new UpstreamAttemptFailureError(upstreamError, mapping, latencyMs, response.status, 'http_error');
+      await this.prisma.upstreamConcurrencySlot.deleteMany({
+        where: { id: slotId }
+      });
     } catch (error) {
-      if (error instanceof UpstreamAttemptFailureError) {
-        throw error;
-      }
-
-      throw new UpstreamAttemptFailureError(error, mapping, Date.now() - upstreamStartedAt, null, 'failed');
+      console.warn('upstream_concurrency_slot_release_failed', error instanceof Error ? error.message : 'unknown error');
     }
+  }
+
+  private normalizeUpstreamConcurrencyLimit(value: number | null | undefined) {
+    if (value === undefined || value === null) {
+      return null;
+    }
+
+    return Number.isInteger(value) && value > 0 ? value : null;
+  }
+
+  private getUpstreamConcurrencySlotTtlMs() {
+    const rawValue = process.env.RELAY_UPSTREAM_CONCURRENCY_SLOT_TTL_SECONDS;
+    const seconds = rawValue === undefined || rawValue === '' ? DEFAULT_UPSTREAM_CONCURRENCY_SLOT_TTL_SECONDS : Number(rawValue);
+    if (!Number.isInteger(seconds) || seconds < 1) {
+      return DEFAULT_UPSTREAM_CONCURRENCY_SLOT_TTL_SECONDS * 1000;
+    }
+
+    return Math.min(seconds, MAX_UPSTREAM_CONCURRENCY_SLOT_TTL_SECONDS) * 1000;
   }
 
   private buildUpstreamBody(body: ChatCompletionBody, mapping: UpstreamMappingCandidate): ChatCompletionBody {
@@ -2132,11 +2521,11 @@ export class RelayService {
     billing: StreamBillingContext | undefined,
     usage: Record<string, unknown> | null
   ) {
-    if (!billing) {
-      return;
-    }
-
     try {
+      if (!billing) {
+        return;
+      }
+
       if (usage) {
         await this.billingService.recordCompletedChat({
           ...billing,
@@ -2147,9 +2536,12 @@ export class RelayService {
 
       await this.billingService.recordMeteringUnknownChat(billing);
     } catch (error) {
-      if (this.isInsufficientBalanceError(error)) {
+      if (billing && this.isInsufficientBalanceError(error)) {
         await this.billingService.recordFailedChat({
-          ...billing,
+          requestId: billing.requestId,
+          principal: billing.principal,
+          model: billing.model,
+          upstream: billing.upstream,
           errorCode: 'insufficient_balance'
         }).catch((recordError) => {
           console.warn('stream_billing_failed_record_failed', recordError instanceof Error ? recordError.message : 'unknown error');
@@ -2157,6 +2549,8 @@ export class RelayService {
       }
 
       console.warn('stream_billing_record_failed', error instanceof Error ? error.message : 'unknown error');
+    } finally {
+      await this.releaseUpstreamConcurrencySlotSafe(billing?.upstreamConcurrencySlotId);
     }
   }
 
@@ -2169,7 +2563,11 @@ export class RelayService {
     return Boolean(response && typeof response === 'object' && 'code' in response && response.code === 'insufficient_balance');
   }
 
-  private async findUpstreamMappings(publicModel: string, requiresStream: boolean) {
+  private shouldRecordFailedUsageForUpstreamError(errorCode: string) {
+    return errorCode !== 'upstream_concurrency_exceeded';
+  }
+
+  private async findUpstreamMappings(publicModel: string, requiresStream: boolean, userId: string) {
     const mappings = await this.prisma.upstreamModel.findMany({
       where: {
         publicModel,
@@ -2183,7 +2581,7 @@ export class RelayService {
         provider: true
       },
       orderBy: [{ priority: 'asc' }, { createdAt: 'asc' }],
-      take: 1
+      take: 100
     });
 
     if (mappings.length === 0) {
@@ -2195,7 +2593,17 @@ export class RelayService {
       );
     }
 
-    return mappings;
+    const selectedMapping = await this.selectFixedUpstreamMapping(mappings, publicModel, userId);
+    if (!selectedMapping) {
+      throw this.createError(
+        400,
+        'model_unavailable',
+        'invalid_request_error',
+        requiresStream ? 'Model is unavailable for streaming' : 'Model is unavailable'
+      );
+    }
+
+    return this.orderUpstreamMappingsForFailover(mappings, selectedMapping);
   }
 
   private normalizeChatCompletionBody(value: unknown): ChatCompletionBody {

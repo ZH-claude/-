@@ -1,3 +1,5 @@
+import { createApiClientError } from './api-error-copy';
+
 export type UsageLogStatus = 'billable' | 'free' | 'failed' | 'metering_unknown';
 
 export type UsageLogEntry = {
@@ -59,9 +61,27 @@ export type UsageLogsResponse = {
   };
 };
 
+export type TokenLeaderboardEntry = {
+  rank: number;
+  userId: string | null;
+  username: string;
+  isCurrentUser: boolean;
+  requestCount: number;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  totalCostCents: number;
+};
+
+export type TokenLeaderboardResponse = {
+  period: '7d' | '30d' | 'all';
+  generatedAt: string;
+  items: TokenLeaderboardEntry[];
+};
+
 const API_BASE_URL = '/api';
 
-export async function listUsageLogs(filters: UsageLogFilters = {}) {
+export async function listUsageLogs(filters: UsageLogFilters = {}, language?: string) {
   const search = new URLSearchParams();
   if (filters.from) {
     search.set('from', filters.from);
@@ -82,14 +102,30 @@ export async function listUsageLogs(filters: UsageLogFilters = {}) {
     search.set('limit', String(filters.limit));
   }
 
-  return request<UsageLogsResponse>(`/usage/logs${search.toString() ? `?${search.toString()}` : ''}`);
+  return request<UsageLogsResponse>(`/usage/logs${search.toString() ? `?${search.toString()}` : ''}`, language);
 }
 
-async function request<T>(path: string) {
+export async function listTokenLeaderboard(
+  options: { period?: '7d' | '30d' | 'all'; limit?: number } = {},
+  language?: string
+) {
+  const search = new URLSearchParams();
+  if (options.period) {
+    search.set('period', options.period);
+  }
+  if (options.limit) {
+    search.set('limit', String(options.limit));
+  }
+
+  return request<TokenLeaderboardResponse>(`/usage/token-leaderboard${search.toString() ? `?${search.toString()}` : ''}`, language);
+}
+
+async function request<T>(path: string, language?: string) {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: 'GET',
     headers: {
-      Accept: 'application/json'
+      Accept: 'application/json',
+      ...(language ? { 'Accept-Language': language } : {})
     },
     credentials: 'include'
   });
@@ -97,11 +133,7 @@ async function request<T>(path: string) {
   const data = await response.json().catch(() => null);
 
   if (!response.ok) {
-    const message =
-      data && typeof data === 'object' && 'message' in data
-        ? String((data as { message: unknown }).message)
-        : `请求失败：${response.status}`;
-    throw new Error(message);
+    throw createApiClientError(language, response.status, data);
   }
 
   return data as T;

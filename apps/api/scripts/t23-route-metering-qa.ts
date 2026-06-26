@@ -157,9 +157,20 @@ async function main() {
 
     const failedDeepCall = await relayChat(token.apiKey, deepPublicModel, 'force deep failure and keep single upstream');
     assert(failedDeepCall.status >= 400, `DeepSeek failure should not be rescued by another upstream, got ${failedDeepCall.status}`);
+    const failedDeepRequestId = requireHeader(failedDeepCall, 'x-request-id');
+    await assertFailedRouteNotCharged({
+      requestId: failedDeepRequestId,
+      publicModel: deepPublicModel,
+      providerName: deepProviderName,
+      upstreamModel: 'deepseek-v4-pro',
+      expectedStatusCode: 502,
+      expectedErrorCode: 'upstream_error',
+      expectedUpstreamStatus: 'http_error'
+    });
     assert(deepUpstream.getCallCount() === 2, `failed DeepSeek model should call only DeepSeek again, got ${deepUpstream.getCallCount()}`);
     assert(relayUpstream.getCallCount() === 1, `failed DeepSeek model should not call relay upstream, got ${relayUpstream.getCallCount()}`);
     checks.push('single_model_failure_does_not_call_other_upstream');
+    checks.push('failed_upstream_route_records_trace_without_wallet_debit');
 
     const refreshedWallet = await prisma.wallet.findUniqueOrThrow({
       where: { userId: user.id },
@@ -391,6 +402,52 @@ async function assertBilledRoute(input: {
   assert(snapshot.outputPriceCentsPer1k === input.expectedOutputPricePer1k, 'price snapshot output price mismatch');
   assert(Number(snapshot.modelMultiplier) === Number(input.expectedMultiplier), 'price snapshot multiplier mismatch');
   assert(snapshot.meteringSource === 'upstream_usage', 'price snapshot metering source mismatch');
+}
+
+async function assertFailedRouteNotCharged(input: {
+  requestId: string;
+  publicModel: string;
+  providerName: string;
+  upstreamModel: string;
+  expectedStatusCode: number;
+  expectedErrorCode: string;
+  expectedUpstreamStatus: string;
+}) {
+  const provider = await prisma.upstreamProvider.findUniqueOrThrow({
+    where: { name: input.providerName },
+    select: { id: true }
+  });
+  const usage = await prisma.usageEvent.findUniqueOrThrow({
+    where: { requestId: input.requestId },
+    include: { walletTransaction: true }
+  });
+  assert(usage.status === UsageEventStatus.FAILED, 'failed upstream route should create a FAILED usage event for audit');
+  assert(usage.model === input.publicModel, `failed usage public model should be ${input.publicModel}`);
+  assert(usage.upstreamProviderId === provider.id, `failed usage provider should be ${input.providerName}`);
+  assert(usage.upstreamModel === input.upstreamModel, `failed usage upstream model should be ${input.upstreamModel}`);
+  assert(usage.promptTokens === 0, 'failed usage prompt tokens should be 0');
+  assert(usage.completionTokens === 0, 'failed usage completion tokens should be 0');
+  assert(usage.totalTokens === 0, 'failed usage total tokens should be 0');
+  assert(usage.costCents === 0, 'failed upstream route should not create billable cost');
+  assert(usage.errorCode === input.expectedErrorCode, `failed usage error code should be ${input.expectedErrorCode}`);
+  assert(usage.walletTransaction === null, 'failed upstream route should not create wallet transaction');
+
+  const requestLog = await prisma.requestLog.findUniqueOrThrow({
+    where: { requestId: input.requestId }
+  });
+  assert(requestLog.upstreamProviderId === provider.id, `failed request log provider should be ${input.providerName}`);
+  assert(requestLog.statusCode === input.expectedStatusCode, `failed request log status should be ${input.expectedStatusCode}`);
+  assert(requestLog.errorCode === input.expectedErrorCode, `failed request log error code should be ${input.expectedErrorCode}`);
+  assert(
+    requestLog.upstreamStatus === input.expectedUpstreamStatus,
+    `failed request log upstream status should be ${input.expectedUpstreamStatus}`
+  );
+  assert(requestLog.upstreamStatusCode === 503, 'failed request log should preserve upstream HTTP status');
+
+  const walletTransactions = await prisma.walletTransaction.count({
+    where: { usageEventId: usage.id }
+  });
+  assert(walletTransactions === 0, 'failed upstream route should not create wallet transaction rows');
 }
 
 async function post<T = unknown>(path: string, body: unknown, cookie?: string) {

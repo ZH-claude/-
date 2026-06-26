@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server';
-
+import { isPublicRoute, normalizePublicLanguage, publicLanguageHeader } from './app/lib/public-language-routing';
 type ProfileResponse = {
   user: {
     role?: string | null;
@@ -19,7 +19,7 @@ const USER_SITE_PATHS = [
   '/account',
   '/experience',
   '/log',
-  '/pricing',
+  '/models',
   '/token'
 ];
 
@@ -29,10 +29,31 @@ const REMOVED_MERCHANT_PATHS = ['/merchant/drawing-logs'];
 
 export async function proxy(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
+  if (!requiresAccountRouting(pathname)) {
+    const publicLanguageResponse = getPublicLanguageResponse(request);
+    if (publicLanguageResponse) {
+      return publicLanguageResponse;
+    }
+    return NextResponse.next();
+  }
+
   const profile = await getProfile(request);
   const role = profile?.user.role;
   const isMerchant = isMerchantRole(role);
   const isLoggedIn = Boolean(profile);
+
+  if (isLoggedIn && !isMerchant && pathname === '/') {
+    const redirectUrl = new URL('/account', request.url);
+    copyLanguageSearchParams(request, redirectUrl);
+    return NextResponse.redirect(redirectUrl);
+  }
+
+  if (!isLoggedIn) {
+    const publicLanguageResponse = getPublicLanguageResponse(request);
+    if (publicLanguageResponse) {
+      return publicLanguageResponse;
+    }
+  }
 
   if (isRemovedUserPath(pathname)) {
     return NextResponse.redirect(new URL(isMerchant ? '/merchant' : isLoggedIn ? '/account/profile' : '/login', request.url));
@@ -67,21 +88,45 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
-    '/',
-    '/account/:path*',
-    '/admin/:path*',
-    '/groupAvailability/:path*',
-    '/experience/:path*',
-    '/log/:path*',
-    '/login',
-    '/merchant/:path*',
-    '/midjourney/:path*',
-    '/pricing/:path*',
-    '/register',
-    '/task/:path*',
-    '/token/:path*'
+    '/((?!api/|_next/|.*\\..*).*)'
   ]
 };
+
+function getPublicLanguageResponse(request: NextRequest) {
+  if (!isPublicRoute(request.nextUrl.pathname)) {
+    return null;
+  }
+
+  const requestedLanguage =
+    request.nextUrl.searchParams.get('language') ??
+    request.nextUrl.searchParams.get('lang') ??
+    request.nextUrl.searchParams.get('locale');
+  if (!requestedLanguage) {
+    return null;
+  }
+
+  return NextResponse.next({
+    request: {
+      headers: withLanguageHeader(request, normalizePublicLanguage(requestedLanguage))
+    }
+  });
+}
+
+function withLanguageHeader(request: NextRequest, language: string) {
+  const headers = new Headers(request.headers);
+  headers.set(publicLanguageHeader, language);
+  return headers;
+}
+
+function copyLanguageSearchParams(request: NextRequest, targetUrl: URL) {
+  for (const key of ['language', 'lang', 'locale']) {
+    const value = request.nextUrl.searchParams.get(key);
+    if (value) {
+      targetUrl.searchParams.set(key, value);
+      return;
+    }
+  }
+}
 
 async function getProfile(request: NextRequest) {
   const cookie = request.headers.get('cookie');
@@ -122,4 +167,15 @@ function isRemovedUserPath(pathname: string) {
 
 function isRemovedMerchantPath(pathname: string) {
   return REMOVED_MERCHANT_PATHS.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+}
+
+function requiresAccountRouting(pathname: string) {
+  return (
+    pathname === '/login' ||
+    pathname === '/register' ||
+    isUserSitePath(pathname) ||
+    isMerchantSitePath(pathname) ||
+    isRemovedUserPath(pathname) ||
+    isRemovedMerchantPath(pathname)
+  );
 }

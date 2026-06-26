@@ -7,24 +7,31 @@ import {
 } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
 import {
+  AiRechargeProductKind,
   AiRechargeOrderStatus,
   AiRechargeProductStatus,
   Prisma
 } from '../generated/prisma/client';
 import type { AuthenticatedUser } from '../auth/auth.types';
+import { normalizeTranslations, resolveLocalizedText } from '../i18n/localized-content';
 import { PrismaService } from '../prisma.service';
 
 type ProductInput = {
+  productKind?: unknown;
   title?: unknown;
   platform?: unknown;
   planName?: unknown;
   durationDays?: unknown;
+  quotaHours?: unknown;
+  quotaPeriodDays?: unknown;
+  tokenQuota?: unknown;
   priceCnyCents?: unknown;
   description?: unknown;
   purchaseNote?: unknown;
   deliveryNote?: unknown;
   sortOrder?: unknown;
   status?: unknown;
+  translations?: unknown;
 };
 
 type OrderInput = {
@@ -43,25 +50,39 @@ type PageConfigInput = {
   introTitle?: unknown;
   introContent?: unknown;
   introImageDataUrl?: unknown;
+  translations?: unknown;
 };
 
 const ORDER_PREFIX = 'AIR';
 const ORDER_BYTES = 6;
 const ORDER_COLLISION_RETRIES = 5;
 const MAX_PRICE_CNY_CENTS = 1_000_000_00;
+const MAX_TOKEN_QUOTA = 2_000_000_000;
 const PAGE_CONFIG_ID = 'default';
 const MAX_INTRO_IMAGE_DATA_URL_LENGTH = 1_500_000;
+const PRODUCT_TRANSLATION_RULES = {
+  title: 80,
+  platform: 60,
+  planName: 80,
+  description: 1000,
+  purchaseNote: 1000,
+  deliveryNote: 1000
+};
+const PAGE_CONFIG_TRANSLATION_RULES = {
+  introTitle: 80,
+  introContent: 2000
+};
 
 @Injectable()
 export class AiRechargeService {
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
-  async getPageConfig() {
+  async getPageConfig(language?: string | null, options: { includeTranslations?: boolean } = {}) {
     const config = await this.prisma.aiRechargePageConfig.findUnique({
       where: { id: PAGE_CONFIG_ID }
     });
 
-    return this.toPageConfig(config);
+    return this.toPageConfig(config, language, options);
   }
 
   async updatePageConfig(adminUserId: string, body: PageConfigInput) {
@@ -86,24 +107,26 @@ export class AiRechargeService {
     await this.writeAdminAudit(adminUserId, 'ai_recharge_page_config_updated', 'ai_recharge_page_config', null, existing ? {
       introTitle: existing.introTitle,
       introContent: existing.introContent,
-      hasIntroImage: Boolean(existing.introImageDataUrl)
+      hasIntroImage: Boolean(existing.introImageDataUrl),
+      hasTranslations: Boolean(existing.translations)
     } : null, {
       introTitle: config.introTitle,
       introContent: config.introContent,
-      hasIntroImage: Boolean(config.introImageDataUrl)
+      hasIntroImage: Boolean(config.introImageDataUrl),
+      hasTranslations: Boolean(config.translations)
     });
 
-    return this.toPageConfig(config);
+    return this.toPageConfig(config, null, { includeTranslations: true });
   }
 
-  async listPublicProducts() {
+  async listPublicProducts(language?: string | null) {
     const products = await this.prisma.aiRechargeProduct.findMany({
       where: { status: AiRechargeProductStatus.ACTIVE },
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'desc' }]
     });
 
     return {
-      items: products.map((product) => this.toProduct(product))
+      items: products.map((product) => this.toProduct(product, language))
     };
   }
 
@@ -118,7 +141,7 @@ export class AiRechargeService {
 
     return {
       items: products.map((product) => ({
-        ...this.toProduct(product),
+        ...this.toProduct(product, null, { includeTranslations: true }),
         createdBy: product.createdByAdmin.username,
         orderCount: product._count.orders
       }))
@@ -136,14 +159,19 @@ export class AiRechargeService {
 
     await this.writeAdminAudit(adminUserId, 'ai_recharge_product_created', 'ai_recharge_product', product.id, null, {
       id: product.id,
+      productKind: product.productKind.toLowerCase(),
       title: product.title,
       platform: product.platform,
       planName: product.planName,
+      quotaHours: product.quotaHours,
+      quotaPeriodDays: product.quotaPeriodDays,
+      tokenQuota: product.tokenQuota,
       priceCnyCents: product.priceCnyCents,
-      status: product.status.toLowerCase()
+      status: product.status.toLowerCase(),
+      hasTranslations: Boolean(product.translations)
     });
 
-    return this.toProduct(product);
+    return this.toProduct(product, null, { includeTranslations: true });
   }
 
   async updateProduct(adminUserId: string, productId: string, body: ProductInput) {
@@ -161,19 +189,29 @@ export class AiRechargeService {
 
     await this.writeAdminAudit(adminUserId, 'ai_recharge_product_updated', 'ai_recharge_product', product.id, {
       title: existing.title,
+      productKind: existing.productKind.toLowerCase(),
       platform: existing.platform,
       planName: existing.planName,
+      quotaHours: existing.quotaHours,
+      quotaPeriodDays: existing.quotaPeriodDays,
+      tokenQuota: existing.tokenQuota,
       priceCnyCents: existing.priceCnyCents,
-      status: existing.status.toLowerCase()
+      status: existing.status.toLowerCase(),
+      hasTranslations: Boolean(existing.translations)
     }, {
       title: product.title,
+      productKind: product.productKind.toLowerCase(),
       platform: product.platform,
       planName: product.planName,
+      quotaHours: product.quotaHours,
+      quotaPeriodDays: product.quotaPeriodDays,
+      tokenQuota: product.tokenQuota,
       priceCnyCents: product.priceCnyCents,
-      status: product.status.toLowerCase()
+      status: product.status.toLowerCase(),
+      hasTranslations: Boolean(product.translations)
     });
 
-    return this.toProduct(product);
+    return this.toProduct(product, null, { includeTranslations: true });
   }
 
   async updateProductStatus(adminUserId: string, productId: string, body: ProductInput) {
@@ -195,7 +233,7 @@ export class AiRechargeService {
       status: product.status.toLowerCase()
     });
 
-    return this.toProduct(product);
+    return this.toProduct(product, null, { includeTranslations: true });
   }
 
   async deleteProduct(adminUserId: string, productId: string) {
@@ -216,8 +254,12 @@ export class AiRechargeService {
     await this.writeAdminAudit(adminUserId, 'ai_recharge_product_deleted', 'ai_recharge_product', id, {
       id,
       title: existing.title,
+      productKind: existing.productKind.toLowerCase(),
       platform: existing.platform,
       planName: existing.planName,
+      quotaHours: existing.quotaHours,
+      quotaPeriodDays: existing.quotaPeriodDays,
+      tokenQuota: existing.tokenQuota,
       priceCnyCents: existing.priceCnyCents,
       status: existing.status.toLowerCase()
     }, null);
@@ -292,19 +334,52 @@ export class AiRechargeService {
 
   async updateOrderStatus(adminUserId: string, orderId: string, body: OrderStatusInput) {
     const id = this.requiredUuid(orderId, 'orderId');
-    const existing = await this.prisma.aiRechargeOrder.findUnique({ where: { id } });
+    const existing = await this.prisma.aiRechargeOrder.findUnique({
+      where: { id },
+      include: {
+        product: true,
+        vibeCodingEntitlement: true
+      }
+    });
     if (!existing) {
       throw new NotFoundException('代充订单不存在');
     }
 
     const status = this.normalizeOrderStatus(body.status);
     const merchantNote = this.optionalText(body.merchantNote, 1000);
-    const order = await this.prisma.aiRechargeOrder.update({
-      where: { id },
-      data: {
-        status,
-        merchantNote
+    const order = await this.prisma.$transaction(async (tx) => {
+      const updatedOrder = await tx.aiRechargeOrder.update({
+        where: { id },
+        data: {
+          status,
+          merchantNote
+        },
+        include: {
+          vibeCodingEntitlement: true
+        }
+      });
+
+      if (
+        status === AiRechargeOrderStatus.FULFILLED &&
+        existing.product.productKind === AiRechargeProductKind.VIBE_CODING &&
+        !updatedOrder.vibeCodingEntitlement
+      ) {
+        const quotaPeriodDays = this.requiredPositivePackageInt(existing.product.quotaPeriodDays, 'quotaPeriodDays');
+        const startsAt = new Date();
+        await tx.vibeCodingEntitlement.create({
+          data: {
+            userId: existing.userId,
+            sourceAiRechargeOrderId: existing.id,
+            quotaHours: this.requiredPositivePackageInt(existing.product.quotaHours, 'quotaHours'),
+            quotaPeriodDays,
+            tokenQuota: this.requiredPositivePackageInt(existing.product.tokenQuota, 'tokenQuota'),
+            startsAt,
+            expiresAt: this.addDays(startsAt, quotaPeriodDays)
+          }
+        });
       }
+
+      return tx.aiRechargeOrder.findUniqueOrThrow({ where: { id } });
     });
 
     await this.writeAdminAudit(adminUserId, 'ai_recharge_order_status_updated', 'ai_recharge_order', order.id, {
@@ -352,15 +427,25 @@ export class AiRechargeService {
   }
 
   private parseProductInput(body: ProductInput) {
+    const productKind = this.normalizeProductKind(body.productKind ?? 'ai_recharge');
+    const isVibeCoding = productKind === AiRechargeProductKind.VIBE_CODING;
+    const quotaHoursInput = this.withVibeDefault(body.quotaHours, isVibeCoding ? 5 : null);
+    const quotaPeriodDaysInput = this.withVibeDefault(body.quotaPeriodDays, isVibeCoding ? 7 : null);
+
     return {
+      productKind,
       title: this.normalizedRequiredText(body.title, '商品标题', 80),
       platform: this.normalizedRequiredText(body.platform, '平台', 60),
       planName: this.normalizedRequiredText(body.planName, '套餐名称', 80),
       durationDays: this.optionalPositiveInt(body.durationDays, 'durationDays', 1, 3650),
+      quotaHours: this.optionalPositiveInt(quotaHoursInput, 'quotaHours', 1, 100000),
+      quotaPeriodDays: this.optionalPositiveInt(quotaPeriodDaysInput, 'quotaPeriodDays', 1, 3650),
+      tokenQuota: this.optionalPositiveInt(body.tokenQuota, 'tokenQuota', 1, MAX_TOKEN_QUOTA),
       priceCnyCents: this.intInRange(body.priceCnyCents, 'priceCnyCents', 0, MAX_PRICE_CNY_CENTS),
       description: this.normalizedRequiredText(body.description, '商品介绍', 1000),
       purchaseNote: this.optionalText(body.purchaseNote, 1000),
       deliveryNote: this.optionalText(body.deliveryNote, 1000),
+      ...this.parseTranslations(body.translations, PRODUCT_TRANSLATION_RULES),
       sortOrder: this.intInRange(body.sortOrder ?? 100, 'sortOrder', 0, 100000),
       status: this.normalizeProductStatus(body.status ?? 'active')
     };
@@ -370,8 +455,21 @@ export class AiRechargeService {
     return {
       introTitle: this.optionalText(body.introTitle, 80),
       introContent: this.optionalText(body.introContent, 2000),
-      introImageDataUrl: this.optionalIntroImageDataUrl(body.introImageDataUrl)
+      introImageDataUrl: this.optionalIntroImageDataUrl(body.introImageDataUrl),
+      ...this.parseTranslations(body.translations, PAGE_CONFIG_TRANSLATION_RULES)
     };
+  }
+
+  private parseTranslations(value: unknown, rules: Record<string, number>) {
+    const translations = normalizeTranslations(value, rules);
+    return translations !== undefined ? { translations: translations ?? Prisma.DbNull } : {};
+  }
+
+  private withVibeDefault(value: unknown, defaultValue: number | null) {
+    if (defaultValue === null) {
+      return value;
+    }
+    return value === undefined || value === null || value === '' ? defaultValue : value;
   }
 
   private normalizeProductStatus(value: unknown) {
@@ -383,6 +481,17 @@ export class AiRechargeService {
       return AiRechargeProductStatus.DISABLED;
     }
     throw new BadRequestException('status must be active or disabled');
+  }
+
+  private normalizeProductKind(value: unknown) {
+    const kind = this.normalizedEnumText(value, 'productKind');
+    if (kind === 'ai_recharge') {
+      return AiRechargeProductKind.AI_RECHARGE;
+    }
+    if (kind === 'vibe_coding') {
+      return AiRechargeProductKind.VIBE_CODING;
+    }
+    throw new BadRequestException('productKind must be ai_recharge or vibe_coding');
   }
 
   private normalizeOrderStatus(value: unknown) {
@@ -460,6 +569,18 @@ export class AiRechargeService {
     return this.intInRange(value, field, min, max);
   }
 
+  private requiredPositivePackageInt(value: number | null, field: string) {
+    if (!Number.isInteger(value) || value === null || value <= 0) {
+      throw new BadRequestException(`${field} must be a positive integer for vibe_coding packages`);
+    }
+
+    return value;
+  }
+
+  private addDays(value: Date, days: number) {
+    return new Date(value.getTime() + days * 24 * 60 * 60 * 1000);
+  }
+
   private intInRange(value: unknown, field: string, min: number, max: number) {
     const numericValue = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : Number.NaN;
     if (!Number.isInteger(numericValue) || numericValue < min || numericValue > max) {
@@ -481,34 +602,50 @@ export class AiRechargeService {
 
   private toProduct(product: {
     id: string;
+    productKind: AiRechargeProductKind;
     title: string;
     platform: string;
     planName: string;
     durationDays: number | null;
+    quotaHours: number | null;
+    quotaPeriodDays: number | null;
+    tokenQuota: number | null;
     priceCnyCents: number;
     description: string;
     purchaseNote: string | null;
     deliveryNote: string | null;
+    translations?: unknown;
     sortOrder: number;
     status: AiRechargeProductStatus;
     createdAt: Date;
     updatedAt: Date;
-  }) {
-    return {
+  }, language?: string | null, options: { includeTranslations?: boolean } = {}) {
+    const response = {
       id: product.id,
-      title: product.title,
-      platform: product.platform,
-      planName: product.planName,
+      productKind: product.productKind.toLowerCase(),
+      title: resolveLocalizedText(product.translations, language, 'title', product.title),
+      platform: resolveLocalizedText(product.translations, language, 'platform', product.platform),
+      planName: resolveLocalizedText(product.translations, language, 'planName', product.planName),
       durationDays: product.durationDays,
+      quotaHours: product.quotaHours,
+      quotaPeriodDays: product.quotaPeriodDays,
+      tokenQuota: product.tokenQuota,
       priceCnyCents: product.priceCnyCents,
-      description: product.description,
-      purchaseNote: product.purchaseNote,
-      deliveryNote: product.deliveryNote,
+      description: resolveLocalizedText(product.translations, language, 'description', product.description),
+      purchaseNote: resolveLocalizedText(product.translations, language, 'purchaseNote', product.purchaseNote),
+      deliveryNote: resolveLocalizedText(product.translations, language, 'deliveryNote', product.deliveryNote),
       sortOrder: product.sortOrder,
       status: product.status.toLowerCase(),
       createdAt: product.createdAt.toISOString(),
       updatedAt: product.updatedAt.toISOString()
     };
+
+    return options.includeTranslations
+      ? {
+          ...response,
+          translations: product.translations ?? null
+        }
+      : response;
   }
 
   private toOrder(order: {
@@ -552,15 +689,23 @@ export class AiRechargeService {
     introTitle: string | null;
     introContent: string | null;
     introImageDataUrl: string | null;
+    translations?: unknown;
     updatedAt: Date;
-  } | null) {
-    return {
+  } | null, language?: string | null, options: { includeTranslations?: boolean } = {}) {
+    const response = {
       id: PAGE_CONFIG_ID,
-      introTitle: config?.introTitle ?? null,
-      introContent: config?.introContent ?? null,
+      introTitle: resolveLocalizedText(config?.translations, language, 'introTitle', config?.introTitle ?? null),
+      introContent: resolveLocalizedText(config?.translations, language, 'introContent', config?.introContent ?? null),
       introImageDataUrl: config?.introImageDataUrl ?? null,
       updatedAt: config?.updatedAt.toISOString() ?? null
     };
+
+    return options.includeTranslations
+      ? {
+          ...response,
+          translations: config?.translations ?? null
+        }
+      : response;
   }
 
   private async writeAdminAudit(

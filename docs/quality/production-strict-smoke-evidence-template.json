@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "status": "blocked_pending_real_production_strict_smoke",
+  "capturedAt": null,
+  "environment": {
+    "apiUrl": null,
+    "webUrl": null,
+    "gitRef": null,
+    "composeProject": "nested-api-relay",
+    "smokeStrict": true
+  },
+  "requiredRealInputs": {
+    "smokeApiUrl": "SMOKE_API_URL=https://api.example.com",
+    "smokeWebUrl": "SMOKE_WEB_URL=https://app.example.com",
+    "smokeUsernameProvided": false,
+    "smokePasswordProvided": false,
+    "smokeModelProvided": false,
+    "smokeRunChat": false,
+    "smokeApiKeyProvided": false,
+    "smokeRechargeCodeProvided": false,
+    "smokeTestNotification": false
+  },
+  "requiredChecks": {
+    "api_health": {
+      "status": "pending",
+      "evidence": null
+    },
+    "web_home": {
+      "status": "pending",
+      "evidence": null
+    },
+    "login": {
+      "status": "pending",
+      "evidence": null
+    },
+    "token_create": {
+      "status": "pending",
+      "evidence": null
+    },
+    "v1_models": {
+      "status": "pending",
+      "evidence": null
+    },
+    "usage_trace": {
+      "status": "pending",
+      "evidence": null
+    },
+    "v1_chat_completions": {
+      "status": "pending",
+      "evidence": null
+    },
+    "recharge_redeem": {
+      "status": "pending",
+      "evidence": null
+    },
+    "notification_test_webhook": {
+      "status": "pending",
+      "evidence": null
+    }
+  },
+  "strictSmokeCommand": "SMOKE_API_URL=https://api.example.com SMOKE_WEB_URL=https://app.example.com SMOKE_USERNAME=<real-user> SMOKE_PASSWORD=<real-password> SMOKE_MODEL=<real-enabled-model> SMOKE_RUN_CHAT=true SMOKE_API_KEY=<real-api-key> SMOKE_RECHARGE_CODE=<real-unused-recharge-code> SMOKE_TEST_NOTIFICATION=true SMOKE_STRICT=true npm run smoke:t21:deploy",
+  "expectedPassCondition": {
+    "ok": true,
+    "strict": true,
+    "skipCount": 0,
+    "failCount": 0
+  },
+  "forbiddenCompletionClaims": [
+    "production strict smoke passed",
+    "production is ready",
+    "customer production launch approved",
+    "zero skips verified",
+    "real notification channel verified",
+    "real recharge code verified"
+  ],
+  "notes": "This template is not evidence by itself. Keep status blocked until a real public production deployment runs SMOKE_STRICT=true with real credentials, real enabled model, real upstream, real unused recharge code, real notification channel, and final output showing ok=true, strict=true, zero skips, and zero failures."
+}

@@ -1,3 +1,5 @@
+import { ApiClientError, createApiClientError } from './api-error-copy';
+
 export type ExperienceModel = {
   model: string;
   displayName: string | null;
@@ -36,23 +38,18 @@ export type ExperienceChatResponse = {
   };
 };
 
-export class ExperienceApiError extends Error {
-  status: number;
-  code: string | null;
-
+export class ExperienceApiError extends ApiClientError {
   constructor(message: string, status: number, code: string | null) {
-    super(message);
+    super(message, status, code);
     this.name = 'ExperienceApiError';
-    this.status = status;
-    this.code = code;
     Object.setPrototypeOf(this, ExperienceApiError.prototype);
   }
 }
 
 const API_BASE_URL = '/api';
 
-export async function listExperienceModels() {
-  return request<{ items: ExperienceModel[] }>('/experience/models');
+export async function listExperienceModels(language?: string) {
+  return request<{ items: ExperienceModel[] }>(withLanguage('/experience/models', language), {}, language);
 }
 
 export async function sendExperienceChat(payload: {
@@ -61,11 +58,11 @@ export async function sendExperienceChat(payload: {
   systemPrompt?: string;
   maxTokens?: number;
   temperature?: number;
-}) {
+}, language?: string) {
   return request<ExperienceChatResponse>('/experience/chat', {
     method: 'POST',
     body: payload
-  });
+  }, language);
 }
 
 async function request<T>(
@@ -73,11 +70,16 @@ async function request<T>(
   options: {
     method?: 'GET' | 'POST';
     body?: Record<string, unknown>;
-  } = {}
+  } = {},
+  language?: string
 ) {
   const headers: Record<string, string> = {
     Accept: 'application/json'
   };
+
+  if (language) {
+    headers['Accept-Language'] = language;
+  }
 
   if (options.body) {
     headers['Content-Type'] = 'application/json';
@@ -86,6 +88,7 @@ async function request<T>(
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: options.method ?? 'GET',
     headers,
+    cache: 'no-store',
     credentials: 'include',
     body: options.body ? JSON.stringify(options.body) : undefined
   });
@@ -93,16 +96,18 @@ async function request<T>(
   const data = await response.json().catch(() => null);
 
   if (!response.ok) {
-    const message =
-      data && typeof data === 'object' && 'message' in data
-        ? String((data as { message: unknown }).message)
-        : `请求失败：${response.status}`;
-    const code =
-      data && typeof data === 'object' && 'code' in data
-        ? String((data as { code: unknown }).code)
-        : null;
-    throw new ExperienceApiError(message, response.status, code);
+    const error = createApiClientError(language, response.status, data);
+    throw new ExperienceApiError(error.message, error.status, error.code);
   }
 
   return data as T;
+}
+
+function withLanguage(path: string, language?: string) {
+  if (!language) {
+    return path;
+  }
+
+  const separator = path.includes('?') ? '&' : '?';
+  return `${path}${separator}${new URLSearchParams({ language }).toString()}`;
 }

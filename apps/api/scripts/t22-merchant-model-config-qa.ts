@@ -45,10 +45,13 @@ type AdminUpstreamProvider = {
   healthStatus: string;
 };
 
+type TranslationMap = Record<string, Record<string, string | boolean>>;
+
 type AdminModelPrice = {
   id: string;
   model: string;
   displayName: string | null;
+  translations?: TranslationMap | null;
   inputPriceCentsPer1k: number;
   outputPriceCentsPer1k: number;
   modelMultiplier: string;
@@ -277,19 +280,11 @@ async function main() {
     }
 
     const adminDeepSeekUpstreamPage = await requestWebPage('/merchant/upstreams/deepseek', adminCookie);
-    assert(
-      adminDeepSeekUpstreamPage.status >= 200 && adminDeepSeekUpstreamPage.status < 300,
-      `merchant /merchant/upstreams/deepseek should be accessible for admin, got ${adminDeepSeekUpstreamPage.status}`
-    );
-    assertMerchantUpstreamHtml(adminDeepSeekUpstreamPage.text, 'deepseek');
+    assertRedirectTo(adminDeepSeekUpstreamPage, '/merchant/model-routes', 'admin /merchant/upstreams/deepseek redirect');
 
     const adminRelayUpstreamPage = await requestWebPage('/merchant/upstreams/relay', adminCookie);
-    assert(
-      adminRelayUpstreamPage.status >= 200 && adminRelayUpstreamPage.status < 300,
-      `merchant /merchant/upstreams/relay should be accessible for admin, got ${adminRelayUpstreamPage.status}`
-    );
-    assertMerchantUpstreamHtml(adminRelayUpstreamPage.text, 'relay');
-    checks.push('merchant_upstream_pages_do_not_publish_or_bind_customer_models');
+    assertRedirectTo(adminRelayUpstreamPage, '/merchant/model-routes', 'admin /merchant/upstreams/relay redirect');
+    checks.push('merchant_upstream_pages_redirect_to_model_routes');
 
     const adminProfile = await get<AuthMeResponse>('/auth/me', adminCookie);
     assert(adminProfile.status >= 200 && adminProfile.status < 300, '/auth/me for admin should pass');
@@ -381,20 +376,41 @@ async function main() {
       {
         model: created.modelName,
         displayName: `${prefix} QA Model`,
+        translations: {
+          'es-ES': {
+            displayName: `${prefix} Modelo QA`,
+            _locked: true,
+            _source: 'qa-manual',
+            _status: 'human_reviewed'
+          }
+        },
         groupIds: [created.groupId]
       },
       adminCookie
     );
     assert(modelCreate.status >= 200 && modelCreate.status < 300, `admin create model failed with ${modelCreate.status}`);
     assert(modelCreate.json.model === created.modelName, 'created model name mismatch');
+    assert(
+      modelCreate.json.translations?.['es-ES']?.displayName === `${prefix} Modelo QA`,
+      'created model displayName translation mismatch'
+    );
     checks.push('admin_created_customer_model_without_route_pricing_via_api');
 
     const updatedModelName = `${created.modelName}_edited`;
+    const updatedSpanishDisplayName = `${prefix} Modelo QA Editado`;
     const modelUpdate = await post<AdminModelPrice>(
       `/admin/models/${modelCreate.json.id}/update`,
       {
         model: updatedModelName,
         displayName: `${prefix} QA Model Edited`,
+        translations: {
+          'es-ES': {
+            displayName: updatedSpanishDisplayName,
+            _locked: true,
+            _source: 'qa-manual',
+            _status: 'human_reviewed'
+          }
+        },
         status: 'active',
         groupIds: [created.groupId]
       },
@@ -403,6 +419,7 @@ async function main() {
     assert(modelUpdate.status >= 200 && modelUpdate.status < 300, `admin update model failed with ${modelUpdate.status}`);
     assert(modelUpdate.json.model === updatedModelName, 'updated model name mismatch');
     assert(modelUpdate.json.displayName === `${prefix} QA Model Edited`, 'updated model display name mismatch');
+    assert(modelUpdate.json.translations?.['es-ES']?.displayName === updatedSpanishDisplayName, 'updated model translation mismatch');
     created.modelName = updatedModelName;
     checks.push('admin_updated_customer_model_without_route_pricing_via_api');
 
@@ -660,6 +677,12 @@ async function main() {
       'created mapping route pricing missing in /admin/model-config upstreamModels'
     );
     assert(modelConfig.json.groups.some((group) => group.id === created.groupId), 'created group missing in /admin/model-config groups');
+    assert(
+      modelConfig.json.models.some(
+        (model) => model.model === created.modelName && model.translations?.['es-ES']?.displayName === updatedSpanishDisplayName
+      ),
+      'created model translation missing in /admin/model-config models'
+    );
     const modelConfigText = JSON.stringify(modelConfig.json);
     assert(!modelConfigText.includes(created.upstreamApiKey), 'admin model config payload leaked plain upstream key');
     assert(!modelConfigText.includes('encryptedApiKey'), 'admin model config payload leaked encryptedApiKey');
@@ -700,6 +723,16 @@ async function main() {
     );
     assert(pricing.json.group.code === `${prefix}_group`, 'pricing group code should be the created group');
     checks.push('user_visible_models_reflect_real_route_pricing_after_assignment');
+
+    const localizedPricing = await get<PricingResponse>('/pricing/models?language=es-ES', userCookie);
+    assert(localizedPricing.status === 200, `/pricing/models?language=es-ES for user failed with ${localizedPricing.status}`);
+    const localizedPricingModel = localizedPricing.json.models.find((model) => model.model === created.modelName);
+    assert(localizedPricingModel, 'new model not visible in localized /pricing/models after group assignment');
+    assert(
+      localizedPricingModel.displayName === updatedSpanishDisplayName,
+      `/pricing/models?language=es-ES should expose translated displayName, got ${localizedPricingModel.displayName}`
+    );
+    checks.push('merchant_model_config_saves_display_name_translation_for_user_pricing');
 
     const authMe = await get<AuthMeResponse>('/auth/me', userCookie);
     assert(authMe.status === 200, `/auth/me for user failed with ${authMe.status}`);
@@ -951,7 +984,9 @@ function assertMerchantModelConfigHtml(text: string) {
   const structuralMarkers = [
     'merchant-model-config-page',
     'data-page="merchant-model-config"',
-    'id="merchant-model-publish"'
+    'id="merchant-model-publish"',
+    'merchant-model-display-name-translations',
+    'id="merchant-model-list"'
   ];
   const missingStructuralMarkers = structuralMarkers.filter((marker) => !text.includes(marker));
   assert(
@@ -961,9 +996,9 @@ function assertMerchantModelConfigHtml(text: string) {
 
   const markerGroups: string[][] = [
     ['merchant-shell-page'],
-    ['模型发布'],
-    ['第一步发布客户模型', '第一步：发布客户模型'],
-    ['已发布客户模型']
+    ['发布客户模型'],
+    ['模型管理'],
+    ['客户模型']
   ];
   const found = markerGroups.filter((group) => group.some((marker) => text.includes(marker))).length;
   assert(found >= 4, `merchant model-config page missing expected merchant markers, found ${found}`);
@@ -978,7 +1013,8 @@ function assertMerchantModelRoutesHtml(text: string) {
   const structuralMarkers = [
     'merchant-model-config-page',
     'data-page="merchant-model-routes"',
-    'id="merchant-model-routes"'
+    'id="merchant-model-routes"',
+    'id="merchant-model-routes-list"'
   ];
   const missingStructuralMarkers = structuralMarkers.filter((marker) => !text.includes(marker));
   assert(
@@ -988,9 +1024,9 @@ function assertMerchantModelRoutesHtml(text: string) {
 
   const markerGroups: string[][] = [
     ['merchant-shell-page'],
-    ['模型映射（上游线路）'],
-    ['第三步：模型映射（上游线路）'],
-    ['真实上游模型名']
+    ['模型线路'],
+    ['保存线路'],
+    ['真实上游模型']
   ];
   const found = markerGroups.filter((group) => group.some((marker) => text.includes(marker))).length;
   assert(found >= 4, `merchant model-routes page missing expected merchant markers, found ${found}`);

@@ -1,3 +1,5 @@
+import { createApiClientError } from './api-error-copy';
+
 export type ApiToken = {
   id: string;
   name: string;
@@ -53,46 +55,46 @@ type TokenRevealResponse = {
 
 const API_BASE_URL = '/api';
 
-export async function listTokens() {
-  return request<TokenListResponse>('/tokens');
+export async function listTokens(language?: string) {
+  return request<TokenListResponse>('/tokens', {}, language);
 }
 
-export async function createToken(payload: CreateApiTokenPayload) {
+export async function createToken(payload: CreateApiTokenPayload, language?: string) {
   return request<TokenKeyResponse>('/tokens', {
     method: 'POST',
     body: payload
-  });
+  }, language);
 }
 
-export async function disableToken(tokenId: string) {
+export async function disableToken(tokenId: string, language?: string) {
   return request<TokenResponse>(`/tokens/${encodeURIComponent(tokenId)}/disable`, {
     method: 'POST'
-  });
+  }, language);
 }
 
-export async function resetToken(tokenId: string) {
+export async function resetToken(tokenId: string, language?: string) {
   return request<TokenKeyResponse>(`/tokens/${encodeURIComponent(tokenId)}/reset`, {
     method: 'POST'
-  });
+  }, language);
 }
 
-export async function revealTokenKey(tokenId: string) {
+export async function revealTokenKey(tokenId: string, language?: string) {
   return request<TokenRevealResponse>(`/tokens/${encodeURIComponent(tokenId)}/reveal`, {
     method: 'POST'
-  });
+  }, language);
 }
 
-export async function updateToken(tokenId: string, payload: CreateApiTokenPayload) {
+export async function updateToken(tokenId: string, payload: CreateApiTokenPayload, language?: string) {
   return request<TokenResponse>(`/tokens/${encodeURIComponent(tokenId)}/update`, {
     method: 'POST',
     body: payload
-  });
+  }, language);
 }
 
-export async function deleteToken(tokenId: string) {
+export async function deleteToken(tokenId: string, language?: string) {
   return request<{ ok: boolean; token: ApiToken }>(`/tokens/${encodeURIComponent(tokenId)}`, {
     method: 'DELETE'
-  });
+  }, language);
 }
 
 async function request<T>(
@@ -100,11 +102,16 @@ async function request<T>(
   options: {
     method?: 'GET' | 'POST' | 'DELETE';
     body?: Record<string, unknown>;
-  } = {}
+  } = {},
+  language?: string
 ) {
   const headers: Record<string, string> = {
     Accept: 'application/json'
   };
+
+  if (language) {
+    headers['Accept-Language'] = language;
+  }
 
   if (options.body) {
     headers['Content-Type'] = 'application/json';
@@ -120,11 +127,7 @@ async function request<T>(
   const data = await response.json().catch(() => null);
 
   if (!response.ok) {
-    const message =
-      data && typeof data === 'object' && 'message' in data
-        ? String((data as { message: unknown }).message)
-        : `请求失败：${response.status}`;
-    throw new Error(message);
+    throw createApiClientError(language, response.status, data);
   }
 
   return (data as T) as T;

@@ -1,23 +1,54 @@
 import type { Metadata } from 'next';
+import { headers } from 'next/headers';
 import 'antd/dist/antd.css';
 import './globals.css';
+import { LanguageProvider } from './components/language-provider';
+import {
+  getPublicSiteUrl,
+  getPublicCopy,
+  publicPageMetadata
+} from './lib/public-copy';
+import {
+  defaultPublicLanguage,
+  getPublicLanguageDirection,
+  normalizePublicLanguage,
+  publicLanguageHeader
+} from './lib/public-language-routing';
 
-export const metadata: Metadata = {
-  title: '蔚蓝星球中转站',
-  description: '蔚蓝星球 AI API 中转站',
-  icons: {
-    icon: '/favicon.svg'
-  }
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const language = await getRequestPublicLanguage();
+  const copy = getPublicCopy(language);
 
-export default function RootLayout({
+  return {
+    ...publicPageMetadata('/', language, copy.homeTitle, copy.homeDescription),
+    icons: {
+      icon: '/favicon.svg'
+    },
+    metadataBase: new URL(getPublicSiteUrl()),
+    title: {
+      default: copy.homeTitle,
+      template: '%s | Azure Planet Relay'
+    }
+  };
+}
+
+export default async function RootLayout({
   children
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const language = await getRequestPublicLanguage();
+
   return (
-    <html lang="zh-CN">
-      <body>{children}</body>
+    <html dir={getPublicLanguageDirection(language)} lang={language}>
+      <body>
+        <LanguageProvider>{children}</LanguageProvider>
+      </body>
     </html>
   );
+}
+
+async function getRequestPublicLanguage() {
+  const requestHeaders = await headers();
+  return normalizePublicLanguage(requestHeaders.get(publicLanguageHeader) ?? defaultPublicLanguage);
 }

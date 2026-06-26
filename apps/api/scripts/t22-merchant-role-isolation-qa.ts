@@ -63,6 +63,11 @@ type MerchantRedirectCheck = {
   merchantExpectedRedirect: string;
 };
 
+type UserRedirectCheck = {
+  path: string;
+  userExpectedRedirect: string;
+};
+
 const API_BASE_URL = process.env.API_BASE_URL ?? 'http://127.0.0.1:3001';
 const WEB_BASE_URL = process.env.WEB_BASE_URL ?? 'http://127.0.0.1:3000';
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -105,8 +110,12 @@ const userPages: WebPageCheck[] = [
   { path: '/account/topup/recharge', markers: ['relay-console-page', 'manual-recharge-layout'] },
   { path: '/token', markers: ['relay-console-page', 'token-management-page'] },
   { path: '/log', markers: ['relay-console-page', 'console-content-grid'] },
-  { path: '/account/pricing', markers: ['relay-console-page', 'console-content-grid'] },
+  { path: '/models', markers: ['relay-console-page', 'console-content-grid'] },
   { path: '/account/notificationSettings', markers: ['relay-console-page', 'notification-settings-form'] }
+];
+
+const userRedirectPages: UserRedirectCheck[] = [
+  { path: '/account/pricing', userExpectedRedirect: '/models' }
 ];
 
 const merchantApiChecks: ApiCheck[] = [
@@ -224,6 +233,11 @@ async function main() {
     }
     checks.push('ordinary_user_core_pages_render');
 
+    for (const page of userRedirectPages) {
+      await assertUserRedirectCompatibilityPage(page, userCookie);
+    }
+    checks.push('ordinary_user_redirect_compatibility_pages_route_to_current_console_pages');
+
     for (const apiCheck of merchantApiChecks) {
       await assertMerchantApiIsolation(apiCheck, merchantCookie, userCookie);
     }
@@ -272,7 +286,8 @@ async function main() {
     usernamePrefix,
     pages: {
       merchant: merchantPages.map((entry) => entry.path),
-      user: userPages.map((entry) => entry.path)
+      user: userPages.map((entry) => entry.path),
+      userRedirects: userRedirectPages.map((entry) => entry.path)
     },
     merchantCapabilitiesChecked: merchantApiChecks.map((entry) => `${entry.method} ${entry.path}`),
     userCapabilitiesChecked: userApiChecks.map((entry) => `${entry.method} ${entry.path}`),
@@ -426,6 +441,11 @@ async function assertUserPageRenders(page: WebPageCheck, userCookie: string) {
   assert(!response.text.includes('500: Internal server error'), `ordinary user ${page.path} rendered a 500 error`);
   const found = page.markers.filter((marker) => response.text.includes(marker)).length;
   assert(found >= 1, `ordinary user ${page.path} missing expected markers`);
+}
+
+async function assertUserRedirectCompatibilityPage(page: UserRedirectCheck, userCookie: string) {
+  const response = await getWebPage(page.path, userCookie);
+  assertRedirect(response, page.userExpectedRedirect, `ordinary user ${page.path} compatibility redirect`);
 }
 
 async function getWebPageFollowingSingleRedirect(path: string, cookie?: string): Promise<WebResult> {

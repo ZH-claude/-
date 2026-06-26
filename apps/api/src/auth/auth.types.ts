@@ -15,6 +15,7 @@ export type AuthenticatedRequest = {
   headers: {
     authorization?: string;
     cookie?: string;
+    'x-forwarded-for'?: string | string[];
   };
   ip?: string;
   socket?: {

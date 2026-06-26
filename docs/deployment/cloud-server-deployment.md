@@ -166,6 +166,18 @@ SMOKE_MODEL='real-enabled-model' \
 npm run smoke:t21:deploy
 ```
 
+如果已经提前创建好真实 API Key，也可以显式传入：
+
+```bash
+SMOKE_API_URL=https://api.example.com \
+SMOKE_WEB_URL=https://app.example.com \
+SMOKE_USERNAME=admin_user \
+SMOKE_PASSWORD='real-password' \
+SMOKE_MODEL='real-enabled-model' \
+SMOKE_API_KEY='real-api-key' \
+npm run smoke:t21:deploy
+```
+
 真实 chat 检查只有在上游、模型、余额都已真实配置后才开启：
 
 ```bash
@@ -175,6 +187,21 @@ SMOKE_USERNAME=admin_user \
 SMOKE_PASSWORD='real-password' \
 SMOKE_MODEL='real-enabled-model' \
 SMOKE_RUN_CHAT=true \
+SMOKE_STRICT=true \
+npm run smoke:t21:deploy
+```
+
+完整 strict smoke 需要把充值码和通知渠道也纳入真实检查：
+
+```bash
+SMOKE_API_URL=https://api.example.com \
+SMOKE_WEB_URL=https://app.example.com \
+SMOKE_USERNAME=admin_user \
+SMOKE_PASSWORD='real-password' \
+SMOKE_MODEL='real-enabled-model' \
+SMOKE_RUN_CHAT=true \
+SMOKE_RECHARGE_CODE='real-unused-recharge-code' \
+SMOKE_TEST_NOTIFICATION=true \
 SMOKE_STRICT=true \
 npm run smoke:t21:deploy
 ```

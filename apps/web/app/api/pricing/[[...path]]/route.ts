@@ -17,6 +17,11 @@ export async function GET(request: NextRequest, context: RouteContext) {
     Accept: request.headers.get('accept') ?? 'application/json'
   });
 
+  const acceptLanguage = request.headers.get('accept-language');
+  if (acceptLanguage) {
+    headers.set('Accept-Language', acceptLanguage);
+  }
+
   const cookie = request.headers.get('cookie');
   if (cookie) {
     headers.set('Cookie', cookie);

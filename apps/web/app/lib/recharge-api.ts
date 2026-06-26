@@ -1,12 +1,33 @@
+import { createApiClientError } from './api-error-copy';
+
 export type RechargeRecord = {
   id: string;
   rechargeCodeId: string | null;
   paymentOrderId: string | null;
   paymentOrderNo: string | null;
   paymentChannel: 'alipay' | 'wechat' | null;
+  rechargeCodeKind: 'balance' | 'vibe_coding' | null;
   amountCents: number;
   amountBaseTokens: number;
   faceValueCnyCents: number | null;
+  quotaHours: number | null;
+  quotaPeriodDays: number | null;
+  tokenQuota: number | null;
+  vibeCodingPackage?: {
+    quotaHours: number | null;
+    quotaPeriodDays: number | null;
+    tokenQuota: number | null;
+  } | null;
+  vibeCodingEntitlement?: {
+    id: string;
+    quotaHours: number;
+    quotaPeriodDays: number;
+    tokenQuota: number;
+    usedTokenQuota: number;
+    startsAt: string;
+    expiresAt: string;
+    status: string;
+  } | null;
   balanceAfterCents: number;
   balanceAfterBaseTokens: number;
   status: string;
@@ -36,9 +57,28 @@ export type PaymentOrder = {
 export type RedeemRechargeResponse = {
   recharge: {
     id: string;
+    kind: 'balance' | 'vibe_coding';
     amountCents: number;
     amountBaseTokens: number;
     faceValueCnyCents: number;
+    quotaHours: number | null;
+    quotaPeriodDays: number | null;
+    tokenQuota: number | null;
+    vibeCodingPackage?: {
+      quotaHours: number | null;
+      quotaPeriodDays: number | null;
+      tokenQuota: number | null;
+    } | null;
+    entitlement: {
+      id: string;
+      quotaHours: number;
+      quotaPeriodDays: number;
+      tokenQuota: number;
+      usedTokenQuota: number;
+      startsAt: string;
+      expiresAt: string;
+      status: string;
+    } | null;
     usedAt: string;
   };
   wallet: {
@@ -70,30 +110,30 @@ type PaymentOrderResponse = {
 
 const API_BASE_URL = '/api';
 
-export async function redeemRechargeCode(payload: { code: string }) {
+export async function redeemRechargeCode(payload: { code: string }, language?: string) {
   return request<RedeemRechargeResponse>('/recharge/redeem', {
     method: 'POST',
     body: payload
-  });
+  }, language);
 }
 
-export async function listRechargeRecords() {
-  return request<RechargeRecordsResponse>('/recharge/records');
+export async function listRechargeRecords(language?: string) {
+  return request<RechargeRecordsResponse>('/recharge/records', {}, language);
 }
 
-export async function createPaymentOrder(payload: { amountCnyCents: number; channel: PaymentChannel }) {
+export async function createPaymentOrder(payload: { amountCnyCents: number; channel: PaymentChannel }, language?: string) {
   return request<PaymentOrderResponse>('/recharge/payments/orders', {
     method: 'POST',
     body: payload
-  });
+  }, language);
 }
 
-export async function listPaymentOrders() {
-  return request<PaymentOrdersResponse>('/recharge/payments/orders');
+export async function listPaymentOrders(language?: string) {
+  return request<PaymentOrdersResponse>('/recharge/payments/orders', {}, language);
 }
 
-export async function getPaymentOrder(orderNo: string) {
-  return request<PaymentOrderResponse>(`/recharge/payments/orders/${encodeURIComponent(orderNo)}`);
+export async function getPaymentOrder(orderNo: string, language?: string) {
+  return request<PaymentOrderResponse>(`/recharge/payments/orders/${encodeURIComponent(orderNo)}`, {}, language);
 }
 
 async function request<T>(
@@ -101,11 +141,16 @@ async function request<T>(
   options: {
     method?: 'GET' | 'POST';
     body?: Record<string, unknown>;
-  } = {}
+  } = {},
+  language?: string
 ) {
   const headers: Record<string, string> = {
     Accept: 'application/json'
   };
+
+  if (language) {
+    headers['Accept-Language'] = language;
+  }
 
   if (options.body) {
     headers['Content-Type'] = 'application/json';
@@ -121,11 +166,7 @@ async function request<T>(
   const data = await response.json().catch(() => null);
 
   if (!response.ok) {
-    const message =
-      data && typeof data === 'object' && 'message' in data
-        ? String((data as { message: unknown }).message)
-        : `请求失败：${response.status}`;
-    throw new Error(message);
+    throw createApiClientError(language, response.status, data);
   }
 
   return data as T;

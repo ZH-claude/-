@@ -74,6 +74,8 @@ const upstreamKey = `qa-t12-upstream-key-${suffix}`;
 const groupACode = `${prefix}_group_a`;
 const groupBCode = `${prefix}_group_b`;
 const allowedModel = `${prefix}-allowed`;
+const allowedModelDisplayName = 'QA Allowed Model';
+const allowedModelDisplayNameEs = 'QA Modelo Permitido';
 const deniedModel = `${prefix}-denied`;
 const disabledModel = `${prefix}-disabled`;
 const noUpstreamModel = `${prefix}-no-upstream`;
@@ -125,13 +127,25 @@ async function main() {
     checks.push('pricing_formula_reuses_billing_source_of_truth');
 
     const modelA = requireModel(pricingA.json, allowedModel);
-    assert(modelA.displayName === 'QA Allowed Model', 'allowed model display name mismatch');
+    assert(modelA.displayName === allowedModelDisplayName, 'allowed model display name mismatch');
     assert(modelA.inputPriceCentsPer1k === 12, 'allowed model input price mismatch');
     assert(modelA.outputPriceCentsPer1k === 34, 'allowed model output price mismatch');
     assertDecimalEquals(modelA.modelMultiplier, '1.5000', 'allowed model multiplier mismatch');
     assertDecimalEquals(modelA.groupMultiplier, '1.2500', 'allowed model group multiplier mismatch');
     assert(modelA.supportsStream === true, 'allowed model stream capability mismatch');
     checks.push('pricing_response_reflects_real_model_price_and_group_multiplier');
+
+    const pricingAEs = await get<PricingResponse>('/pricing/models?language=es-ES', userACookie);
+    assert(pricingAEs.status === 200, `user A Spanish pricing request failed with ${pricingAEs.status}`);
+    assert(
+      requireModel(pricingAEs.json, allowedModel).displayName === allowedModelDisplayNameEs,
+      'allowed model Spanish display name mismatch'
+    );
+    assert(
+      requireModel(pricingAEs.json, allowedModel).model === allowedModel,
+      'localized pricing response must preserve canonical model id'
+    );
+    checks.push('pricing_response_localizes_model_display_name_from_language_selection');
 
     for (const forbiddenModel of [deniedModel, disabledModel, noUpstreamModel, inactiveProviderModel]) {
       assert(
@@ -203,7 +217,15 @@ async function register(username: string) {
 async function seedPricingModels(groupAId: string, groupBId: string) {
   const allowed = await seedModel({
     model: allowedModel,
-    displayName: 'QA Allowed Model',
+    displayName: allowedModelDisplayName,
+    translations: {
+      'es-ES': {
+        displayName: allowedModelDisplayNameEs,
+        _locked: true,
+        _status: 'human_reviewed',
+        _source: 'qa-manual'
+      }
+    },
     groupId: groupAId,
     inputPriceCentsPer1k: 12,
     outputPriceCentsPer1k: 34,
@@ -275,6 +297,7 @@ async function seedPricingModels(groupAId: string, groupBId: string) {
 async function seedModel(input: {
   model: string;
   displayName: string;
+  translations?: Record<string, Record<string, string | boolean>>;
   groupId: string;
   inputPriceCentsPer1k: number;
   outputPriceCentsPer1k: number;
@@ -288,6 +311,7 @@ async function seedModel(input: {
     data: {
       model: input.model,
       displayName: input.displayName,
+      translations: input.translations,
       inputPriceCentsPer1k: input.inputPriceCentsPer1k,
       outputPriceCentsPer1k: input.outputPriceCentsPer1k,
       modelMultiplier: input.modelMultiplier,

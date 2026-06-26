@@ -25,6 +25,11 @@ async function proxyAiRechargeRequest(request: NextRequest, context: RouteContex
     Accept: request.headers.get('accept') ?? 'application/json'
   });
 
+  const acceptLanguage = request.headers.get('accept-language');
+  if (acceptLanguage) {
+    headers.set('Accept-Language', acceptLanguage);
+  }
+
   const contentType = request.headers.get('content-type');
   if (contentType) {
     headers.set('Content-Type', contentType);

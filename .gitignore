@@ -16,6 +16,7 @@ pnpm-debug.log*
 coverage/
 .gstack/
 .gstack/qa-reports/
+.codex-runtime/
 backups/
 logs/
 .tmp/

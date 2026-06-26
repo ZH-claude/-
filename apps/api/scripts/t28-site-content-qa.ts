@@ -75,15 +75,15 @@ let seeded: SeededContext | null = null;
 let originalSiteContent: ExistingSiteContent | null = null;
 
 const payload = {
-  homeTitle: `${usernamePrefix} 首页标题`,
-  homeSubtitle: `${usernamePrefix} 首页副标题`,
-  homeContent: `${usernamePrefix} 首页说明\n第二行用于验证换行保留`,
+  homeTitle: `${usernamePrefix} home title`,
+  homeSubtitle: `${usernamePrefix} home subtitle`,
+  homeContent: `${usernamePrefix} home content\nsecond line keeps newline coverage`,
   homeFontFamily: 'serif',
   homeTextColor: '#16a34a',
   homeAccentColor: '#e11d48',
   popupEnabled: true,
-  popupTitle: `${usernamePrefix} 弹窗标题`,
-  popupContent: `${usernamePrefix} 弹窗内容`,
+  popupTitle: `${usernamePrefix} popup title`,
+  popupContent: `${usernamePrefix} popup content`,
   popupFontFamily: 'mono',
   popupTextColor: '#111827',
   popupAccentColor: '#7c3aed'
@@ -142,9 +142,27 @@ async function main() {
     assertSiteContent(webPublicAfterSave.json);
     checks.push('public_and_next_proxy_return_saved_site_content');
 
+    const publicHomeAfterSave = await getWebPage('/?language=en-US');
+    assert(
+      publicHomeAfterSave.status >= 200 && publicHomeAfterSave.status < 300,
+      `public home after site content save should render, got ${publicHomeAfterSave.status}`
+    );
+    for (const marker of [
+      payload.homeTitle,
+      payload.homeSubtitle,
+      payload.homeContent.split('\n')[0],
+      payload.popupTitle,
+      payload.popupContent,
+      'data-qa="public-home-site-content"',
+      'data-qa="public-site-popup"'
+    ]) {
+      assert(publicHomeAfterSave.text.includes(marker), `public home missing saved site content marker: ${marker}`);
+    }
+    checks.push('public_home_renders_saved_site_content_and_popup');
+
     const merchantPage = await getWebPage('/merchant/announcements', merchantLogin.cookie);
     assert(merchantPage.status >= 200 && merchantPage.status < 300, `merchant announcements page should render, got ${merchantPage.status}`);
-    for (const marker of ['merchant-shell-page', '公告与首页', '首页与弹窗公告', '发布公告']) {
+    for (const marker of ['merchant-shell-page', 'merchant-announcements-page', 'site-content-admin-panel', 'site-content-form']) {
       assert(merchantPage.text.includes(marker), `merchant page missing marker: ${marker}`);
     }
     const ordinaryMerchantPage = await getWebPage('/merchant/announcements', userLogin.cookie);
@@ -237,7 +255,7 @@ async function seedFixture(): Promise<SeededContext> {
       update: {},
       create: {
         code: 'default',
-        name: '默认分组'
+        name: 'Default group'
       }
     });
 

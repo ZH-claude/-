@@ -14,21 +14,23 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import { getProfile, logout } from '../lib/auth-api';
+import type { TranslationKey } from '../lib/i18n';
+import { useI18n } from './language-provider';
 
 type NavigationItem = {
   href: string;
-  label: string;
+  labelKey: TranslationKey;
   icon: ReactNode;
   topbar?: boolean;
 };
 
 const merchantNavigationItems: NavigationItem[] = [
-  { href: '/merchant', label: '商家首页', icon: <HomeOutlined />, topbar: true },
-  { href: '/merchant/users', label: '用户统计', icon: <TeamOutlined />, topbar: true },
-  { href: '/merchant/recharge-codes', label: '充值码', icon: <GiftOutlined />, topbar: true },
-  { href: '/merchant/model-config', label: '模型管理', icon: <ApiOutlined />, topbar: true },
-  { href: '/merchant/announcements', label: '公告/首页', icon: <BellOutlined />, topbar: true },
-  { href: '/merchant/ai-recharge', label: 'AI代充', icon: <ShoppingOutlined />, topbar: true }
+  { href: '/merchant', labelKey: 'merchant.nav.dashboard', icon: <HomeOutlined />, topbar: true },
+  { href: '/merchant/users', labelKey: 'merchant.nav.users', icon: <TeamOutlined />, topbar: true },
+  { href: '/merchant/recharge-codes', labelKey: 'merchant.nav.rechargeCodes', icon: <GiftOutlined />, topbar: true },
+  { href: '/merchant/model-config', labelKey: 'merchant.nav.modelConfig', icon: <ApiOutlined />, topbar: true },
+  { href: '/merchant/announcements', labelKey: 'merchant.nav.announcements', icon: <BellOutlined />, topbar: true },
+  { href: '/merchant/ai-recharge', labelKey: 'merchant.nav.aiRecharge', icon: <ShoppingOutlined />, topbar: true }
 ];
 
 export function MerchantShell({
@@ -49,6 +51,7 @@ export function MerchantShell({
   children: ReactNode;
 }) {
   const router = useRouter();
+  const { t } = useI18n();
   const [loadedProfile, setLoadedProfile] = useState<{ username: string; role: string } | null>(null);
   const [activeHash, setActiveHash] = useState(() => getDefaultActiveHash(activePath));
 
@@ -94,7 +97,7 @@ export function MerchantShell({
   }, [role, username]);
 
   const displayUsername = username !== undefined ? username : loadedProfile?.username ?? null;
-  const displayRole = formatRole(role !== undefined ? role : loadedProfile?.role ?? null);
+  const displayRole = formatRole(role !== undefined ? role : loadedProfile?.role ?? null, t);
   const logoutHandler = useMemo(() => onLogout ?? handleDefaultLogout, [onLogout]);
   const topbarItems = merchantNavigationItems.filter((item) => item.topbar);
 
@@ -115,9 +118,9 @@ export function MerchantShell({
       <header className="merchant-shell-topbar">
         <Link className="merchant-shell-brand" href="/merchant" onClick={() => setActiveHash('merchant-dashboard')}>
           <img alt="" aria-hidden="true" className="shell-logo-image" src="/brand-mark.svg" />
-          <span>蔚蓝星球商家端</span>
+          <span>{t('app.merchantConsoleName')}</span>
         </Link>
-        <nav className="merchant-primary-nav" aria-label="商家端主导航">
+        <nav className="merchant-primary-nav" aria-label={t('merchant.nav.primaryAria')}>
           {topbarItems.map((item) => (
             <Link
               className={isActive(activePath, activeHash, item.href) ? 'active' : ''}
@@ -126,19 +129,19 @@ export function MerchantShell({
               onClick={() => handleAnchorClick(item)}
             >
               {item.icon}
-              <span>{item.label}</span>
+              <span>{t(item.labelKey)}</span>
             </Link>
           ))}
         </nav>
         <div className="merchant-topbar-actions">
           {onRefresh ? (
-            <button className="icon-button" disabled={isRefreshing} onClick={onRefresh} title="刷新商家端数据" type="button">
+            <button className="icon-button" disabled={isRefreshing} onClick={onRefresh} title={t('common.refresh')} type="button">
               <ReloadOutlined />
             </button>
           ) : null}
           <button className="ghost-button" onClick={logoutHandler} type="button">
             <LogoutOutlined />
-            退出
+            {t('common.logout')}
           </button>
           <div className="merchant-account-chip" title={displayUsername ?? undefined}>
             <strong>{displayUsername ?? '-'}</strong>
@@ -148,7 +151,7 @@ export function MerchantShell({
       </header>
 
       <section className="merchant-shell-body">
-        <aside className="merchant-sidebar" aria-label="商家端固定导航">
+        <aside className="merchant-sidebar" aria-label={t('merchant.nav.sidebarAria')}>
           {merchantNavigationItems.map((item) => (
             <Link
               className={isActive(activePath, activeHash, item.href) ? 'active' : ''}
@@ -157,7 +160,7 @@ export function MerchantShell({
               onClick={() => handleAnchorClick(item)}
             >
               {item.icon}
-              <span>{item.label}</span>
+              <span>{t(item.labelKey)}</span>
             </Link>
           ))}
         </aside>
@@ -173,16 +176,16 @@ function getHrefHash(href: string) {
   return hash ?? '';
 }
 
-function formatRole(role?: string | null) {
+function formatRole(role: string | null | undefined, t: (key: TranslationKey) => string) {
   if (role === 'admin') {
-    return '管理员';
+    return t('role.admin');
   }
 
   if (role === 'user') {
-    return '普通用户';
+    return t('role.user');
   }
 
-  return role ?? '管理员';
+  return role ?? t('role.admin');
 }
 
 function getHrefPath(href: string) {

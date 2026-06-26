@@ -1,7 +1,7 @@
 import { PrismaPg } from '@prisma/adapter-pg';
 import { hash as bcryptHash } from 'bcryptjs';
 import { createHash, randomBytes } from 'node:crypto';
-import { Prisma, PrismaClient, RechargeCodeStatus, UserRole, UserStatus } from '../src/generated/prisma/client';
+import { Prisma, PrismaClient, RechargeCodeKind, RechargeCodeStatus, UserRole, UserStatus } from '../src/generated/prisma/client';
 
 type HttpResult<T = unknown> = {
   status: number;
@@ -34,23 +34,53 @@ type CreateResponse = {
   items: Array<{
     id: string;
     code: string;
+    kind: string;
     amountCents: number;
     amountBaseTokens: number;
     faceValueCnyCents: number;
+    quotaHours: number | null;
+    quotaPeriodDays: number | null;
+    tokenQuota: number | null;
     status: string;
   }>;
 };
 
 type AdminListResponse = {
-  items: Array<Record<string, unknown> & { id: string; status: string; amountCents: number; amountBaseTokens: number; faceValueCnyCents: number }>;
+  items: Array<
+    Record<string, unknown> & {
+      id: string;
+      kind: string;
+      status: string;
+      amountCents: number;
+      amountBaseTokens: number;
+      faceValueCnyCents: number;
+      quotaHours: number | null;
+      quotaPeriodDays: number | null;
+      tokenQuota: number | null;
+    }
+  >;
 };
 
 type RedeemResponse = {
   recharge: {
     id: string;
+    kind: string;
     amountCents: number;
     amountBaseTokens: number;
     faceValueCnyCents: number;
+    quotaHours: number | null;
+    quotaPeriodDays: number | null;
+    tokenQuota: number | null;
+    entitlement: {
+      id: string;
+      quotaHours: number;
+      quotaPeriodDays: number;
+      tokenQuota: number;
+      usedTokenQuota: number;
+      startsAt: string;
+      expiresAt: string;
+      status: string;
+    } | null;
   };
   wallet: {
     balanceCents: number;
@@ -64,6 +94,7 @@ type ResidualCounts = {
   wallets: number;
   sessions: number;
   rechargeCodes: number;
+  vibeCodingEntitlements: number;
   walletTransactions: number;
   adminAuditLogs: number;
   securityAuditLogs: number;
@@ -75,6 +106,9 @@ const DATABASE_URL = process.env.DATABASE_URL;
 const FACE_VALUE_CNY_CENTS = 100;
 const EXPECTED_BASE_TOKENS = 1_000_000;
 const CODE_COUNT = 2;
+const VIBE_QUOTA_HOURS = 5;
+const VIBE_QUOTA_PERIOD_DAYS = 7;
+const VIBE_TOKEN_QUOTA = 50_000;
 
 if (!DATABASE_URL) {
   throw new Error('DATABASE_URL is required to run the T22 merchant recharge-code QA script');
@@ -148,6 +182,7 @@ async function main() {
     for (const item of created.json.items) {
       assert(typeof item.code === 'string' && item.code.length > 0, `created item ${item.id} is missing plain code`);
       assert(/^(RC-[A-F0-9]{32})$/.test(item.code), `created code ${item.id} is malformed`);
+      assert(item.kind === 'balance', `created balance code kind mismatch for ${item.id}`);
       assert(item.faceValueCnyCents === FACE_VALUE_CNY_CENTS, `created code face value mismatch for ${item.id}`);
       assert(item.amountBaseTokens === EXPECTED_BASE_TOKENS, `created code base token amount mismatch for ${item.id}`);
       knownCodeIds.push(item.id);
@@ -159,6 +194,7 @@ async function main() {
       assert(dbCode.codeHash !== item.code, `stored plain code for ${item.id}`);
       assert(dbCode.faceValueCnyCents === FACE_VALUE_CNY_CENTS, `DB face value mismatch for ${item.id}`);
       assert(dbCode.amountCents === EXPECTED_BASE_TOKENS, `DB base token amount mismatch for ${item.id}`);
+      assert(dbCode.kind === RechargeCodeKind.BALANCE, `DB kind mismatch for balance code ${item.id}`);
       assert(dbCode.status === RechargeCodeStatus.UNUSED, `new code ${item.id} should be unused`);
     }
     checks.push('admin_can_create_recharge_codes_and_only_payload_exposes_plaintext');
@@ -173,6 +209,7 @@ async function main() {
     for (const id of knownCodeIds) {
       const listed = adminList.json.items.find((entry) => entry.id === id);
       assert(!!listed, `admin list should include created code ${id}`);
+      assert(listed.kind === 'balance', `admin list kind mismatch for balance code ${id}`);
       assert(listed.faceValueCnyCents === FACE_VALUE_CNY_CENTS, `admin list face value mismatch for ${id}`);
       assert(listed.amountBaseTokens === EXPECTED_BASE_TOKENS, `admin list base token amount mismatch for ${id}`);
       assert(!Object.prototype.hasOwnProperty.call(listed, 'code'), `admin list leaked plaintext code for ${id}`);
@@ -185,6 +222,49 @@ async function main() {
     for (const plainCode of knownPlainCodes) {
       assert(!adminList.text.includes(plainCode), `admin list leaked plaintext code ${plainCode}`);
     }
+
+    const vibeCreated = await post<CreateResponse>(
+      '/admin/recharge-codes',
+      {
+        codeKind: 'vibe_coding',
+        count: 1,
+        quotaHours: VIBE_QUOTA_HOURS,
+        quotaPeriodDays: VIBE_QUOTA_PERIOD_DAYS,
+        tokenQuota: VIBE_TOKEN_QUOTA
+      },
+      merchantCookie
+    );
+    assert(vibeCreated.status === 200 || vibeCreated.status === 201, `admin create vibe coding code failed with ${vibeCreated.status}`);
+    assert(vibeCreated.json.items.length === 1, `expected 1 vibe coding recharge item, got ${vibeCreated.json.items.length}`);
+    const vibeCode = vibeCreated.json.items[0];
+    assert(typeof vibeCode.code === 'string' && vibeCode.code.length > 0, `vibe code ${vibeCode.id} is missing plain code`);
+    assert(vibeCreated.text.includes(vibeCode.code), `vibe create response missing plaintext code ${vibeCode.code}`);
+    assert(vibeCode.kind === 'vibe_coding', `vibe code response kind mismatch for ${vibeCode.id}`);
+    assert(vibeCode.amountCents === 0, `vibe code should not credit wallet balance for ${vibeCode.id}`);
+    assert(vibeCode.amountBaseTokens === 0, `vibe code should not expose base token credit for ${vibeCode.id}`);
+    assert(vibeCode.quotaHours === VIBE_QUOTA_HOURS, `vibe code quotaHours mismatch for ${vibeCode.id}`);
+    assert(vibeCode.quotaPeriodDays === VIBE_QUOTA_PERIOD_DAYS, `vibe code quotaPeriodDays mismatch for ${vibeCode.id}`);
+    assert(vibeCode.tokenQuota === VIBE_TOKEN_QUOTA, `vibe code tokenQuota mismatch for ${vibeCode.id}`);
+    knownCodeIds.push(vibeCode.id);
+    knownPlainCodes.push(vibeCode.code);
+
+    const vibeDbCode = await prisma.rechargeCode.findUniqueOrThrow({ where: { id: vibeCode.id } });
+    assert(vibeDbCode.kind === RechargeCodeKind.VIBE_CODING, `DB kind mismatch for vibe code ${vibeCode.id}`);
+    assert(vibeDbCode.amountCents === 0, `DB amount should be zero for vibe code ${vibeCode.id}`);
+    assert(vibeDbCode.quotaHours === VIBE_QUOTA_HOURS, `DB quotaHours mismatch for vibe code ${vibeCode.id}`);
+    assert(vibeDbCode.quotaPeriodDays === VIBE_QUOTA_PERIOD_DAYS, `DB quotaPeriodDays mismatch for vibe code ${vibeCode.id}`);
+    assert(vibeDbCode.tokenQuota === VIBE_TOKEN_QUOTA, `DB tokenQuota mismatch for vibe code ${vibeCode.id}`);
+
+    const adminListAfterVibe = await get<AdminListResponse>('/admin/recharge-codes', merchantCookie);
+    assert(adminListAfterVibe.status === 200, `admin list after vibe code failed with ${adminListAfterVibe.status}`);
+    const listedVibe = adminListAfterVibe.json.items.find((entry) => entry.id === vibeCode.id);
+    assert(!!listedVibe, `admin list should include vibe code ${vibeCode.id}`);
+    assert(listedVibe.kind === 'vibe_coding', `admin list kind mismatch for vibe code ${vibeCode.id}`);
+    assert(listedVibe.quotaHours === VIBE_QUOTA_HOURS, `admin list quotaHours mismatch for vibe code ${vibeCode.id}`);
+    assert(listedVibe.quotaPeriodDays === VIBE_QUOTA_PERIOD_DAYS, `admin list quotaPeriodDays mismatch for vibe code ${vibeCode.id}`);
+    assert(listedVibe.tokenQuota === VIBE_TOKEN_QUOTA, `admin list tokenQuota mismatch for vibe code ${vibeCode.id}`);
+    assert(!adminListAfterVibe.text.includes(vibeCode.code), `admin list leaked vibe plaintext code ${vibeCode.code}`);
+    checks.push('admin_can_create_and_archive_vibecoding_package_codes');
 
     const adminAudit = await get('/admin/audit-logs?limit=100', merchantCookie);
     assert(adminAudit.status === 200, `admin audit logs should return 200, got ${adminAudit.status}`);
@@ -204,6 +284,7 @@ async function main() {
 
     const redeem = await post<RedeemResponse>('/recharge/redeem', { code: firstCode.code }, userCookie);
     assert(redeem.status === 200 || redeem.status === 201, `redeem should be successful, got ${redeem.status}`);
+    assert(redeem.json.recharge.kind === 'balance', 'redeem balance kind mismatch');
     assert(redeem.json.recharge.faceValueCnyCents === FACE_VALUE_CNY_CENTS, 'redeem face value mismatch');
     assert(redeem.json.recharge.amountBaseTokens === EXPECTED_BASE_TOKENS, 'redeem base token amount mismatch');
     assert(redeem.json.wallet.balanceCents === beforeWallet.balanceCents + EXPECTED_BASE_TOKENS, 'wallet balance should increase by base token amount');
@@ -243,8 +324,62 @@ async function main() {
     );
     checks.push('disabled_code_cannot_be_redeemed_and_wallet_is_unchanged');
 
+    const beforeVibeRedeemWallet = await prisma.wallet.findUniqueOrThrow({ where: { userId: seeded.userIds.user } });
+    const vibeRedeem = await post<RedeemResponse>('/recharge/redeem', { code: vibeCode.code }, userCookie);
+    assert(vibeRedeem.status === 200 || vibeRedeem.status === 201, `vibe redeem should be successful, got ${vibeRedeem.status}`);
+    assert(vibeRedeem.json.recharge.id === vibeCode.id, 'vibe redeem response should reference redeemed code id');
+    assert(vibeRedeem.json.recharge.kind === 'vibe_coding', 'vibe redeem kind mismatch');
+    assert(vibeRedeem.json.recharge.amountCents === 0, 'vibe redeem should expose zero wallet credit');
+    assert(vibeRedeem.json.recharge.quotaHours === VIBE_QUOTA_HOURS, 'vibe redeem quotaHours mismatch');
+    assert(vibeRedeem.json.recharge.quotaPeriodDays === VIBE_QUOTA_PERIOD_DAYS, 'vibe redeem quotaPeriodDays mismatch');
+    assert(vibeRedeem.json.recharge.tokenQuota === VIBE_TOKEN_QUOTA, 'vibe redeem tokenQuota mismatch');
+    assert(vibeRedeem.json.recharge.entitlement !== null, 'vibe redeem should create a user entitlement');
+    assert(vibeRedeem.json.recharge.entitlement?.quotaHours === VIBE_QUOTA_HOURS, 'vibe entitlement quotaHours mismatch');
+    assert(vibeRedeem.json.recharge.entitlement?.quotaPeriodDays === VIBE_QUOTA_PERIOD_DAYS, 'vibe entitlement quotaPeriodDays mismatch');
+    assert(vibeRedeem.json.recharge.entitlement?.tokenQuota === VIBE_TOKEN_QUOTA, 'vibe entitlement tokenQuota mismatch');
+    assert(vibeRedeem.json.recharge.entitlement?.usedTokenQuota === 0, 'new vibe entitlement should start with zero usedTokenQuota');
+    assert(vibeRedeem.json.recharge.entitlement?.status === 'active', 'new vibe entitlement should be active');
+    assert(vibeRedeem.json.wallet.balanceCents === beforeVibeRedeemWallet.balanceCents, 'vibe redeem must not increase wallet balance');
+    const afterVibeRedeemWallet = await prisma.wallet.findUniqueOrThrow({ where: { userId: seeded.userIds.user } });
+    assert(afterVibeRedeemWallet.balanceCents === beforeVibeRedeemWallet.balanceCents, 'DB wallet balance must remain unchanged after vibe redeem');
+    const vibeRedeemedCode = await prisma.rechargeCode.findUniqueOrThrow({ where: { id: vibeCode.id } });
+    assert(vibeRedeemedCode.status === RechargeCodeStatus.USED, 'vibe code should be marked used');
+    assert(vibeRedeemedCode.usedByUserId === seeded.userIds.user, 'vibe code should record usedByUserId');
+    const dbEntitlement = await prisma.vibeCodingEntitlement.findUniqueOrThrow({
+      where: { sourceRechargeCodeId: vibeCode.id }
+    });
+    assert(dbEntitlement.userId === seeded.userIds.user, 'vibe entitlement should belong to the redeeming user');
+    assert(dbEntitlement.quotaHours === VIBE_QUOTA_HOURS, 'DB vibe entitlement quotaHours mismatch');
+    assert(dbEntitlement.quotaPeriodDays === VIBE_QUOTA_PERIOD_DAYS, 'DB vibe entitlement quotaPeriodDays mismatch');
+    assert(dbEntitlement.tokenQuota === VIBE_TOKEN_QUOTA, 'DB vibe entitlement tokenQuota mismatch');
+    assert(dbEntitlement.usedTokenQuota === 0, 'DB vibe entitlement should start with zero usedTokenQuota');
+    assert(dbEntitlement.expiresAt.getTime() > dbEntitlement.startsAt.getTime(), 'DB vibe entitlement should have an expiry after start');
+    const vibeTransaction = await prisma.walletTransaction.findUniqueOrThrow({ where: { rechargeCodeId: vibeCode.id } });
+    assert(vibeTransaction.amountCents === 0, 'vibe redemption transaction should be zero amount');
+    assert(vibeTransaction.balanceAfterCents === beforeVibeRedeemWallet.balanceCents, 'vibe redemption balanceAfter should not change');
+    checks.push('ordinary_user_redeems_vibecoding_code_without_wallet_credit');
+    checks.push('ordinary_user_redeems_vibecoding_code_into_entitlement_ledger');
+
     const records = await get<{
-      items: Array<{ rechargeCodeId: string | null; amountCents: number; amountBaseTokens: number; faceValueCnyCents: number | null; status: string }>;
+      items: Array<{
+        rechargeCodeId: string | null;
+        rechargeCodeKind: string | null;
+        amountCents: number;
+        amountBaseTokens: number;
+        faceValueCnyCents: number | null;
+        quotaHours: number | null;
+        quotaPeriodDays: number | null;
+        tokenQuota: number | null;
+        vibeCodingEntitlement?: {
+          id: string;
+          quotaHours: number;
+          quotaPeriodDays: number;
+          tokenQuota: number;
+          usedTokenQuota: number;
+          status: string;
+        } | null;
+        status: string;
+      }>;
     }>(
       '/recharge/records',
       userCookie
@@ -259,14 +394,31 @@ async function main() {
       records.json.items.some(
         (entry) =>
           entry.rechargeCodeId === firstCode.id &&
+          entry.rechargeCodeKind === 'balance' &&
           entry.amountBaseTokens === EXPECTED_BASE_TOKENS &&
           entry.faceValueCnyCents === FACE_VALUE_CNY_CENTS
       ),
       'recharge records should expose base token amount and RMB face value'
     );
+    assert(
+      records.json.items.some(
+        (entry) =>
+          entry.rechargeCodeId === vibeCode.id &&
+          entry.rechargeCodeKind === 'vibe_coding' &&
+          entry.amountBaseTokens === 0 &&
+          entry.quotaHours === VIBE_QUOTA_HOURS &&
+          entry.quotaPeriodDays === VIBE_QUOTA_PERIOD_DAYS &&
+          entry.tokenQuota === VIBE_TOKEN_QUOTA &&
+          entry.vibeCodingEntitlement?.quotaHours === VIBE_QUOTA_HOURS &&
+          entry.vibeCodingEntitlement?.quotaPeriodDays === VIBE_QUOTA_PERIOD_DAYS &&
+          entry.vibeCodingEntitlement?.tokenQuota === VIBE_TOKEN_QUOTA &&
+          entry.vibeCodingEntitlement?.status === 'active'
+      ),
+      'recharge records should expose vibecoding package quota and entitlement fields'
+    );
 
     for (const plainCode of knownPlainCodes) {
-      assert(!adminList.text.includes(plainCode), 'admin list still should not expose plaintext code after operations');
+      assert(!adminListAfterVibe.text.includes(plainCode), 'admin list still should not expose plaintext code after operations');
     }
 
     residualBefore = await countResidual();
@@ -390,9 +542,12 @@ function assertRedirect(response: { status: number; location: string }, expected
 }
 
 function assertMerchantRechargeCodesHtml(text: string) {
-  const markers = ['merchant-shell-page', '充值码管理', '生成充值码', '充值码状态'];
+  const markers = ['merchant-shell-page', '充值码管理', '生成充值码', '充值码状态', '兑换码类型', 'VibeCoding 套餐码'];
   const found = markers.filter((marker) => text.includes(marker)).length;
-  assert(found >= 3, `merchant recharge-code page missing expected markers, found ${found}`);
+  assert(found >= 5, `merchant recharge-code page missing expected markers, found ${found}`);
+  assert(text.includes('data-qa="merchant-recharge-code-form"'), 'merchant recharge-code page missing create form QA marker');
+  assert(text.includes('data-qa="merchant-recharge-kind"'), 'merchant recharge-code page missing code kind QA marker');
+  assert(text.includes('data-qa="merchant-recharge-submit"'), 'merchant recharge-code page missing submit QA marker');
 }
 
 async function request<T>(method: string, path: string, body?: unknown, cookie?: string): Promise<HttpResult<T>> {
@@ -448,6 +603,7 @@ async function countResidual(): Promise<ResidualCounts> {
     wallets: 0,
     sessions: 0,
     rechargeCodes: 0,
+    vibeCodingEntitlements: 0,
     walletTransactions: 0,
     adminAuditLogs: 0,
     securityAuditLogs: 0
@@ -458,12 +614,14 @@ async function countResidual(): Promise<ResidualCounts> {
   }
 
   const rechargeCodeFilters: Prisma.RechargeCodeWhereInput[] = [];
+  const entitlementFilters: Prisma.VibeCodingEntitlementWhereInput[] = [];
   const walletTransactionFilters: Prisma.WalletTransactionWhereInput[] = [];
   const adminAuditFilters: Prisma.AdminAuditLogWhereInput[] = [];
   const securityAuditFilters: Prisma.SecurityAuditLogWhereInput[] = [];
 
   if (userIds.length > 0) {
     rechargeCodeFilters.push({ createdByAdminId: { in: userIds } }, { usedByUserId: { in: userIds } });
+    entitlementFilters.push({ userId: { in: userIds } });
     walletTransactionFilters.push({ userId: { in: userIds } });
     adminAuditFilters.push({ adminUserId: { in: userIds } });
     securityAuditFilters.push({ actorUserId: { in: userIds } }, { targetId: { in: userIds } });
@@ -471,6 +629,7 @@ async function countResidual(): Promise<ResidualCounts> {
 
   if (knownCodeIds.length > 0) {
     rechargeCodeFilters.push({ id: { in: knownCodeIds } });
+    entitlementFilters.push({ sourceRechargeCodeId: { in: knownCodeIds } });
     walletTransactionFilters.push({ rechargeCodeId: { in: knownCodeIds } });
     adminAuditFilters.push({ targetId: { in: knownCodeIds } });
     securityAuditFilters.push({ targetId: { in: knownCodeIds } });
@@ -480,6 +639,9 @@ async function countResidual(): Promise<ResidualCounts> {
   const sessions = userIds.length ? await prisma.session.count({ where: { userId: { in: userIds } } }) : 0;
   const rechargeCodes = rechargeCodeFilters.length
     ? await prisma.rechargeCode.count({ where: { OR: rechargeCodeFilters } })
+    : 0;
+  const vibeCodingEntitlements = entitlementFilters.length
+    ? await prisma.vibeCodingEntitlement.count({ where: { OR: entitlementFilters } })
     : 0;
   const walletTransactions = walletTransactionFilters.length
     ? await prisma.walletTransaction.count({ where: { OR: walletTransactionFilters } })
@@ -496,6 +658,7 @@ async function countResidual(): Promise<ResidualCounts> {
     wallets,
     sessions,
     rechargeCodes,
+    vibeCodingEntitlements,
     walletTransactions,
     adminAuditLogs,
     securityAuditLogs
@@ -545,6 +708,17 @@ async function cleanup(adminUserId: string | '', ordinaryUserId: string = '') {
     });
   }
 
+  if (uniqueUserIds.length || relatedCodeIds.length) {
+    await prisma.vibeCodingEntitlement.deleteMany({
+      where: {
+        OR: [
+          ...(uniqueUserIds.length ? [{ userId: { in: uniqueUserIds } }] : []),
+          ...(relatedCodeIds.length ? [{ sourceRechargeCodeId: { in: relatedCodeIds } }] : [])
+        ]
+      }
+    });
+  }
+
   if (relatedCodeIds.length) {
     await prisma.walletTransaction.deleteMany({
       where: {
@@ -578,6 +752,7 @@ function assertResidualZero(result: ResidualCounts | null) {
   assert(result.wallets === 0, `residual wallets should be 0, got ${result.wallets}`);
   assert(result.sessions === 0, `residual sessions should be 0, got ${result.sessions}`);
   assert(result.rechargeCodes === 0, `residual recharge codes should be 0, got ${result.rechargeCodes}`);
+  assert(result.vibeCodingEntitlements === 0, `residual vibeCodingEntitlements should be 0, got ${result.vibeCodingEntitlements}`);
   assert(result.walletTransactions === 0, `residual walletTransactions should be 0, got ${result.walletTransactions}`);
   assert(result.adminAuditLogs === 0, `residual adminAuditLogs should be 0, got ${result.adminAuditLogs}`);
   assert(result.securityAuditLogs === 0, `residual securityAuditLogs should be 0, got ${result.securityAuditLogs}`);

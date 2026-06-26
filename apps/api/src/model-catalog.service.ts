@@ -1,12 +1,42 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { GroupStatus, ModelStatus, UpstreamProviderStatus } from './generated/prisma/client';
+import { resolveLocalizedText } from './i18n/localized-content';
 import { PrismaService } from './prisma.service';
+
+type AvailableModelForGroup = {
+  model: string;
+  displayName: string | null;
+  inputPriceCentsPer1k: number;
+  outputPriceCentsPer1k: number;
+  modelMultiplier: string;
+  groupMultiplier: string;
+  supportsStream: boolean;
+};
 
 @Injectable()
 export class ModelCatalogService {
+  private readonly inFlightGroupModelLists = new Map<string, Promise<AvailableModelForGroup[]>>();
+
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
-  async listAvailableModelsForGroup(groupId: string) {
+  async listAvailableModelsForGroup(groupId: string, language?: string | null) {
+    const cacheKey = `${groupId}:${language ?? ''}`;
+    const existing = this.inFlightGroupModelLists.get(cacheKey);
+    if (existing) {
+      return existing;
+    }
+
+    const request = this.listAvailableModelsForGroupUncached(groupId, language).finally(() => {
+      this.inFlightGroupModelLists.delete(cacheKey);
+    });
+    this.inFlightGroupModelLists.set(cacheKey, request);
+    return request;
+  }
+
+  private async listAvailableModelsForGroupUncached(
+    groupId: string,
+    language?: string | null
+  ): Promise<AvailableModelForGroup[]> {
     const group = await this.prisma.userGroup.findUnique({
       where: { id: groupId }
     });
@@ -61,7 +91,7 @@ export class ModelCatalogService {
 
       return {
         model: model.model,
-        displayName: model.displayName,
+        displayName: resolveLocalizedText(model.translations, language, 'displayName', model.displayName),
         inputPriceCentsPer1k:
           activeRoute?.inputPriceCentsPer1k != null
             ? activeRoute.inputPriceCentsPer1k

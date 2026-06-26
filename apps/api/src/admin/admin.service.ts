@@ -5,6 +5,7 @@ import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
 import {
   Prisma,
+  Announcement,
   AnnouncementCategory,
   AnnouncementStatus,
   AsyncTaskKind,
@@ -27,11 +28,16 @@ import {
   DEFAULT_USD_TO_CNY_RATE,
   type TokenPricingCurrency
 } from '../billing/token-pricing';
+import { prepareAutoTranslationDrafts } from '../i18n/auto-translate';
+import { isSourceFallbackDraftRecord, normalizeTranslations } from '../i18n/localized-content';
 import { PrismaService } from '../prisma.service';
 import { SecurityAuditService } from '../security-audit/security-audit.service';
 import { decryptUpstreamApiKey, encryptUpstreamApiKey, maskUpstreamApiKey } from './upstream-key-crypto';
 
 const UNSUPPORTED_MODEL_NAME_CHARACTERS = /[\x00-\x1F\x7F]/;
+const MODEL_PRICE_TRANSLATION_RULES = {
+  displayName: 120
+};
 
 type ListUsersOptions = {
   page: number;
@@ -71,7 +77,30 @@ type AnnouncementInput = {
   content?: unknown;
   category?: unknown;
   status?: unknown;
+  isPinned?: unknown;
+  pinned?: unknown;
+  scheduledAt?: unknown;
+  scheduledPublishAt?: unknown;
+  translations?: unknown;
 };
+
+type TranslationGlossaryInput = {
+  sourceTerm?: unknown;
+  replacementTerm?: unknown;
+  note?: unknown;
+  isActive?: unknown;
+};
+
+type PrepareAnnouncementTranslationInput = {
+  targetLanguages?: unknown;
+  languages?: unknown;
+};
+
+const ANNOUNCEMENT_TRANSLATION_RULES = {
+  title: 120,
+  content: 5000
+};
+const ANNOUNCEMENT_PREVIEW_LANGUAGE_PATTERN = /^[a-z]{2,3}(?:-[a-z0-9]{2,8})*$/i;
 
 type UpstreamProviderInput = {
   name?: unknown;
@@ -79,6 +108,7 @@ type UpstreamProviderInput = {
   baseUrl?: unknown;
   apiKey?: unknown;
   status?: unknown;
+  maxConcurrency?: unknown;
 };
 
 type UserGroupInput = {
@@ -95,6 +125,7 @@ type AssignUserGroupInput = {
 type ModelPriceInput = {
   model?: unknown;
   displayName?: unknown;
+  translations?: unknown;
   pricingMode?: unknown;
   inputPriceCentsPer1k?: unknown;
   outputPriceCentsPer1k?: unknown;
@@ -165,13 +196,52 @@ type UpstreamModelInput = {
   supportsStream?: unknown;
 };
 
+type DailyConsumptionReportOptions = {
+  days: number;
+  userDailyCostAlertCents?: number;
+};
+
+type DailyConsumptionReportRow = {
+  date_key: string;
+  window_start: string;
+  window_end: string;
+  call_count: unknown;
+  billable_count: unknown;
+  free_count: unknown;
+  failed_count: unknown;
+  metering_unknown_count: unknown;
+  spend_cents: unknown;
+  prompt_tokens: unknown;
+  completion_tokens: unknown;
+  total_tokens: unknown;
+  active_users: unknown;
+  recharge_cents: unknown;
+  recharge_count: unknown;
+  request_log_count: unknown;
+  error_request_count: unknown;
+  average_latency_ms: unknown;
+  average_upstream_latency_ms: unknown;
+};
+
+type DailyUserCostAlertRow = {
+  date_key: string;
+  user_id: string;
+  username: string;
+  spend_cents: unknown;
+  total_tokens: unknown;
+  request_count: unknown;
+  last_used_at: Date | null;
+};
+
 const PASSWORD_HASH_ROUNDS = 12;
 const UPSTREAM_HEALTH_CHECK_TIMEOUT_MS = 8000;
 const UPSTREAM_HEALTH_ERROR_MAX_LENGTH = 240;
 const UPSTREAM_DNS_LOOKUP_TIMEOUT_MS = 3000;
+const MAX_UPSTREAM_PROVIDER_CONCURRENCY = 1_000_000;
 const PRIVATE_UPSTREAM_ADDRESS_ERROR = 'Private or local upstream address is not allowed';
 const BLOCKED_UPSTREAM_HOSTNAMES = new Set(['localhost', 'host.docker.internal', 'metadata.google.internal']);
 const DASHBOARD_RECENT_ALERT_LIMIT = 5;
+const DEFAULT_USER_DAILY_COST_ALERT_CENTS = 10000;
 
 @Injectable()
 export class AdminService implements OnModuleInit {
@@ -187,16 +257,33 @@ export class AdminService implements OnModuleInit {
   async getDashboardSummary() {
     const generatedAt = new Date();
     const todayStart = this.startOfChinaDay(generatedAt);
+    const yesterdayStart = new Date(todayStart.getTime() - 24 * 60 * 60 * 1000);
+    const monthStart = this.startOfChinaMonth(generatedAt);
     const last24HoursStart = new Date(generatedAt.getTime() - 24 * 60 * 60 * 1000);
     const userWhere = { deletedAt: null };
 
     const [
       userGroups,
       newUsersToday,
+      newUsersYesterday,
       walletAggregate,
       todayUsageAggregate,
       todayUsageCount,
       todayUsageStatusGroups,
+      todayActiveUserGroups,
+      todayRechargeAggregate,
+      last24RequestCount,
+      last24RequestErrorCount,
+      last24RequestLatencyAggregate,
+      monthNewUsers,
+      monthUsageAggregate,
+      monthUsageCount,
+      monthUsageStatusGroups,
+      monthActiveUserGroups,
+      monthRechargeAggregate,
+      monthRequestCount,
+      monthRequestErrorCount,
+      monthRequestLatencyAggregate,
       upstreamTotal,
       upstreamStatusGroups,
       upstreamHealthGroups,
@@ -222,6 +309,12 @@ export class AdminService implements OnModuleInit {
           createdAt: { gte: todayStart }
         }
       }),
+      this.prisma.user.count({
+        where: {
+          ...userWhere,
+          createdAt: { gte: yesterdayStart, lt: todayStart }
+        }
+      }),
       this.prisma.wallet.aggregate({
         where: {
           user: userWhere
@@ -245,6 +338,103 @@ export class AdminService implements OnModuleInit {
         by: ['status'],
         where: { createdAt: { gte: todayStart } },
         _count: { _all: true }
+      }),
+      this.prisma.usageEvent.groupBy({
+        by: ['userId'],
+        where: {
+          createdAt: { gte: todayStart },
+          totalTokens: { gt: 0 },
+          user: userWhere
+        },
+        _count: { _all: true }
+      }),
+      this.prisma.walletTransaction.aggregate({
+        where: {
+          type: WalletTransactionType.RECHARGE,
+          rechargeCodeId: { not: null },
+          createdAt: { gte: todayStart },
+          user: userWhere
+        },
+        _sum: { amountCents: true },
+        _count: { _all: true }
+      }),
+      this.prisma.requestLog.count({
+        where: { createdAt: { gte: last24HoursStart } }
+      }),
+      this.prisma.requestLog.count({
+        where: {
+          createdAt: { gte: last24HoursStart },
+          OR: [
+            { errorCode: { not: null } },
+            { statusCode: { gte: 500 } }
+          ]
+        }
+      }),
+      this.prisma.requestLog.aggregate({
+        where: { createdAt: { gte: last24HoursStart } },
+        _avg: {
+          latencyMs: true,
+          upstreamLatencyMs: true
+        }
+      }),
+      this.prisma.user.count({
+        where: {
+          ...userWhere,
+          createdAt: { gte: monthStart }
+        }
+      }),
+      this.prisma.usageEvent.aggregate({
+        where: { createdAt: { gte: monthStart } },
+        _sum: {
+          costCents: true,
+          totalTokens: true
+        }
+      }),
+      this.prisma.usageEvent.count({
+        where: { createdAt: { gte: monthStart } }
+      }),
+      this.prisma.usageEvent.groupBy({
+        by: ['status'],
+        where: { createdAt: { gte: monthStart } },
+        _count: { _all: true }
+      }),
+      this.prisma.usageEvent.groupBy({
+        by: ['userId'],
+        where: {
+          createdAt: { gte: monthStart },
+          totalTokens: { gt: 0 },
+          user: userWhere
+        },
+        _count: { _all: true }
+      }),
+      this.prisma.walletTransaction.aggregate({
+        where: {
+          type: WalletTransactionType.RECHARGE,
+          rechargeCodeId: { not: null },
+          createdAt: { gte: monthStart },
+          user: userWhere
+        },
+        _sum: { amountCents: true },
+        _count: { _all: true }
+      }),
+      this.prisma.requestLog.count({
+        where: { createdAt: { gte: monthStart } }
+      }),
+      this.prisma.requestLog.count({
+        where: {
+          createdAt: { gte: monthStart },
+          OR: [
+            { errorCode: { not: null } },
+            { statusCode: { gte: 500 } }
+          ]
+        }
+      }),
+      this.prisma.requestLog.aggregate({
+        where: { createdAt: { gte: monthStart } },
+        _avg: {
+          latencyMs: true,
+          upstreamLatencyMs: true
+        }
       }),
       this.prisma.upstreamProvider.count(),
       this.prisma.upstreamProvider.groupBy({
@@ -381,6 +571,12 @@ export class AdminService implements OnModuleInit {
       UsageEventStatus.FAILED,
       UsageEventStatus.METERING_UNKNOWN
     ]);
+    const monthUsageStatusCounts = this.enumCountMap(monthUsageStatusGroups, 'status', [
+      UsageEventStatus.BILLABLE,
+      UsageEventStatus.FREE,
+      UsageEventStatus.FAILED,
+      UsageEventStatus.METERING_UNKNOWN
+    ]);
     const modelTotal = Object.values(modelStatusCounts).reduce((sum, count) => sum + count, 0);
     const upstreamModelTotal = Object.values(upstreamModelStatusCounts).reduce((sum, count) => sum + count, 0);
     const rechargeTotal = Object.values(rechargeStatusCounts).reduce((sum, count) => sum + count, 0);
@@ -439,6 +635,7 @@ export class AdminService implements OnModuleInit {
       generatedAt: generatedAt.toISOString(),
       window: {
         todayStart: todayStart.toISOString(),
+        monthStart: monthStart.toISOString(),
         last24HoursStart: last24HoursStart.toISOString()
       },
       users: {
@@ -448,7 +645,9 @@ export class AdminService implements OnModuleInit {
         riskLocked: userStatusCounts.risk_locked,
         admins: userRoleCounts.admin,
         ordinary: userRoleCounts.user,
-        newToday: newUsersToday
+        newToday: newUsersToday,
+        newYesterday: newUsersYesterday,
+        newTodayDelta: newUsersToday - newUsersYesterday
       },
       wallets: {
         totalBalanceCents: walletAggregate._sum.balanceCents ?? 0,
@@ -458,7 +657,36 @@ export class AdminService implements OnModuleInit {
         callCount: todayUsageCount,
         spendCents: todayUsageAggregate._sum.costCents ?? 0,
         totalTokens: todayUsageAggregate._sum.totalTokens ?? 0,
+        activeUsers: todayActiveUserGroups.length,
+        rechargeCents: todayRechargeAggregate._sum.amountCents ?? 0,
+        rechargeCount: todayRechargeAggregate._count._all ?? 0,
         statusCounts: usageStatusCounts
+      },
+      performance: {
+        windowStart: last24HoursStart.toISOString(),
+        requestCount: last24RequestCount,
+        errorCount: last24RequestErrorCount,
+        errorRatePercent: last24RequestCount > 0 ? Number(((last24RequestErrorCount / last24RequestCount) * 100).toFixed(2)) : 0,
+        averageLatencyMs: Math.round(last24RequestLatencyAggregate._avg.latencyMs ?? 0),
+        averageUpstreamLatencyMs: Math.round(last24RequestLatencyAggregate._avg.upstreamLatencyMs ?? 0)
+      },
+      month: {
+        windowStart: monthStart.toISOString(),
+        newUsers: monthNewUsers,
+        callCount: monthUsageCount,
+        spendCents: monthUsageAggregate._sum.costCents ?? 0,
+        totalTokens: monthUsageAggregate._sum.totalTokens ?? 0,
+        activeUsers: monthActiveUserGroups.length,
+        rechargeCents: monthRechargeAggregate._sum.amountCents ?? 0,
+        rechargeCount: monthRechargeAggregate._count._all ?? 0,
+        statusCounts: monthUsageStatusCounts,
+        performance: {
+          requestCount: monthRequestCount,
+          errorCount: monthRequestErrorCount,
+          errorRatePercent: monthRequestCount > 0 ? Number(((monthRequestErrorCount / monthRequestCount) * 100).toFixed(2)) : 0,
+          averageLatencyMs: Math.round(monthRequestLatencyAggregate._avg.latencyMs ?? 0),
+          averageUpstreamLatencyMs: Math.round(monthRequestLatencyAggregate._avg.upstreamLatencyMs ?? 0)
+        }
       },
       upstreams: {
         total: upstreamTotal,
@@ -505,6 +733,169 @@ export class AdminService implements OnModuleInit {
     };
   }
 
+  async getDailyConsumptionReport(options: DailyConsumptionReportOptions) {
+    const generatedAt = new Date();
+    const days = Math.max(1, Math.min(90, Math.floor(options.days)));
+    const reportEnd = new Date(this.startOfChinaDay(generatedAt).getTime() + 24 * 60 * 60 * 1000);
+    const reportStart = new Date(reportEnd.getTime() - days * 24 * 60 * 60 * 1000);
+    const reportStartIso = reportStart.toISOString();
+    const reportEndIso = reportEnd.toISOString();
+    const userDailyCostAlertCents =
+      options.userDailyCostAlertCents ?? this.configuredUserDailyCostAlertCents();
+
+    const dailyRows = await this.prisma.$queryRaw<DailyConsumptionReportRow[]>(Prisma.sql`
+      WITH days AS (
+        SELECT generate_series(
+          ${reportStartIso}::timestamp,
+          ${reportEndIso}::timestamp - interval '1 day',
+          interval '1 day'
+        ) AS bucket_start
+      )
+      SELECT
+        to_char(days.bucket_start + interval '8 hours', 'YYYY-MM-DD') AS date_key,
+        to_char(days.bucket_start, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS window_start,
+        to_char(days.bucket_start + interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS window_end,
+        COALESCE(usage.call_count, 0)::bigint AS call_count,
+        COALESCE(usage.billable_count, 0)::bigint AS billable_count,
+        COALESCE(usage.free_count, 0)::bigint AS free_count,
+        COALESCE(usage.failed_count, 0)::bigint AS failed_count,
+        COALESCE(usage.metering_unknown_count, 0)::bigint AS metering_unknown_count,
+        COALESCE(usage.spend_cents, 0)::bigint AS spend_cents,
+        COALESCE(usage.prompt_tokens, 0)::bigint AS prompt_tokens,
+        COALESCE(usage.completion_tokens, 0)::bigint AS completion_tokens,
+        COALESCE(usage.total_tokens, 0)::bigint AS total_tokens,
+        COALESCE(usage.active_users, 0)::bigint AS active_users,
+        COALESCE(recharge.recharge_cents, 0)::bigint AS recharge_cents,
+        COALESCE(recharge.recharge_count, 0)::bigint AS recharge_count,
+        COALESCE(requests.request_log_count, 0)::bigint AS request_log_count,
+        COALESCE(requests.error_request_count, 0)::bigint AS error_request_count,
+        COALESCE(requests.average_latency_ms, 0)::double precision AS average_latency_ms,
+        COALESCE(requests.average_upstream_latency_ms, 0)::double precision AS average_upstream_latency_ms
+      FROM days
+      LEFT JOIN LATERAL (
+        SELECT
+          count(*) AS call_count,
+          count(*) FILTER (WHERE ue.status = 'BILLABLE') AS billable_count,
+          count(*) FILTER (WHERE ue.status = 'FREE') AS free_count,
+          count(*) FILTER (WHERE ue.status = 'FAILED') AS failed_count,
+          count(*) FILTER (WHERE ue.status = 'METERING_UNKNOWN') AS metering_unknown_count,
+          COALESCE(sum(ue.cost_cents), 0) AS spend_cents,
+          COALESCE(sum(ue.prompt_tokens), 0) AS prompt_tokens,
+          COALESCE(sum(ue.completion_tokens), 0) AS completion_tokens,
+          COALESCE(sum(ue.total_tokens), 0) AS total_tokens,
+          count(DISTINCT ue.user_id) FILTER (WHERE ue.total_tokens > 0) AS active_users
+        FROM usage_events ue
+        INNER JOIN users u ON u.id = ue.user_id AND u.deleted_at IS NULL
+        WHERE ue.created_at >= days.bucket_start
+          AND ue.created_at < days.bucket_start + interval '1 day'
+      ) usage ON true
+      LEFT JOIN LATERAL (
+        SELECT
+          COALESCE(sum(wt.amount_cents), 0) AS recharge_cents,
+          count(*) AS recharge_count
+        FROM wallet_transactions wt
+        INNER JOIN users u ON u.id = wt.user_id AND u.deleted_at IS NULL
+        WHERE wt.type = 'RECHARGE'
+          AND wt.recharge_code_id IS NOT NULL
+          AND wt.created_at >= days.bucket_start
+          AND wt.created_at < days.bucket_start + interval '1 day'
+      ) recharge ON true
+      LEFT JOIN LATERAL (
+        SELECT
+          count(*) AS request_log_count,
+          count(*) FILTER (WHERE rl.error_code IS NOT NULL OR COALESCE(rl.status_code, 0) >= 500) AS error_request_count,
+          COALESCE(avg(rl.latency_ms), 0) AS average_latency_ms,
+          COALESCE(avg(rl.upstream_latency_ms), 0) AS average_upstream_latency_ms
+        FROM request_logs rl
+        WHERE rl.created_at >= days.bucket_start
+          AND rl.created_at < days.bucket_start + interval '1 day'
+      ) requests ON true
+      ORDER BY days.bucket_start DESC
+    `);
+
+    const daysReport = dailyRows.map((row) => {
+      const callCount = this.toNumber(row.call_count);
+      const requestLogCount = this.toNumber(row.request_log_count);
+      const errorRequestCount = this.toNumber(row.error_request_count);
+
+      return {
+        date: row.date_key,
+        windowStart: row.window_start,
+        windowEnd: row.window_end,
+        callCount,
+        spendCents: this.toNumber(row.spend_cents),
+        promptTokens: this.toNumber(row.prompt_tokens),
+        completionTokens: this.toNumber(row.completion_tokens),
+        totalTokens: this.toNumber(row.total_tokens),
+        activeUsers: this.toNumber(row.active_users),
+        rechargeCents: this.toNumber(row.recharge_cents),
+        rechargeCount: this.toNumber(row.recharge_count),
+        requestLogCount,
+        errorRequestCount,
+        errorRatePercent: requestLogCount > 0 ? Number(((errorRequestCount / requestLogCount) * 100).toFixed(2)) : 0,
+        averageLatencyMs: Math.round(this.toNumber(row.average_latency_ms)),
+        averageUpstreamLatencyMs: Math.round(this.toNumber(row.average_upstream_latency_ms)),
+        statusCounts: {
+          billable: this.toNumber(row.billable_count),
+          free: this.toNumber(row.free_count),
+          failed: this.toNumber(row.failed_count),
+          metering_unknown: this.toNumber(row.metering_unknown_count)
+        }
+      };
+    });
+
+    const userCostAlerts = userDailyCostAlertCents > 0
+      ? await this.getDailyUserCostAlerts(reportStartIso, reportEndIso, userDailyCostAlertCents)
+      : [];
+
+    const totals = daysReport.reduce(
+      (sum, day) => ({
+        callCount: sum.callCount + day.callCount,
+        spendCents: sum.spendCents + day.spendCents,
+        promptTokens: sum.promptTokens + day.promptTokens,
+        completionTokens: sum.completionTokens + day.completionTokens,
+        totalTokens: sum.totalTokens + day.totalTokens,
+        activeUserDays: sum.activeUserDays + day.activeUsers,
+        rechargeCents: sum.rechargeCents + day.rechargeCents,
+        rechargeCount: sum.rechargeCount + day.rechargeCount,
+        requestLogCount: sum.requestLogCount + day.requestLogCount,
+        errorRequestCount: sum.errorRequestCount + day.errorRequestCount
+      }),
+      {
+        callCount: 0,
+        spendCents: 0,
+        promptTokens: 0,
+        completionTokens: 0,
+        totalTokens: 0,
+        activeUserDays: 0,
+        rechargeCents: 0,
+        rechargeCount: 0,
+        requestLogCount: 0,
+        errorRequestCount: 0
+      }
+    );
+
+    return {
+      generatedAt: generatedAt.toISOString(),
+      window: {
+        days,
+        start: reportStart.toISOString(),
+        end: reportEnd.toISOString(),
+        timezone: 'Asia/Shanghai'
+      },
+      costAlert: {
+        userDailyThresholdCents: userDailyCostAlertCents,
+        alerts: userCostAlerts
+      },
+      totals: {
+        ...totals,
+        errorRatePercent:
+          totals.requestLogCount > 0 ? Number(((totals.errorRequestCount / totals.requestLogCount) * 100).toFixed(2)) : 0
+      },
+      days: daysReport
+    };
+  }
+
   async listUsers(options: ListUsersOptions) {
     const { page, limit } = options;
     const skip = (page - 1) * limit;
@@ -541,7 +932,7 @@ export class AdminService implements OnModuleInit {
           select: { username: true }
         }
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ isPinned: 'desc' }, { scheduledAt: 'desc' }, { publishedAt: 'desc' }, { createdAt: 'desc' }],
       take: 100
     });
 
@@ -550,14 +941,246 @@ export class AdminService implements OnModuleInit {
         id: announcement.id,
         title: announcement.title,
         content: announcement.content,
+        translations: announcement.translations ?? null,
+        translationWorkflow: this.translationWorkflowSummary(announcement.translations),
         category: announcement.category.toLowerCase(),
         status: announcement.status.toLowerCase(),
+        isPinned: announcement.isPinned,
+        scheduledAt: announcement.scheduledAt?.toISOString() ?? null,
         publishedAt: announcement.publishedAt?.toISOString() ?? null,
         createdBy: announcement.createdByAdmin.username,
         createdAt: announcement.createdAt.toISOString(),
         updatedAt: announcement.updatedAt.toISOString()
       }))
     };
+  }
+
+  async previewAnnouncement(announcementId: string, languageValue?: unknown) {
+    const language = this.normalizeAnnouncementPreviewLanguage(languageValue);
+    const announcement = await this.prisma.announcement.findUnique({
+      where: { id: announcementId }
+    });
+
+    if (!announcement) {
+      throw new NotFoundException('Announcement not found');
+    }
+
+    const translation = this.resolveAnnouncementPreviewTranslation(announcement.translations, language);
+    const title = translation.title ?? announcement.title;
+    const content = translation.content ?? announcement.content;
+
+    return {
+      id: announcement.id,
+      language: language ?? 'source',
+      title,
+      content,
+      fallback: translation.title === null || translation.content === null,
+      source: {
+        title: announcement.title,
+        content: announcement.content
+      },
+      translation: {
+        language: translation.language,
+        status: translation.status,
+        locked: translation.locked,
+        source: translation.source,
+        hasTitle: translation.title !== null,
+        hasContent: translation.content !== null,
+        updatedAt: translation.updatedAt
+      },
+      category: announcement.category.toLowerCase(),
+      status: announcement.status.toLowerCase(),
+      isPinned: announcement.isPinned,
+      scheduledAt: announcement.scheduledAt?.toISOString() ?? null,
+      publishedAt: announcement.publishedAt?.toISOString() ?? null,
+      createdAt: announcement.createdAt.toISOString(),
+      updatedAt: announcement.updatedAt.toISOString()
+    };
+  }
+
+  async prepareAnnouncementTranslations(
+    adminUserId: string,
+    announcementId: string,
+    body: PrepareAnnouncementTranslationInput
+  ) {
+    const currentAnnouncement = await this.prisma.announcement.findUnique({
+      where: { id: announcementId }
+    });
+
+    if (!currentAnnouncement) {
+      throw new NotFoundException('Announcement not found');
+    }
+
+    const targetLanguages = this.normalizeAnnouncementPrepareLanguages(body);
+    const glossary = await this.getActiveTranslationGlossaryMap();
+    const preparedTranslations = await prepareAutoTranslationDrafts({
+      translations: currentAnnouncement.translations,
+      fields: {
+        title: currentAnnouncement.title,
+        content: currentAnnouncement.content
+      },
+      maxLengths: ANNOUNCEMENT_TRANSLATION_RULES,
+      targetLanguages,
+      glossary
+    });
+
+    const updatedAnnouncement = await this.prisma.$transaction(async (tx) => {
+      const nextAnnouncement = preparedTranslations.changed
+        ? await tx.announcement.update({
+            where: { id: announcementId },
+            data: { translations: preparedTranslations.translations ?? Prisma.DbNull }
+          })
+        : currentAnnouncement;
+
+      await tx.adminAuditLog.create({
+        data: {
+          adminUserId,
+          action: 'announcement_translation_drafts_prepared',
+          targetType: 'announcement',
+          targetId: currentAnnouncement.id,
+          beforeSnapshot: this.announcementAuditSnapshot(currentAnnouncement),
+          afterSnapshot: {
+            ...this.announcementAuditSnapshot(nextAnnouncement),
+            preparedTranslationLanguages: preparedTranslations.preparedLanguages,
+            translationErrors: preparedTranslations.errors,
+            changed: preparedTranslations.changed
+          }
+        }
+      });
+
+      return nextAnnouncement;
+    });
+
+    return {
+      id: updatedAnnouncement.id,
+      title: updatedAnnouncement.title,
+      content: updatedAnnouncement.content,
+      translations: updatedAnnouncement.translations ?? null,
+      translationWorkflow: this.translationWorkflowSummary(updatedAnnouncement.translations),
+      category: updatedAnnouncement.category.toLowerCase(),
+      status: updatedAnnouncement.status.toLowerCase(),
+      isPinned: updatedAnnouncement.isPinned,
+      scheduledAt: updatedAnnouncement.scheduledAt?.toISOString() ?? null,
+      publishedAt: updatedAnnouncement.publishedAt?.toISOString() ?? null,
+      createdByAdminId: updatedAnnouncement.createdByAdminId,
+      createdAt: updatedAnnouncement.createdAt.toISOString(),
+      updatedAt: updatedAnnouncement.updatedAt.toISOString(),
+      preparedTranslationLanguages: preparedTranslations.preparedLanguages,
+      translationErrors: preparedTranslations.errors,
+      changed: preparedTranslations.changed
+    };
+  }
+
+  async listTranslationGlossaryTerms() {
+    const items = await this.prisma.translationGlossaryTerm.findMany({
+      orderBy: [{ isActive: 'desc' }, { sourceTerm: 'asc' }],
+      take: 500
+    });
+
+    return {
+      items: items.map((item) => this.toPublicTranslationGlossaryTerm(item)),
+      activeGlossary: this.translationGlossaryRowsToMap(items.filter((item) => item.isActive))
+    };
+  }
+
+  async createTranslationGlossaryTerm(adminUserId: string, body: TranslationGlossaryInput) {
+    const sourceTerm = this.normalizeGlossaryTerm(body.sourceTerm, 'sourceTerm');
+    const replacementTerm = this.normalizeGlossaryTerm(body.replacementTerm, 'replacementTerm');
+    const note = this.optionalText(body.note, 'note', 1, 500) ?? null;
+    const isActive = this.optionalBoolean(body.isActive, true, 'isActive');
+
+    try {
+      const item = await this.prisma.$transaction(async (tx) => {
+        const created = await tx.translationGlossaryTerm.create({
+          data: {
+            sourceTerm,
+            replacementTerm,
+            note,
+            isActive,
+            createdByAdminId: adminUserId,
+            updatedByAdminId: adminUserId
+          }
+        });
+
+        await tx.adminAuditLog.create({
+          data: {
+            adminUserId,
+            action: 'translation_glossary_term_created',
+            targetType: 'translation_glossary_term',
+            targetId: created.id,
+            beforeSnapshot: Prisma.JsonNull,
+            afterSnapshot: this.translationGlossaryAuditSnapshot(created)
+          }
+        });
+
+        return created;
+      });
+
+      return this.toPublicTranslationGlossaryTerm(item);
+    } catch (error) {
+      if (this.isUniqueViolation(error)) {
+        throw new ConflictException('Translation glossary source term already exists');
+      }
+      throw error;
+    }
+  }
+
+  async updateTranslationGlossaryTerm(adminUserId: string, termId: string, body: TranslationGlossaryInput) {
+    const current = await this.prisma.translationGlossaryTerm.findUnique({
+      where: { id: termId }
+    });
+    if (!current) {
+      throw new NotFoundException('Translation glossary term not found');
+    }
+
+    const data: Prisma.TranslationGlossaryTermUpdateInput = {
+      updatedByAdmin: { connect: { id: adminUserId } }
+    };
+    if (Object.prototype.hasOwnProperty.call(body, 'sourceTerm')) {
+      data.sourceTerm = this.normalizeGlossaryTerm(body.sourceTerm, 'sourceTerm');
+    }
+    if (Object.prototype.hasOwnProperty.call(body, 'replacementTerm')) {
+      data.replacementTerm = this.normalizeGlossaryTerm(body.replacementTerm, 'replacementTerm');
+    }
+    if (Object.prototype.hasOwnProperty.call(body, 'note')) {
+      data.note = this.optionalText(body.note, 'note', 1, 500) ?? null;
+    }
+    if (Object.prototype.hasOwnProperty.call(body, 'isActive')) {
+      data.isActive = this.optionalBoolean(body.isActive, current.isActive, 'isActive');
+    }
+
+    if (Object.keys(data).length === 1) {
+      throw new BadRequestException('No translation glossary fields to update');
+    }
+
+    try {
+      const item = await this.prisma.$transaction(async (tx) => {
+        const updated = await tx.translationGlossaryTerm.update({
+          where: { id: termId },
+          data
+        });
+
+        await tx.adminAuditLog.create({
+          data: {
+            adminUserId,
+            action: 'translation_glossary_term_updated',
+            targetType: 'translation_glossary_term',
+            targetId: updated.id,
+            beforeSnapshot: this.translationGlossaryAuditSnapshot(current),
+            afterSnapshot: this.translationGlossaryAuditSnapshot(updated)
+          }
+        });
+
+        return updated;
+      });
+
+      return this.toPublicTranslationGlossaryTerm(item);
+    } catch (error) {
+      if (this.isUniqueViolation(error)) {
+        throw new ConflictException('Translation glossary source term already exists');
+      }
+      throw error;
+    }
   }
 
   async listAdminAuditLogs(options: ListUsersOptions) {
@@ -824,15 +1447,34 @@ export class AdminService implements OnModuleInit {
     const content = this.requiredText(body.content, 'content', 1, 5000);
     const category = this.normalizeAnnouncementCategory(body.category);
     const status = this.normalizeStatus(body.status);
+    const isPinned = this.normalizeAnnouncementPinned(body);
+    const scheduledAt = this.normalizeAnnouncementSchedule(body);
+    let translations = normalizeTranslations(body.translations, ANNOUNCEMENT_TRANSLATION_RULES);
+    let preparedTranslationLanguages: string[] = [];
+
+    if (status === AnnouncementStatus.PUBLISHED) {
+      const glossary = await this.getActiveTranslationGlossaryMap();
+      const preparedTranslations = await prepareAutoTranslationDrafts({
+        translations,
+        fields: { title, content },
+        maxLengths: ANNOUNCEMENT_TRANSLATION_RULES,
+        glossary
+      });
+      translations = preparedTranslations.translations;
+      preparedTranslationLanguages = preparedTranslations.preparedLanguages;
+    }
 
     const announcement = await this.prisma.$transaction(async (tx) => {
       const createdAnnouncement = await tx.announcement.create({
         data: {
           title,
           content,
+          ...(translations !== undefined ? { translations: translations ?? Prisma.DbNull } : {}),
           category,
           status,
-          publishedAt: status === AnnouncementStatus.PUBLISHED ? new Date() : null,
+          isPinned,
+          scheduledAt,
+          publishedAt: status === AnnouncementStatus.PUBLISHED ? scheduledAt ?? new Date() : null,
           createdByAdminId: adminUserId
         }
       });
@@ -848,7 +1490,12 @@ export class AdminService implements OnModuleInit {
             id: createdAnnouncement.id,
             title,
             category: createdAnnouncement.category.toLowerCase(),
-            status: createdAnnouncement.status.toLowerCase()
+            status: createdAnnouncement.status.toLowerCase(),
+            isPinned: createdAnnouncement.isPinned,
+            scheduledAt: createdAnnouncement.scheduledAt?.toISOString() ?? null,
+            publishedAt: createdAnnouncement.publishedAt?.toISOString() ?? null,
+            hasTranslations: Boolean(translations),
+            preparedTranslationLanguages
           }
         }
       });
@@ -860,11 +1507,119 @@ export class AdminService implements OnModuleInit {
       id: announcement.id,
       title: announcement.title,
       content: announcement.content,
+      translations: announcement.translations ?? null,
+      translationWorkflow: this.translationWorkflowSummary(announcement.translations),
       category: announcement.category.toLowerCase(),
       status: announcement.status.toLowerCase(),
+      isPinned: announcement.isPinned,
+      scheduledAt: announcement.scheduledAt?.toISOString() ?? null,
       publishedAt: announcement.publishedAt?.toISOString() ?? null,
       createdByAdminId: announcement.createdByAdminId,
       createdAt: announcement.createdAt.toISOString()
+    };
+  }
+
+  async updateAnnouncement(adminUserId: string, announcementId: string, body: AnnouncementInput) {
+    const currentAnnouncement = await this.prisma.announcement.findUnique({
+      where: { id: announcementId }
+    });
+
+    if (!currentAnnouncement) {
+      throw new NotFoundException('Announcement not found');
+    }
+
+    const data: Prisma.AnnouncementUpdateInput = {};
+    let nextTitle = currentAnnouncement.title;
+    let nextContent = currentAnnouncement.content;
+    let nextStatus = currentAnnouncement.status;
+    let nextScheduledAt = currentAnnouncement.scheduledAt;
+    let nextTranslations: unknown = currentAnnouncement.translations;
+    const hasStatusInput = Object.prototype.hasOwnProperty.call(body, 'status');
+    const hasScheduleInput = this.hasAnnouncementScheduleInput(body);
+    if (Object.prototype.hasOwnProperty.call(body, 'title')) {
+      nextTitle = this.requiredText(body.title, 'title', 3, 120);
+      data.title = nextTitle;
+    }
+    if (Object.prototype.hasOwnProperty.call(body, 'content')) {
+      nextContent = this.requiredText(body.content, 'content', 1, 5000);
+      data.content = nextContent;
+    }
+    if (Object.prototype.hasOwnProperty.call(body, 'category')) {
+      data.category = this.normalizeAnnouncementCategory(body.category);
+    }
+    if (this.hasAnnouncementPinnedInput(body)) {
+      data.isPinned = this.normalizeAnnouncementPinned(body);
+    }
+    if (hasScheduleInput) {
+      nextScheduledAt = this.normalizeAnnouncementSchedule(body);
+      data.scheduledAt = nextScheduledAt;
+    }
+    if (hasStatusInput) {
+      nextStatus = this.normalizeStatus(body.status);
+      data.status = nextStatus;
+    }
+    if (nextStatus === AnnouncementStatus.DRAFT) {
+      data.publishedAt = null;
+    } else if (nextStatus === AnnouncementStatus.PUBLISHED && (hasStatusInput || hasScheduleInput)) {
+      data.publishedAt = nextScheduledAt ?? currentAnnouncement.publishedAt ?? new Date();
+    }
+    if (Object.prototype.hasOwnProperty.call(body, 'translations')) {
+      const translations = normalizeTranslations(body.translations, ANNOUNCEMENT_TRANSLATION_RULES);
+      nextTranslations = translations;
+      data.translations = translations ?? Prisma.DbNull;
+    }
+
+    if (nextStatus === AnnouncementStatus.PUBLISHED) {
+      const glossary = await this.getActiveTranslationGlossaryMap();
+      const preparedTranslations = await prepareAutoTranslationDrafts({
+        translations: nextTranslations,
+        fields: { title: nextTitle, content: nextContent },
+        maxLengths: ANNOUNCEMENT_TRANSLATION_RULES,
+        glossary
+      });
+      if (preparedTranslations.changed) {
+        data.translations = preparedTranslations.translations ?? Prisma.DbNull;
+      }
+    }
+
+    if (Object.keys(data).length === 0) {
+      throw new BadRequestException('No announcement fields to update');
+    }
+
+    const updatedAnnouncement = await this.prisma.$transaction(async (tx) => {
+      const nextAnnouncement = await tx.announcement.update({
+        where: { id: announcementId },
+        data
+      });
+
+      await tx.adminAuditLog.create({
+        data: {
+          adminUserId,
+          action: 'announcement_updated',
+          targetType: 'announcement',
+          targetId: nextAnnouncement.id,
+          beforeSnapshot: this.announcementAuditSnapshot(currentAnnouncement),
+          afterSnapshot: this.announcementAuditSnapshot(nextAnnouncement)
+        }
+      });
+
+      return nextAnnouncement;
+    });
+
+    return {
+      id: updatedAnnouncement.id,
+      title: updatedAnnouncement.title,
+      content: updatedAnnouncement.content,
+      translations: updatedAnnouncement.translations ?? null,
+      translationWorkflow: this.translationWorkflowSummary(updatedAnnouncement.translations),
+      category: updatedAnnouncement.category.toLowerCase(),
+      status: updatedAnnouncement.status.toLowerCase(),
+      isPinned: updatedAnnouncement.isPinned,
+      scheduledAt: updatedAnnouncement.scheduledAt?.toISOString() ?? null,
+      publishedAt: updatedAnnouncement.publishedAt?.toISOString() ?? null,
+      createdByAdminId: updatedAnnouncement.createdByAdminId,
+      createdAt: updatedAnnouncement.createdAt.toISOString(),
+      updatedAt: updatedAnnouncement.updatedAt.toISOString()
     };
   }
 
@@ -890,6 +1645,7 @@ export class AdminService implements OnModuleInit {
     const baseUrl = this.normalizeBaseUrl(body.baseUrl);
     const apiKey = this.requiredText(body.apiKey, 'apiKey', 8, 512);
     const status = this.normalizeUpstreamStatus(body.status);
+    const maxConcurrency = this.optionalPositiveInt(body.maxConcurrency, 'maxConcurrency', MAX_UPSTREAM_PROVIDER_CONCURRENCY);
     const apiKeyPreview = maskUpstreamApiKey(apiKey);
     const encryptedApiKey = encryptUpstreamApiKey(apiKey);
 
@@ -903,6 +1659,7 @@ export class AdminService implements OnModuleInit {
             encryptedApiKey,
             apiKeyPreview,
             status,
+            maxConcurrency,
             createdByAdminId: adminUserId
           },
           include: {
@@ -925,6 +1682,7 @@ export class AdminService implements OnModuleInit {
               kind: kind.toLowerCase(),
               baseUrl,
               status: status.toLowerCase(),
+              maxConcurrency,
               apiKeyPreview
             }
           }
@@ -950,6 +1708,7 @@ export class AdminService implements OnModuleInit {
     const baseUrl = this.normalizeBaseUrl(body.baseUrl);
     const nextApiKey = this.optionalText(body.apiKey, 'apiKey', 8, 512);
     const status = this.normalizeUpstreamStatus(body.status);
+    const hasMaxConcurrencyInput = Object.prototype.hasOwnProperty.call(body, 'maxConcurrency');
 
     const currentProvider = await this.prisma.upstreamProvider.findUnique({
       where: { id: providerId }
@@ -969,6 +1728,9 @@ export class AdminService implements OnModuleInit {
       }
     }
 
+    const maxConcurrency = hasMaxConcurrencyInput
+      ? this.optionalPositiveInt(body.maxConcurrency, 'maxConcurrency', MAX_UPSTREAM_PROVIDER_CONCURRENCY)
+      : currentProvider.maxConcurrency;
     const apiKeyChanged = typeof nextApiKey === 'string';
     const addressChanged = currentProvider.baseUrl !== baseUrl;
     const updateData: Prisma.UpstreamProviderUpdateInput = {
@@ -976,6 +1738,7 @@ export class AdminService implements OnModuleInit {
       kind,
       baseUrl,
       status,
+      maxConcurrency,
       ...(apiKeyChanged
         ? {
             encryptedApiKey: encryptUpstreamApiKey(nextApiKey),
@@ -989,6 +1752,10 @@ export class AdminService implements OnModuleInit {
       updateData.lastHealthCheckAt = null;
       updateData.lastHealthLatencyMs = null;
       updateData.lastHealthError = null;
+      updateData.consecutiveFailures = 0;
+      updateData.circuitOpenedUntil = null;
+      updateData.lastFailureAt = null;
+      updateData.lastSuccessAt = null;
     }
 
     try {
@@ -1015,6 +1782,7 @@ export class AdminService implements OnModuleInit {
               kind: currentProvider.kind.toLowerCase(),
               baseUrl: currentProvider.baseUrl,
               status: currentProvider.status.toLowerCase(),
+              maxConcurrency: currentProvider.maxConcurrency,
               apiKeyPreview: currentProvider.apiKeyPreview
             },
             afterSnapshot: {
@@ -1023,6 +1791,7 @@ export class AdminService implements OnModuleInit {
               kind: updatedProvider.kind.toLowerCase(),
               baseUrl: updatedProvider.baseUrl,
               status: updatedProvider.status.toLowerCase(),
+              maxConcurrency: updatedProvider.maxConcurrency,
               apiKeyPreview: updatedProvider.apiKeyPreview
             }
           }
@@ -1061,7 +1830,17 @@ export class AdminService implements OnModuleInit {
           healthStatus: result.healthStatus,
           lastHealthCheckAt: checkedAt,
           lastHealthLatencyMs: result.latencyMs,
-          lastHealthError: result.error
+          lastHealthError: result.error,
+          ...(result.healthStatus === UpstreamHealthStatus.HEALTHY
+            ? {
+                consecutiveFailures: 0,
+                circuitOpenedUntil: null,
+                lastSuccessAt: checkedAt
+              }
+            : {
+                consecutiveFailures: { increment: 1 },
+                lastFailureAt: checkedAt
+              })
         },
         include: {
           createdByAdmin: {
@@ -1389,6 +2168,12 @@ export class AdminService implements OnModuleInit {
       const relayRateLimitEvents = await tx.relayRateLimitEvent.deleteMany({
         where: { userId: targetUserId }
       });
+      const upstreamAssignments = await tx.userUpstreamAssignment.deleteMany({
+        where: { userId: targetUserId }
+      });
+      const upstreamConcurrencySlots = await tx.upstreamConcurrencySlot.deleteMany({
+        where: { userId: targetUserId }
+      });
       const walletTransactions = await tx.walletTransaction.deleteMany({
         where: { userId: targetUserId }
       });
@@ -1438,6 +2223,8 @@ export class AdminService implements OnModuleInit {
         notificationPreferences: notificationPreferences.count,
         referralRewards: referralRewards.count,
         relayRateLimitEvents: relayRateLimitEvents.count,
+        upstreamAssignments: upstreamAssignments.count,
+        upstreamConcurrencySlots: upstreamConcurrencySlots.count,
         walletTransactions: walletTransactions.count,
         paymentOrders: paymentOrders.count,
         usageEvents: usageEvents.count,
@@ -1487,6 +2274,7 @@ export class AdminService implements OnModuleInit {
   async createModelPrice(adminUserId: string, body: ModelPriceInput) {
     const model = this.normalizeModelName(body.model, 'model');
     const displayName = this.optionalText(body.displayName, 'displayName', 1, 120) ?? null;
+    const translations = normalizeTranslations(body.translations, MODEL_PRICE_TRANSLATION_RULES);
     const pricing = this.resolveModelPricingForCreate(body);
     const status = this.normalizeModelStatus(body.status);
     const groupIds = this.requiredUuidArray(body.groupIds, 'groupIds');
@@ -1505,6 +2293,7 @@ export class AdminService implements OnModuleInit {
           data: {
             model,
             displayName,
+            ...(translations !== undefined ? { translations: translations ?? Prisma.DbNull } : {}),
             inputPriceCentsPer1k: pricing.inputPriceCentsPer1k,
             outputPriceCentsPer1k: pricing.outputPriceCentsPer1k,
             modelMultiplier: pricing.modelMultiplier,
@@ -1535,6 +2324,7 @@ export class AdminService implements OnModuleInit {
             afterSnapshot: {
               id: createdModel.id,
               model,
+              hasTranslations: Boolean(translations),
               ...pricing.auditSnapshot,
               status: status.toLowerCase(),
               groupIds
@@ -1596,6 +2386,7 @@ export class AdminService implements OnModuleInit {
       body.displayName === undefined
         ? existing.displayName
         : this.optionalText(body.displayName, 'displayName', 1, 120) ?? null;
+    const translations = normalizeTranslations(body.translations, MODEL_PRICE_TRANSLATION_RULES);
     const pricing = this.resolveModelPricingForUpdate(body, existing);
     const status = body.status === undefined ? existing.status : this.normalizeModelStatus(body.status);
     const groupIds =
@@ -1618,6 +2409,7 @@ export class AdminService implements OnModuleInit {
           data: {
             model,
             displayName,
+            ...(translations !== undefined ? { translations: translations ?? Prisma.DbNull } : {}),
             inputPriceCentsPer1k: pricing.inputPriceCentsPer1k,
             outputPriceCentsPer1k: pricing.outputPriceCentsPer1k,
             modelMultiplier: pricing.modelMultiplier,
@@ -1651,6 +2443,7 @@ export class AdminService implements OnModuleInit {
             beforeSnapshot: {
               id: existing.id,
               model: existing.model,
+              hasTranslations: Boolean(existing.translations),
               inputPriceCentsPer1k: existing.inputPriceCentsPer1k,
               outputPriceCentsPer1k: existing.outputPriceCentsPer1k,
               modelMultiplier: existing.modelMultiplier.toString(),
@@ -1666,6 +2459,7 @@ export class AdminService implements OnModuleInit {
             afterSnapshot: {
               id: updatedModel.id,
               model,
+              hasTranslations: translations !== undefined ? Boolean(translations) : Boolean(existing.translations),
               ...pricing.auditSnapshot,
               status: status.toLowerCase(),
               groupIds
@@ -1856,9 +2650,7 @@ export class AdminService implements OnModuleInit {
               publicModel,
               status: ModelStatus.ACTIVE
             },
-            data: {
-              status: ModelStatus.DISABLED
-            }
+            data: { status: ModelStatus.DISABLED }
           });
         }
 
@@ -1971,9 +2763,7 @@ export class AdminService implements OnModuleInit {
               status: ModelStatus.ACTIVE,
               id: { not: id }
             },
-            data: {
-              status: ModelStatus.DISABLED
-            }
+            data: { status: ModelStatus.DISABLED }
           });
         }
 
@@ -2042,6 +2832,319 @@ export class AdminService implements OnModuleInit {
 
       throw error;
     }
+  }
+
+  private announcementAuditSnapshot(announcement: Announcement): Prisma.InputJsonObject {
+    return {
+      id: announcement.id,
+      title: announcement.title,
+      category: announcement.category.toLowerCase(),
+      status: announcement.status.toLowerCase(),
+      isPinned: announcement.isPinned,
+      scheduledAt: announcement.scheduledAt?.toISOString() ?? null,
+      publishedAt: announcement.publishedAt?.toISOString() ?? null,
+      translations: this.translationAuditSummary(announcement.translations)
+    };
+  }
+
+  private translationAuditSummary(value: unknown): Prisma.InputJsonObject {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return {
+        languages: [],
+        lockedLanguages: [],
+        machineDraftLanguages: [],
+        humanReviewedLanguages: []
+      };
+    }
+
+    const languages: string[] = [];
+    const lockedLanguages: string[] = [];
+    const machineDraftLanguages: string[] = [];
+    const humanReviewedLanguages: string[] = [];
+    for (const [language, fields] of Object.entries(value as Record<string, unknown>)) {
+      if (!fields || typeof fields !== 'object' || Array.isArray(fields)) {
+        continue;
+      }
+
+      const record = fields as Record<string, unknown>;
+      languages.push(language);
+      if (record._locked === true || record._status === 'manual_locked') {
+        lockedLanguages.push(language);
+      }
+      if (record._status === 'machine_draft') {
+        machineDraftLanguages.push(language);
+      }
+      if (record._status === 'human_reviewed') {
+        humanReviewedLanguages.push(language);
+      }
+    }
+
+    return {
+      languages,
+      lockedLanguages,
+      machineDraftLanguages,
+      humanReviewedLanguages
+    };
+  }
+
+  private translationWorkflowSummary(value: unknown): Prisma.InputJsonObject {
+    const counts = {
+      total: 0,
+      machineDraft: 0,
+      humanReviewed: 0,
+      manualLocked: 0,
+      locked: 0,
+      untranslated: 0
+    };
+
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return {
+        languages: [],
+        counts,
+        entries: []
+      };
+    }
+
+    const entries = Object.entries(value as Record<string, unknown>)
+      .flatMap(([language, fields]) => {
+        if (!fields || typeof fields !== 'object' || Array.isArray(fields)) {
+          return [];
+        }
+
+        const record = fields as Record<string, unknown>;
+        const status =
+          typeof record._status === 'string' && record._status.trim().length > 0 ? record._status : 'unreviewed';
+        const locked = record._locked === true || status === 'manual_locked';
+        const isSourceFallbackDraft = isSourceFallbackDraftRecord(record);
+        const hasTitle = !isSourceFallbackDraft && typeof record.title === 'string' && record.title.trim().length > 0;
+        const hasContent = !isSourceFallbackDraft && typeof record.content === 'string' && record.content.trim().length > 0;
+
+        return [
+          {
+            language,
+            status,
+            locked,
+            source: typeof record._source === 'string' ? record._source : null,
+            hasTitle,
+            hasContent,
+            updatedAt: typeof record._updatedAt === 'string' ? record._updatedAt : null
+          }
+        ];
+      })
+      .sort((a, b) => a.language.localeCompare(b.language));
+
+    for (const entry of entries) {
+      counts.total += 1;
+      if (entry.status === 'machine_draft') {
+        counts.machineDraft += 1;
+      }
+      if (entry.status === 'human_reviewed') {
+        counts.humanReviewed += 1;
+      }
+      if (entry.status === 'manual_locked') {
+        counts.manualLocked += 1;
+      }
+      if (entry.locked) {
+        counts.locked += 1;
+      }
+      if (!entry.hasTitle || !entry.hasContent) {
+        counts.untranslated += 1;
+      }
+    }
+
+    return {
+      languages: entries.map((entry) => entry.language),
+      counts,
+      entries
+    };
+  }
+
+  private async getActiveTranslationGlossaryMap() {
+    const rows = await this.prisma.translationGlossaryTerm.findMany({
+      where: { isActive: true },
+      orderBy: { sourceTerm: 'asc' },
+      take: 500
+    });
+
+    return this.translationGlossaryRowsToMap(rows);
+  }
+
+  private translationGlossaryRowsToMap(
+    rows: Array<{ sourceTerm: string; replacementTerm: string; isActive?: boolean }>
+  ) {
+    return Object.fromEntries(
+      rows
+        .filter((row) => row.isActive !== false)
+        .map((row) => [row.sourceTerm.trim(), row.replacementTerm.trim()] as const)
+        .filter(([sourceTerm, replacementTerm]) => sourceTerm.length > 0 && replacementTerm.length > 0)
+        .sort(([left], [right]) => right.length - left.length)
+    );
+  }
+
+  private normalizeGlossaryTerm(value: unknown, field: string) {
+    if (typeof value !== 'string') {
+      throw new BadRequestException(`${field} must be text`);
+    }
+
+    const text = value.trim();
+    if (text.length < 1 || text.length > 120) {
+      throw new BadRequestException(`${field} must be 1-120 characters`);
+    }
+    if (/[\x00-\x1F\x7F]/.test(text)) {
+      throw new BadRequestException(`${field} contains unsupported characters`);
+    }
+
+    return text;
+  }
+
+  private toPublicTranslationGlossaryTerm(item: {
+    id: string;
+    sourceTerm: string;
+    replacementTerm: string;
+    note: string | null;
+    isActive: boolean;
+    createdByAdminId: string | null;
+    updatedByAdminId: string | null;
+    createdAt: Date;
+    updatedAt: Date;
+  }) {
+    return {
+      id: item.id,
+      sourceTerm: item.sourceTerm,
+      replacementTerm: item.replacementTerm,
+      note: item.note,
+      isActive: item.isActive,
+      createdByAdminId: item.createdByAdminId,
+      updatedByAdminId: item.updatedByAdminId,
+      createdAt: item.createdAt.toISOString(),
+      updatedAt: item.updatedAt.toISOString()
+    };
+  }
+
+  private translationGlossaryAuditSnapshot(item: {
+    id: string;
+    sourceTerm: string;
+    replacementTerm: string;
+    note: string | null;
+    isActive: boolean;
+  }): Prisma.InputJsonObject {
+    return {
+      id: item.id,
+      sourceTerm: item.sourceTerm,
+      replacementTerm: item.replacementTerm,
+      note: item.note,
+      isActive: item.isActive
+    };
+  }
+
+  private resolveAnnouncementPreviewTranslation(translations: unknown, language: string | null) {
+    const matched = this.getAnnouncementTranslationRecord(translations, language);
+    if (!matched) {
+      return {
+        language: null,
+        title: null,
+        content: null,
+        status: 'source',
+        locked: false,
+        source: null,
+        updatedAt: null
+      };
+    }
+
+    const { language: matchedLanguage, record } = matched;
+    const status =
+      typeof record._status === 'string' && record._status.trim().length > 0 ? record._status.trim() : 'unreviewed';
+    const title = typeof record.title === 'string' && record.title.trim().length > 0 ? record.title.trim() : null;
+    const content = typeof record.content === 'string' && record.content.trim().length > 0 ? record.content.trim() : null;
+
+    return {
+      language: matchedLanguage,
+      title,
+      content,
+      status,
+      locked: record._locked === true || status === 'manual_locked',
+      source: typeof record._source === 'string' && record._source.trim().length > 0 ? record._source.trim() : null,
+      updatedAt: typeof record._updatedAt === 'string' && record._updatedAt.trim().length > 0 ? record._updatedAt.trim() : null
+    };
+  }
+
+  private getAnnouncementTranslationRecord(translations: unknown, language: string | null) {
+    if (!language || !translations || typeof translations !== 'object' || Array.isArray(translations)) {
+      return null;
+    }
+
+    const records = translations as Record<string, unknown>;
+    for (const candidate of this.getAnnouncementPreviewLanguageCandidates(language)) {
+      const exact = records[candidate];
+      if (exact && typeof exact === 'object' && !Array.isArray(exact)) {
+        const record = exact as Record<string, unknown>;
+        if (!isSourceFallbackDraftRecord(record)) {
+          return { language: candidate, record };
+        }
+      }
+
+      const matchedKey = Object.keys(records).find((key) => key.toLowerCase() === candidate.toLowerCase());
+      const matched = matchedKey ? records[matchedKey] : null;
+      if (matchedKey && matched && typeof matched === 'object' && !Array.isArray(matched)) {
+        const record = matched as Record<string, unknown>;
+        if (!isSourceFallbackDraftRecord(record)) {
+          return { language: matchedKey, record };
+        }
+      }
+    }
+
+    return null;
+  }
+
+  private getAnnouncementPreviewLanguageCandidates(language: string) {
+    const base = language.split('-')[0];
+    return Array.from(new Set([language, language.toLowerCase(), base, base.toLowerCase()]));
+  }
+
+  private normalizeAnnouncementPreviewLanguage(value: unknown) {
+    if (value === undefined || value === null || value === '') {
+      return null;
+    }
+    if (typeof value !== 'string') {
+      throw new BadRequestException('language must be a language code');
+    }
+
+    const [base, ...regions] = value.trim().replace(/_/g, '-').split('-');
+    const normalized = [base?.toLowerCase(), ...regions.map((region) => region.toUpperCase())].filter(Boolean).join('-');
+    if (!ANNOUNCEMENT_PREVIEW_LANGUAGE_PATTERN.test(normalized)) {
+      throw new BadRequestException('language must be a language code');
+    }
+
+    return normalized;
+  }
+
+  private normalizeAnnouncementPrepareLanguages(body: PrepareAnnouncementTranslationInput) {
+    const rawValue = Object.prototype.hasOwnProperty.call(body, 'targetLanguages')
+      ? body.targetLanguages
+      : body.languages;
+    if (rawValue === undefined || rawValue === null || rawValue === '') {
+      return null;
+    }
+
+    const rawLanguages = Array.isArray(rawValue)
+      ? rawValue
+      : typeof rawValue === 'string'
+        ? rawValue.split(',')
+        : null;
+
+    if (!rawLanguages) {
+      throw new BadRequestException('targetLanguages must be an array or comma-separated language list');
+    }
+
+    if (rawLanguages.length > 80) {
+      throw new BadRequestException('targetLanguages must contain 80 languages or fewer');
+    }
+
+    const languages = rawLanguages.map((value) => this.normalizeAnnouncementPreviewLanguage(value));
+    const normalized = Array.from(
+      new Set(languages.filter((language): language is string => Boolean(language)))
+    );
+    return normalized.length > 0 ? normalized : null;
   }
 
   private requiredText(value: unknown, field: string, min: number, max: number) {
@@ -2452,6 +3555,65 @@ export class AdminService implements OnModuleInit {
     throw new BadRequestException('status must be active or disabled');
   }
 
+  private hasAnnouncementPinnedInput(body: AnnouncementInput) {
+    return Object.prototype.hasOwnProperty.call(body, 'isPinned') || Object.prototype.hasOwnProperty.call(body, 'pinned');
+  }
+
+  private normalizeAnnouncementPinned(body: AnnouncementInput) {
+    const hasIsPinned = Object.prototype.hasOwnProperty.call(body, 'isPinned');
+    const hasPinnedAlias = Object.prototype.hasOwnProperty.call(body, 'pinned');
+    if (hasIsPinned && hasPinnedAlias && body.isPinned !== body.pinned) {
+      throw new BadRequestException('isPinned and pinned must match when both are provided');
+    }
+
+    return this.optionalBoolean(hasIsPinned ? body.isPinned : body.pinned, false, 'isPinned');
+  }
+
+  private hasAnnouncementScheduleInput(body: AnnouncementInput) {
+    return (
+      Object.prototype.hasOwnProperty.call(body, 'scheduledAt') ||
+      Object.prototype.hasOwnProperty.call(body, 'scheduledPublishAt')
+    );
+  }
+
+  private normalizeAnnouncementSchedule(body: AnnouncementInput) {
+    const hasScheduledAt = Object.prototype.hasOwnProperty.call(body, 'scheduledAt');
+    const hasScheduledPublishAt = Object.prototype.hasOwnProperty.call(body, 'scheduledPublishAt');
+    const scheduledAt = hasScheduledAt ? this.optionalDateTime(body.scheduledAt, 'scheduledAt') : undefined;
+    const scheduledPublishAt = hasScheduledPublishAt
+      ? this.optionalDateTime(body.scheduledPublishAt, 'scheduledPublishAt')
+      : undefined;
+
+    if (scheduledAt !== undefined && scheduledPublishAt !== undefined) {
+      if (scheduledAt === null && scheduledPublishAt === null) {
+        return null;
+      }
+      if (scheduledAt === null || scheduledPublishAt === null || scheduledAt.getTime() !== scheduledPublishAt.getTime()) {
+        throw new BadRequestException('scheduledAt and scheduledPublishAt must match when both are provided');
+      }
+      return scheduledAt;
+    }
+
+    return scheduledAt ?? scheduledPublishAt ?? null;
+  }
+
+  private optionalDateTime(value: unknown, field: string) {
+    if (value === undefined || value === null || value === '') {
+      return null;
+    }
+
+    if (typeof value !== 'string') {
+      throw new BadRequestException(`${field} must be an ISO datetime string`);
+    }
+
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      throw new BadRequestException(`${field} must be a valid ISO datetime string`);
+    }
+
+    return date;
+  }
+
   private normalizeStatus(value: unknown): AnnouncementStatus {
     if (value === undefined || value === null || value === '') {
       return AnnouncementStatus.PUBLISHED;
@@ -2578,6 +3740,19 @@ export class AdminService implements OnModuleInit {
     return numericValue;
   }
 
+  private optionalPositiveInt(value: unknown, field: string, max: number) {
+    if (value === undefined || value === null || value === '') {
+      return null;
+    }
+
+    const numericValue = Number(value);
+    if (!Number.isInteger(numericValue) || numericValue < 1 || numericValue > max) {
+      throw new BadRequestException(`${field} must be an integer between 1 and ${max}`);
+    }
+
+    return numericValue;
+  }
+
   private optionalText(value: unknown, field: string, min: number, max: number) {
     if (value === undefined || value === null || value === '') {
       return undefined;
@@ -2603,7 +3778,7 @@ export class AdminService implements OnModuleInit {
     return [...new Set(ids)];
   }
 
-  private optionalBoolean(value: unknown, defaultValue: boolean) {
+  private optionalBoolean(value: unknown, defaultValue: boolean, field = 'supportsStream') {
     if (value === undefined || value === null || value === '') {
       return defaultValue;
     }
@@ -2620,7 +3795,7 @@ export class AdminService implements OnModuleInit {
       return false;
     }
 
-    throw new BadRequestException('supportsStream must be true or false');
+    throw new BadRequestException(`${field} must be true or false`);
   }
 
   private optionalFilterText(value: unknown, field: string) {
@@ -3010,6 +4185,7 @@ export class AdminService implements OnModuleInit {
     id: string;
     model: string;
     displayName: string | null;
+    translations: unknown;
     inputPriceCentsPer1k: number;
     outputPriceCentsPer1k: number;
     modelMultiplier: { toString(): string };
@@ -3058,6 +4234,7 @@ export class AdminService implements OnModuleInit {
       id: model.id,
       model: model.model,
       displayName: model.displayName,
+      translations: model.translations ?? null,
       inputPriceCentsPer1k: model.inputPriceCentsPer1k,
       outputPriceCentsPer1k: model.outputPriceCentsPer1k,
       modelMultiplier: model.modelMultiplier.toString(),
@@ -3150,6 +4327,11 @@ export class AdminService implements OnModuleInit {
     baseUrl: string;
     apiKeyPreview: string;
     status: UpstreamProviderStatus;
+    maxConcurrency: number | null;
+    consecutiveFailures: number;
+    circuitOpenedUntil: Date | null;
+    lastFailureAt: Date | null;
+    lastSuccessAt: Date | null;
     healthStatus: UpstreamHealthStatus;
     lastHealthCheckAt: Date | null;
     lastHealthLatencyMs: number | null;
@@ -3165,6 +4347,11 @@ export class AdminService implements OnModuleInit {
       baseUrl: provider.baseUrl,
       apiKeyPreview: provider.apiKeyPreview,
       status: provider.status.toLowerCase(),
+      maxConcurrency: provider.maxConcurrency,
+      consecutiveFailures: provider.consecutiveFailures,
+      circuitOpenedUntil: provider.circuitOpenedUntil?.toISOString() ?? null,
+      lastFailureAt: provider.lastFailureAt?.toISOString() ?? null,
+      lastSuccessAt: provider.lastSuccessAt?.toISOString() ?? null,
       healthStatus: provider.healthStatus.toLowerCase(),
       lastHealthCheckAt: provider.lastHealthCheckAt?.toISOString() ?? null,
       lastHealthLatencyMs: provider.lastHealthLatencyMs,
@@ -3173,6 +4360,77 @@ export class AdminService implements OnModuleInit {
       createdAt: provider.createdAt.toISOString(),
       updatedAt: provider.updatedAt.toISOString()
     };
+  }
+
+  private async getDailyUserCostAlerts(startIso: string, endIso: string, thresholdCents: number) {
+    const rows = await this.prisma.$queryRaw<DailyUserCostAlertRow[]>(Prisma.sql`
+      WITH days AS (
+        SELECT generate_series(
+          ${startIso}::timestamp,
+          ${endIso}::timestamp - interval '1 day',
+          interval '1 day'
+        ) AS bucket_start
+      )
+      SELECT
+        to_char(days.bucket_start + interval '8 hours', 'YYYY-MM-DD') AS date_key,
+        ue.user_id,
+        u.username,
+        COALESCE(sum(ue.cost_cents), 0)::bigint AS spend_cents,
+        COALESCE(sum(ue.total_tokens), 0)::bigint AS total_tokens,
+        count(*)::bigint AS request_count,
+        max(ue.created_at) AS last_used_at
+      FROM days
+      INNER JOIN usage_events ue
+        ON ue.created_at >= days.bucket_start
+        AND ue.created_at < days.bucket_start + interval '1 day'
+      INNER JOIN users u ON u.id = ue.user_id AND u.deleted_at IS NULL
+      GROUP BY days.bucket_start, ue.user_id, u.username
+      HAVING COALESCE(sum(ue.cost_cents), 0) >= ${thresholdCents}
+      ORDER BY spend_cents DESC, last_used_at DESC
+      LIMIT 50
+    `);
+
+    return rows.map((row) => ({
+      date: row.date_key,
+      userId: row.user_id,
+      username: row.username,
+      spendCents: this.toNumber(row.spend_cents),
+      totalTokens: this.toNumber(row.total_tokens),
+      requestCount: this.toNumber(row.request_count),
+      thresholdCents,
+      lastUsedAt: row.last_used_at?.toISOString() ?? null
+    }));
+  }
+
+  private configuredUserDailyCostAlertCents() {
+    const rawValue = process.env.ADMIN_USER_DAILY_COST_ALERT_CENTS?.trim();
+    if (!rawValue) {
+      return DEFAULT_USER_DAILY_COST_ALERT_CENTS;
+    }
+
+    const parsed = Number(rawValue);
+    if (!Number.isInteger(parsed) || parsed < 0) {
+      throw new Error('ADMIN_USER_DAILY_COST_ALERT_CENTS must be a non-negative integer');
+    }
+
+    return parsed;
+  }
+
+  private toNumber(value: unknown) {
+    if (typeof value === 'number') {
+      return Number.isFinite(value) ? value : 0;
+    }
+
+    if (typeof value === 'bigint') {
+      return Number(value);
+    }
+
+    if (typeof value === 'string') {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : 0;
+    }
+
+    return 0;
   }
 
   private async getUserFinanceMetrics(userIds: string[]) {
@@ -3371,6 +4629,12 @@ export class AdminService implements OnModuleInit {
     const chinaOffsetMs = 8 * 60 * 60 * 1000;
     const chinaTime = new Date(date.getTime() + chinaOffsetMs);
     return new Date(Date.UTC(chinaTime.getUTCFullYear(), chinaTime.getUTCMonth(), chinaTime.getUTCDate()) - chinaOffsetMs);
+  }
+
+  private startOfChinaMonth(date: Date) {
+    const chinaOffsetMs = 8 * 60 * 60 * 1000;
+    const chinaTime = new Date(date.getTime() + chinaOffsetMs);
+    return new Date(Date.UTC(chinaTime.getUTCFullYear(), chinaTime.getUTCMonth(), 1) - chinaOffsetMs);
   }
 
   private enumCountMap<T extends string>(

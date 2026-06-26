@@ -52,7 +52,7 @@ type RelayErrorResponse = {
 const API_BASE_URL = process.env.API_BASE_URL ?? 'http://127.0.0.1:3001';
 const DATABASE_URL = process.env.DATABASE_URL;
 const UPSTREAM_SECRET = process.env.UPSTREAM_KEY_ENCRYPTION_SECRET;
-const TEMP_UPSTREAM_PUBLIC_HOST = process.env.TEMP_UPSTREAM_PUBLIC_HOST ?? 'host.docker.internal';
+const TEMP_UPSTREAM_PUBLIC_HOST = process.env.TEMP_UPSTREAM_PUBLIC_HOST ?? '127.0.0.1';
 const RISK_FAILURE_THRESHOLD = 20;
 
 if (!DATABASE_URL) {

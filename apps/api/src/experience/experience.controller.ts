@@ -1,6 +1,7 @@
-import { Body, Controller, Get, HttpCode, Inject, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Headers, HttpCode, Inject, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '../auth/auth.guard';
 import type { AuthenticatedRequest, AuthenticatedUser } from '../auth/auth.types';
+import { getRequestedLanguage } from '../i18n/localized-content';
 import { ExperienceService } from './experience.service';
 
 type ExperienceRequest = AuthenticatedRequest & {
@@ -15,8 +16,12 @@ export class ExperienceController {
   constructor(@Inject(ExperienceService) private readonly experienceService: ExperienceService) {}
 
   @Get('models')
-  listModels(@Req() request: ExperienceRequest) {
-    return this.experienceService.listModels(this.getUser(request));
+  listModels(
+    @Req() request: ExperienceRequest,
+    @Query('language') language: string | undefined,
+    @Headers('accept-language') acceptLanguage: string | undefined
+  ) {
+    return this.experienceService.listModels(this.getUser(request), getRequestedLanguage(language, acceptLanguage));
   }
 
   @Post('chat')

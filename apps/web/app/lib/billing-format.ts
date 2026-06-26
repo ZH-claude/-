@@ -10,7 +10,7 @@ export function formatBillingCny(value: number | null | undefined) {
   const absAmount = Math.abs(amount);
   const fractionDigits = absAmount > 0 && absAmount < 1 ? 6 : 2;
 
-  return `¥${new Intl.NumberFormat('zh-CN', {
+  return `CNY ${new Intl.NumberFormat('en-US', {
     minimumFractionDigits: fractionDigits,
     maximumFractionDigits: fractionDigits
   }).format(amount)}`;
@@ -33,21 +33,21 @@ export function formatBillingCnyNumber(value: number | null | undefined) {
   return (value / BILLING_UNIT_SCALE).toFixed(6);
 }
 
-export function parseBillingCnyInput(value: string, fieldName = '额度') {
+export function parseBillingCnyInput(value: string, fieldName = 'Amount') {
   const trimmed = value.trim();
   if (!trimmed) {
     return null;
   }
 
-  const normalized = trimmed.replace(/^[¥￥$]/, '').replace(/,/g, '');
+  const normalized = stripCurrencyPrefix(trimmed);
   const numericValue = Number(normalized);
   if (!Number.isFinite(numericValue) || numericValue < 0) {
-    return new Error(`${fieldName}必须是大于等于 0 的人民币数字`);
+    return new Error(`${fieldName} must be a non-negative CNY amount`);
   }
 
   const scaledValue = Math.round(numericValue * BILLING_UNIT_SCALE);
   if (!Number.isSafeInteger(scaledValue)) {
-    return new Error(`${fieldName}超出可支持范围`);
+    return new Error(`${fieldName} exceeds the supported amount range`);
   }
 
   return scaledValue;
@@ -58,7 +58,7 @@ export function formatMoneyCny(cents: number | null | undefined) {
     return '-';
   }
 
-  return `¥${(cents / 100).toFixed(2)}`;
+  return `CNY ${(cents / 100).toFixed(2)}`;
 }
 
 export const formatBillingUsd = formatBillingCny;
@@ -95,27 +95,34 @@ export function formatUsdPerMillionInputFromUnits(value: number | null | undefin
   return usdPerMillion.toFixed(4).replace(/\.?0+$/, '');
 }
 
-export function parseUsdPerMillionToUnits(value: string, fieldName = '美元价格') {
+export function parseUsdPerMillionToUnits(value: string, fieldName = 'USD price') {
   const trimmed = value.trim();
   if (!trimmed) {
-    return new Error(`${fieldName}不能为空`);
+    return new Error(`${fieldName} cannot be empty`);
   }
 
-  const normalized = trimmed.replace(/^\$/, '').replace(/,/g, '');
+  const normalized = stripCurrencyPrefix(trimmed);
   const numericValue = Number(normalized);
   if (!Number.isFinite(numericValue) || numericValue < 0) {
-    return new Error(`${fieldName}必须是大于等于 0 的美元数字`);
+    return new Error(`${fieldName} must be a non-negative USD number`);
   }
 
   const scaledRawValue = numericValue * TOKENS_PER_1M_TO_1K_RATIO;
   const scaledValue = Math.round(scaledRawValue);
   if (Math.abs(scaledRawValue - scaledValue) > 1e-8) {
-    return new Error(`${fieldName}最小精度为 0.001 美元 / 1M tokens`);
+    return new Error(`${fieldName} minimum precision is 0.001 USD / 1M tokens`);
   }
 
   if (!Number.isSafeInteger(scaledValue)) {
-    return new Error(`${fieldName}超出可支持范围`);
+    return new Error(`${fieldName} exceeds the supported price range`);
   }
 
   return scaledValue;
+}
+
+function stripCurrencyPrefix(value: string) {
+  return value
+    .replace(/^(?:CNY|RMB|USD)\s*/i, '')
+    .replace(/^[\u00a5$]\s*/, '')
+    .replace(/,/g, '');
 }

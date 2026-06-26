@@ -10,6 +10,7 @@ import {
   PaymentChannel,
   PaymentOrderStatus,
   Prisma,
+  RechargeCodeKind,
   RechargeCodeStatus,
   WalletTransactionType
 } from '../generated/prisma/client';
@@ -24,7 +25,12 @@ import { PrismaService } from '../prisma.service';
 type CreateRechargeCodeInput = {
   amountCnyCents?: unknown;
   amountCents?: unknown;
+  codeKind?: unknown;
   count?: unknown;
+  kind?: unknown;
+  quotaHours?: unknown;
+  quotaPeriodDays?: unknown;
+  tokenQuota?: unknown;
 };
 
 type RedeemRechargeCodeInput = {
@@ -43,6 +49,10 @@ const CODE_PREFIX = 'RC';
 const CODE_BYTES = 16;
 const CODE_COLLISION_RETRIES = 5;
 const MAX_RECHARGE_CODE_COUNT = 100;
+const DEFAULT_VIBE_CODE_QUOTA_HOURS = 5;
+const DEFAULT_VIBE_CODE_QUOTA_PERIOD_DAYS = 7;
+const DEFAULT_VIBE_CODE_TOKEN_QUOTA = 50_000;
+const MAX_VIBE_CODE_TOKEN_QUOTA = 2_147_483_647;
 const ORDER_PREFIX = 'PAY';
 const ORDER_BYTES = 6;
 const ORDER_COLLISION_RETRIES = 5;
@@ -53,20 +63,14 @@ export class RechargeService {
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
   async createRechargeCodes(adminUserId: string, body: CreateRechargeCodeInput) {
-    const faceValueCnyCents = this.positiveInt(
-      body.amountCnyCents ?? body.amountCents,
-      'amountCnyCents',
-      1,
-      MAX_RECHARGE_FACE_VALUE_CNY_CENTS
-    );
-    const baseTokenAmount = cnyCentsToBaseTokens(faceValueCnyCents);
+    const input = this.parseRechargeCodeInput(body);
     const count = this.positiveInt(body.count ?? 1, 'count', 1, MAX_RECHARGE_CODE_COUNT);
 
     const codes = await this.prisma.$transaction(async (tx) => {
       const createdCodes = [];
 
       for (let index = 0; index < count; index += 1) {
-        const createdCode = await this.createSingleCodeWithRetry(tx, adminUserId, baseTokenAmount, faceValueCnyCents);
+        const createdCode = await this.createSingleCodeWithRetry(tx, adminUserId, input);
         createdCodes.push(createdCode);
 
         await tx.adminAuditLog.create({
@@ -78,9 +82,13 @@ export class RechargeService {
             beforeSnapshot: Prisma.JsonNull,
             afterSnapshot: {
               id: createdCode.id,
-              amountCents: baseTokenAmount,
-              amountBaseTokens: baseTokenAmount,
-              faceValueCnyCents,
+              kind: createdCode.kind.toLowerCase(),
+              amountCents: createdCode.amountCents,
+              amountBaseTokens: createdCode.amountCents,
+              faceValueCnyCents: createdCode.faceValueCnyCents,
+              quotaHours: createdCode.quotaHours,
+              quotaPeriodDays: createdCode.quotaPeriodDays,
+              tokenQuota: createdCode.tokenQuota,
               rechargeRate: baseTokenRechargeRateSnapshot(),
               status: RechargeCodeStatus.UNUSED.toLowerCase()
             }
@@ -95,9 +103,14 @@ export class RechargeService {
       items: codes.map((entry) => ({
         id: entry.id,
         code: entry.plainCode,
+        kind: entry.kind.toLowerCase(),
         amountCents: entry.amountCents,
         amountBaseTokens: entry.amountCents,
         faceValueCnyCents: entry.faceValueCnyCents,
+        quotaHours: entry.quotaHours,
+        quotaPeriodDays: entry.quotaPeriodDays,
+        tokenQuota: entry.tokenQuota,
+        vibeCodingPackage: this.toVibeCodingPackage(entry),
         status: entry.status.toLowerCase(),
         createdAt: entry.createdAt.toISOString()
       }))
@@ -139,9 +152,14 @@ export class RechargeService {
       },
       items: codes.map((code) => ({
         id: code.id,
+        kind: code.kind.toLowerCase(),
         amountCents: code.amountCents,
         amountBaseTokens: code.amountCents,
         faceValueCnyCents: code.faceValueCnyCents,
+        quotaHours: code.quotaHours,
+        quotaPeriodDays: code.quotaPeriodDays,
+        tokenQuota: code.tokenQuota,
+        vibeCodingPackage: this.toVibeCodingPackage(code),
         status: code.status.toLowerCase(),
         createdBy: code.createdByAdmin.username,
         usedBy: code.usedByUser?.username ?? null,
@@ -362,31 +380,52 @@ export class RechargeService {
         throw new ConflictException('兑换码已被使用');
       }
 
-      const wallet = await tx.wallet.update({
-        where: { userId: user.id },
-        data: {
-          balanceCents: { increment: code.amountCents },
-          version: { increment: 1 }
-        }
-      });
+      const isBalanceCode = code.kind === RechargeCodeKind.BALANCE;
+      const wallet = isBalanceCode
+        ? await tx.wallet.update({
+            where: { userId: user.id },
+            data: {
+              balanceCents: { increment: code.amountCents },
+              version: { increment: 1 }
+            }
+          })
+        : await tx.wallet.findUniqueOrThrow({
+            where: { userId: user.id }
+          });
 
       const transaction = await tx.walletTransaction.create({
         data: {
           userId: user.id,
           type: WalletTransactionType.RECHARGE,
-          amountCents: code.amountCents,
+          amountCents: isBalanceCode ? code.amountCents : 0,
           balanceAfterCents: wallet.balanceCents,
           rechargeCodeId: code.id,
           idempotencyKey: `recharge:${code.id}`
         }
       });
+      const entitlement = isBalanceCode
+        ? null
+        : await this.createVibeCodingEntitlementFromRechargeCode(tx, {
+            userId: user.id,
+            rechargeCodeId: code.id,
+            quotaHours: code.quotaHours,
+            quotaPeriodDays: code.quotaPeriodDays,
+            tokenQuota: code.tokenQuota,
+            startsAt: usedAt
+          });
 
       return {
         recharge: {
           id: code.id,
+          kind: code.kind.toLowerCase(),
           amountCents: code.amountCents,
           amountBaseTokens: code.amountCents,
           faceValueCnyCents: code.faceValueCnyCents,
+          quotaHours: code.quotaHours,
+          quotaPeriodDays: code.quotaPeriodDays,
+          tokenQuota: code.tokenQuota,
+          vibeCodingPackage: this.toVibeCodingPackage(code),
+          entitlement: entitlement ? this.toVibeCodingEntitlement(entitlement) : null,
           usedAt: usedAt.toISOString()
         },
         wallet: {
@@ -413,7 +452,11 @@ export class RechargeService {
         type: WalletTransactionType.RECHARGE
       },
       include: {
-        rechargeCode: true,
+        rechargeCode: {
+          include: {
+            vibeCodingEntitlement: true
+          }
+        },
         paymentOrder: true
       },
       orderBy: { createdAt: 'desc' },
@@ -427,9 +470,17 @@ export class RechargeService {
         paymentOrderId: record.paymentOrderId,
         paymentOrderNo: record.paymentOrder?.orderNo ?? null,
         paymentChannel: record.paymentOrder?.channel.toLowerCase() ?? null,
+        rechargeCodeKind: record.rechargeCode?.kind.toLowerCase() ?? null,
         amountCents: record.amountCents,
         amountBaseTokens: record.amountCents,
         faceValueCnyCents: record.rechargeCode?.faceValueCnyCents ?? record.paymentOrder?.faceValueCnyCents ?? null,
+        quotaHours: record.rechargeCode?.quotaHours ?? null,
+        quotaPeriodDays: record.rechargeCode?.quotaPeriodDays ?? null,
+        tokenQuota: record.rechargeCode?.tokenQuota ?? null,
+        vibeCodingPackage: record.rechargeCode ? this.toVibeCodingPackage(record.rechargeCode) : null,
+        vibeCodingEntitlement: record.rechargeCode?.vibeCodingEntitlement
+          ? this.toVibeCodingEntitlement(record.rechargeCode.vibeCodingEntitlement)
+          : null,
         balanceAfterCents: record.balanceAfterCents,
         balanceAfterBaseTokens: record.balanceAfterCents,
         status: record.rechargeCode?.status.toLowerCase() ?? record.paymentOrder?.status.toLowerCase() ?? 'unknown',
@@ -647,8 +698,14 @@ export class RechargeService {
   private async createSingleCodeWithRetry(
     tx: Prisma.TransactionClient,
     adminUserId: string,
-    baseTokenAmount: number,
-    faceValueCnyCents: number
+    input: {
+      kind: RechargeCodeKind;
+      amountCents: number;
+      faceValueCnyCents: number;
+      quotaHours: number | null;
+      quotaPeriodDays: number | null;
+      tokenQuota: number | null;
+    }
   ) {
     let lastError: unknown;
 
@@ -660,8 +717,12 @@ export class RechargeService {
         const code = await tx.rechargeCode.create({
           data: {
             codeHash,
-            amountCents: baseTokenAmount,
-            faceValueCnyCents,
+            kind: input.kind,
+            amountCents: input.amountCents,
+            faceValueCnyCents: input.faceValueCnyCents,
+            quotaHours: input.quotaHours,
+            quotaPeriodDays: input.quotaPeriodDays,
+            tokenQuota: input.tokenQuota,
             createdByAdminId: adminUserId
           }
         });
@@ -681,8 +742,12 @@ export class RechargeService {
 
   private toAdminRechargeCode(code: {
     id: string;
+    kind: RechargeCodeKind;
     amountCents: number;
     faceValueCnyCents: number;
+    quotaHours: number | null;
+    quotaPeriodDays: number | null;
+    tokenQuota: number | null;
     status: RechargeCodeStatus;
     usedByUserId: string | null;
     usedAt: Date | null;
@@ -690,13 +755,152 @@ export class RechargeService {
   }) {
     return {
       id: code.id,
+      kind: code.kind.toLowerCase(),
       amountCents: code.amountCents,
       amountBaseTokens: code.amountCents,
       faceValueCnyCents: code.faceValueCnyCents,
+      quotaHours: code.quotaHours,
+      quotaPeriodDays: code.quotaPeriodDays,
+      tokenQuota: code.tokenQuota,
+      vibeCodingPackage: this.toVibeCodingPackage(code),
       status: code.status.toLowerCase(),
       usedByUserId: code.usedByUserId,
       usedAt: code.usedAt?.toISOString() ?? null,
       createdAt: code.createdAt.toISOString()
+    };
+  }
+
+  private parseRechargeCodeInput(body: CreateRechargeCodeInput) {
+    const kind = this.normalizeRechargeCodeKind(body.codeKind ?? body.kind ?? 'balance');
+
+    if (kind === RechargeCodeKind.BALANCE) {
+      const faceValueCnyCents = this.positiveInt(
+        body.amountCnyCents ?? body.amountCents,
+        'amountCnyCents',
+        1,
+        MAX_RECHARGE_FACE_VALUE_CNY_CENTS
+      );
+
+      return {
+        kind,
+        amountCents: cnyCentsToBaseTokens(faceValueCnyCents),
+        faceValueCnyCents,
+        quotaHours: null,
+        quotaPeriodDays: null,
+        tokenQuota: null
+      };
+    }
+
+    const amountInput = body.amountCnyCents ?? body.amountCents;
+
+    return {
+      kind,
+      amountCents: 0,
+      faceValueCnyCents:
+        amountInput === undefined || amountInput === null || amountInput === ''
+          ? 0
+          : this.positiveInt(amountInput, 'amountCnyCents', 0, MAX_RECHARGE_FACE_VALUE_CNY_CENTS),
+      quotaHours: this.positiveInt(body.quotaHours ?? DEFAULT_VIBE_CODE_QUOTA_HOURS, 'quotaHours', 1, 100_000),
+      quotaPeriodDays: this.positiveInt(
+        body.quotaPeriodDays ?? DEFAULT_VIBE_CODE_QUOTA_PERIOD_DAYS,
+        'quotaPeriodDays',
+        1,
+        3_650
+      ),
+      tokenQuota: this.positiveInt(body.tokenQuota ?? DEFAULT_VIBE_CODE_TOKEN_QUOTA, 'tokenQuota', 1, MAX_VIBE_CODE_TOKEN_QUOTA)
+    };
+  }
+
+  private normalizeRechargeCodeKind(value: unknown) {
+    const kind = typeof value === 'string' ? value.trim().toLowerCase().replace(/-/g, '_') : '';
+
+    if (!kind || kind === 'balance') {
+      return RechargeCodeKind.BALANCE;
+    }
+
+    if (kind === 'vibe_coding' || kind === 'vibecoding') {
+      return RechargeCodeKind.VIBE_CODING;
+    }
+
+    throw new BadRequestException('codeKind must be balance or vibe_coding');
+  }
+
+  private toVibeCodingPackage(code: {
+    kind: RechargeCodeKind;
+    quotaHours: number | null;
+    quotaPeriodDays: number | null;
+    tokenQuota: number | null;
+  }) {
+    if (code.kind !== RechargeCodeKind.VIBE_CODING) {
+      return null;
+    }
+
+    return {
+      quotaHours: code.quotaHours,
+      quotaPeriodDays: code.quotaPeriodDays,
+      tokenQuota: code.tokenQuota
+    };
+  }
+
+  private async createVibeCodingEntitlementFromRechargeCode(
+    tx: Prisma.TransactionClient,
+    input: {
+      userId: string;
+      rechargeCodeId: string;
+      quotaHours: number | null;
+      quotaPeriodDays: number | null;
+      tokenQuota: number | null;
+      startsAt: Date;
+    }
+  ) {
+    const quotaHours = this.requiredPositivePackageInt(input.quotaHours, 'quotaHours');
+    const quotaPeriodDays = this.requiredPositivePackageInt(input.quotaPeriodDays, 'quotaPeriodDays');
+    const tokenQuota = this.requiredPositivePackageInt(input.tokenQuota, 'tokenQuota');
+
+    return tx.vibeCodingEntitlement.create({
+      data: {
+        userId: input.userId,
+        sourceRechargeCodeId: input.rechargeCodeId,
+        quotaHours,
+        quotaPeriodDays,
+        tokenQuota,
+        startsAt: input.startsAt,
+        expiresAt: this.addDays(input.startsAt, quotaPeriodDays)
+      }
+    });
+  }
+
+  private requiredPositivePackageInt(value: number | null, field: string) {
+    if (!Number.isInteger(value) || value === null || value <= 0) {
+      throw new BadRequestException(`${field} must be a positive integer for vibe_coding packages`);
+    }
+
+    return value;
+  }
+
+  private addDays(value: Date, days: number) {
+    return new Date(value.getTime() + days * 24 * 60 * 60 * 1000);
+  }
+
+  private toVibeCodingEntitlement(entitlement: {
+    id: string;
+    quotaHours: number;
+    quotaPeriodDays: number;
+    tokenQuota: number;
+    usedTokenQuota: number;
+    startsAt: Date;
+    expiresAt: Date;
+    status: string;
+  }) {
+    return {
+      id: entitlement.id,
+      quotaHours: entitlement.quotaHours,
+      quotaPeriodDays: entitlement.quotaPeriodDays,
+      tokenQuota: entitlement.tokenQuota,
+      usedTokenQuota: entitlement.usedTokenQuota,
+      startsAt: entitlement.startsAt.toISOString(),
+      expiresAt: entitlement.expiresAt.toISOString(),
+      status: entitlement.status.toLowerCase()
     };
   }
 

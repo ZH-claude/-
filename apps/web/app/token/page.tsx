@@ -16,8 +16,12 @@ import {
 import { useRouter } from 'next/navigation';
 import { type FormEvent, useEffect, useMemo, useState } from 'react';
 import { ConsoleShell } from '../components/console-shell';
+import { useI18n } from '../components/language-provider';
 import { getProfile, type AvailableModel } from '../lib/auth-api';
 import { formatBillingUsd, formatBillingUsdForInput, parseBillingUsdInput } from '../lib/billing-format';
+import { applyCopyOverrides, type CopyOverrides } from '../lib/copy-overrides';
+import type { LanguageCode } from '../lib/i18n';
+import { pageRows, pageTerm } from '../lib/page-copy-terms';
 import {
   createToken,
   deleteToken,
@@ -66,8 +70,270 @@ const pageSizeOptions = [10, 20, 50];
 const publicAnthropicBaseUrl = 'https://newaicode.com';
 const publicNoProxyHosts = 'newaicode.com,api.newaicode.com,localhost,127.0.0.1,::1';
 
+type TokenCopy = {
+  allModels: string;
+  allStatuses: string;
+  allUsableModels: string;
+  batchDeleteConfirm: (count: number) => string;
+  batchDeleteFailed: string;
+  batchDeleted: string;
+  billingMode: string;
+  cancel: string;
+  close: string;
+  copyClaudeConfig: string;
+  copyClaudeConfigSuccess: string;
+  copyFailed: string;
+  copyFullKey: string;
+  copyFullKeyFailed: string;
+  copiedFullKey: string;
+  createToken: string;
+  delete: string;
+  deleteConfirm: string;
+  deleteFailed: string;
+  deleted: string;
+  deleteSelected: string;
+  edit: string;
+  editToken: string;
+  empty: string;
+  export: string;
+  filters: {
+    model: string;
+    name: string;
+    namePlaceholder: string;
+    status: string;
+  };
+  form: {
+    expiresAt: string;
+    models: string;
+    name: string;
+    namePlaceholder: string;
+    note: string;
+    notePlaceholder: string;
+    quota: string;
+    quotaPlaceholder: string;
+  };
+  loadFailed: string;
+  neverExpires: string;
+  noLimit: string;
+  pageRows: (size: number) => string;
+  pagination: (start: number, end: number, total: number) => string;
+  quotaLabel: string;
+  refresh: string;
+  reset: string;
+  resetFailed: string;
+  resetKey: string;
+  resetToken: string;
+  resetTokenSuccess: string;
+  save: string;
+  saveFailed: string;
+  saving: string;
+  search: string;
+  select: string;
+  selectToken: (name: string) => string;
+  selectTokenFirst: string;
+  statusLabels: Record<string, string>;
+  table: {
+    actions: string;
+    availableModels: string;
+    billing: string;
+    createdAt: string;
+    expiresAt: string;
+    lastUsedAt: string;
+    name: string;
+    remainingQuota: string;
+    status: string;
+    used: string;
+  };
+  title: string;
+  tokenCreated: string;
+  tokenUpdated: (name: string) => string;
+  multiSelect: string;
+  nextPage: string;
+  previousPage: string;
+  pageSizeAria: string;
+};
+
+const TOKEN_COPY = {
+  'en-US': {
+    allModels: 'All models',
+    allStatuses: 'All statuses',
+    allUsableModels: 'All available models',
+    batchDeleteConfirm: (count) => `Delete the selected ${count} tokens?`,
+    batchDeleteFailed: 'Batch delete failed',
+    batchDeleted: 'Selected tokens deleted',
+    billingMode: 'Usage first',
+    cancel: 'Cancel',
+    close: 'Close',
+    copyClaudeConfig: 'Copy Claude Code config',
+    copyClaudeConfigSuccess: 'Claude Code config copied',
+    copyFailed: 'Copy failed',
+    copyFullKey: 'Copy full key',
+    copyFullKeyFailed: 'Copy failed. Reset the token and try again.',
+    copiedFullKey: 'Full key copied',
+    createToken: 'Create token',
+    delete: 'Delete',
+    deleteConfirm: 'Delete this token? It can no longer be used for API authentication.',
+    deleteFailed: 'Failed to delete token',
+    deleted: 'Token deleted',
+    deleteSelected: 'Delete selected',
+    edit: 'Edit',
+    editToken: 'Edit token',
+    empty: 'No tokens',
+    export: 'Export',
+    filters: { model: 'Available model:', name: 'Token name:', namePlaceholder: 'Enter name', status: 'Status:' },
+    form: {
+      expiresAt: 'Expiration time',
+      models: 'Available models',
+      name: 'Token name',
+      namePlaceholder: 'Enter token name',
+      note: 'Note',
+      notePlaceholder: 'Optional',
+      quota: 'Quota (CNY, optional)',
+      quotaPlaceholder: 'Leave blank for unlimited'
+    },
+    loadFailed: 'Failed to load tokens',
+    multiSelect: 'Select',
+    neverExpires: 'Never expires',
+    nextPage: 'Next page',
+    noLimit: 'Unlimited',
+    pageRows: (size) => `${size} rows/page`,
+    pageSizeAria: 'Rows per page',
+    pagination: (start, end, total) => `${start}-${end} of ${total} rows`,
+    previousPage: 'Previous page',
+    quotaLabel: 'Quota',
+    refresh: 'Refresh',
+    reset: 'Reset',
+    resetFailed: 'Failed to reset token',
+    resetKey: 'Reset key',
+    resetToken: 'Reset',
+    resetTokenSuccess: 'Token reset. The full key is shown only this once.',
+    save: 'Save',
+    saveFailed: 'Failed to save token',
+    saving: 'Saving',
+    search: 'Search',
+    select: 'Select',
+    selectToken: (name) => `Select ${name}`,
+    selectTokenFirst: 'Select a token first',
+    statusLabels: { active: 'Active', deleted: 'Deleted', disabled: 'Disabled', expired: 'Expired', quota_exhausted: 'Quota exhausted' },
+    table: {
+      actions: 'Actions',
+      availableModels: 'Available models',
+      billing: 'Billing',
+      createdAt: 'Created',
+      expiresAt: 'Expires',
+      lastUsedAt: 'Last used',
+      name: 'Token name',
+      remainingQuota: 'Remaining quota',
+      status: 'Status',
+      used: 'Used'
+    },
+    title: 'Token management',
+    tokenCreated: 'Token created. The full key is shown only this once.',
+    tokenUpdated: (name) => `Token ${name} updated`
+  }
+} satisfies Record<'en-US', TokenCopy>;
+
+function getTokenCopy(language: LanguageCode) {
+  const base = TOKEN_COPY['en-US'];
+  if (language === 'en-US') {
+    return base;
+  }
+
+  return applyCopyOverrides(base, getTokenCopyOverrides(language));
+}
+
+function getTokenCopyOverrides(language: LanguageCode): CopyOverrides<TokenCopy> {
+  return {
+    allModels: pageTerm(language, 'allModels'),
+    allStatuses: pageTerm(language, 'allStatuses'),
+    allUsableModels: pageTerm(language, 'allUsableModels'),
+    batchDeleteConfirm: (count) => `${pageTerm(language, 'deleteSelected')} ${count} ${pageTerm(language, 'token')}?`,
+    batchDeleteFailed: `${pageTerm(language, 'delete')} ${pageTerm(language, 'failed')}`,
+    batchDeleted: `${pageTerm(language, 'deleteSelected')} ${pageTerm(language, 'deleted')}`,
+    cancel: pageTerm(language, 'cancel'),
+    close: pageTerm(language, 'close'),
+    copyFailed: `${pageTerm(language, 'copy')} ${pageTerm(language, 'failed')}`,
+    copyFullKey: `${pageTerm(language, 'copy')} ${pageTerm(language, 'token')}`,
+    copyFullKeyFailed: `${pageTerm(language, 'copy')} ${pageTerm(language, 'failed')}`,
+    copiedFullKey: `${pageTerm(language, 'token')} ${pageTerm(language, 'copy')}`,
+    createToken: pageTerm(language, 'createToken'),
+    delete: pageTerm(language, 'delete'),
+    deleteConfirm: `${pageTerm(language, 'delete')} ${pageTerm(language, 'token')}?`,
+    deleteFailed: `${pageTerm(language, 'delete')} ${pageTerm(language, 'failed')}`,
+    deleted: `${pageTerm(language, 'token')} ${pageTerm(language, 'deleted')}`,
+    deleteSelected: pageTerm(language, 'deleteSelected'),
+    edit: pageTerm(language, 'edit'),
+    editToken: pageTerm(language, 'editToken'),
+    empty: pageTerm(language, 'emptyTokens'),
+    export: pageTerm(language, 'export'),
+    filters: {
+      model: `${pageTerm(language, 'availableModels')}:`,
+      name: `${pageTerm(language, 'name')}:`,
+      namePlaceholder: pageTerm(language, 'name'),
+      status: `${pageTerm(language, 'status')}:`
+    },
+    form: {
+      expiresAt: pageTerm(language, 'expiresAt'),
+      models: pageTerm(language, 'availableModels'),
+      name: pageTerm(language, 'name'),
+      namePlaceholder: pageTerm(language, 'name'),
+      note: pageTerm(language, 'note'),
+      notePlaceholder: pageTerm(language, 'noData'),
+      quota: pageTerm(language, 'quota'),
+      quotaPlaceholder: pageTerm(language, 'noLimit')
+    },
+    loadFailed: `${pageTerm(language, 'loading')} ${pageTerm(language, 'failed')}`,
+    multiSelect: pageTerm(language, 'select'),
+    neverExpires: pageTerm(language, 'neverExpires'),
+    nextPage: pageTerm(language, 'nextPage'),
+    noLimit: pageTerm(language, 'noLimit'),
+    pageRows: (size) => pageRows(language, size),
+    pageSizeAria: pageTerm(language, 'visibleRows'),
+    pagination: (start, end, total) => `${start}-${end} / ${total} ${pageTerm(language, 'visibleRows')}`,
+    previousPage: pageTerm(language, 'previousPage'),
+    quotaLabel: pageTerm(language, 'quota'),
+    refresh: pageTerm(language, 'refresh'),
+    reset: pageTerm(language, 'reset'),
+    resetFailed: `${pageTerm(language, 'reset')} ${pageTerm(language, 'failed')}`,
+    resetKey: pageTerm(language, 'resetKey'),
+    resetToken: pageTerm(language, 'reset'),
+    resetTokenSuccess: `${pageTerm(language, 'resetKey')} ${pageTerm(language, 'active')}`,
+    save: pageTerm(language, 'save'),
+    saveFailed: `${pageTerm(language, 'save')} ${pageTerm(language, 'failed')}`,
+    saving: pageTerm(language, 'saving'),
+    search: pageTerm(language, 'search'),
+    select: pageTerm(language, 'select'),
+    selectToken: (name) => `${pageTerm(language, 'select')} ${name}`,
+    selectTokenFirst: `${pageTerm(language, 'select')} ${pageTerm(language, 'token')}`,
+    statusLabels: {
+      active: pageTerm(language, 'active'),
+      deleted: pageTerm(language, 'deleted'),
+      disabled: pageTerm(language, 'disabled'),
+      expired: pageTerm(language, 'expired'),
+      quota_exhausted: pageTerm(language, 'quota')
+    },
+    table: {
+      actions: pageTerm(language, 'actions'),
+      availableModels: pageTerm(language, 'availableModels'),
+      billing: pageTerm(language, 'billing'),
+      createdAt: pageTerm(language, 'createdAt'),
+      expiresAt: pageTerm(language, 'expiresAt'),
+      lastUsedAt: pageTerm(language, 'lastUsed'),
+      name: pageTerm(language, 'name'),
+      remainingQuota: pageTerm(language, 'remainingQuota'),
+      status: pageTerm(language, 'status'),
+      used: pageTerm(language, 'charged')
+    },
+    title: pageTerm(language, 'tokenManagement'),
+    tokenCreated: `${pageTerm(language, 'token')} ${pageTerm(language, 'active')}`,
+    tokenUpdated: (name) => `${pageTerm(language, 'token')} ${name} ${pageTerm(language, 'edit')}`
+  };
+}
+
 export default function TokenPage() {
   const router = useRouter();
+  const { language } = useI18n();
+  const copy = getTokenCopy(language);
   const [tokens, setTokens] = useState<ApiToken[]>([]);
   const [availableModels, setAvailableModels] = useState<AvailableModel[]>([]);
   const [oneTimeKey, setOneTimeKey] = useState<OneTimeKey | null>(null);
@@ -88,7 +354,7 @@ export default function TokenPage() {
 
   useEffect(() => {
     void loadTokenPage();
-  }, []);
+  }, [language]);
 
   const modelFilterOptions = useMemo(() => {
     const names = [
@@ -100,7 +366,7 @@ export default function TokenPage() {
 
   const filteredTokens = useMemo(() => {
     return tokens.filter((token) => {
-      const state = getTokenEffectiveState(token).state;
+      const state = getTokenEffectiveState(token, copy).state;
       const nameMatched = appliedFilters.name
         ? token.name.toLowerCase().includes(appliedFilters.name.trim().toLowerCase())
         : true;
@@ -110,7 +376,7 @@ export default function TokenPage() {
         : true;
       return nameMatched && statusMatched && modelMatched;
     });
-  }, [appliedFilters, tokens]);
+  }, [appliedFilters, copy, tokens]);
 
   const totalPages = Math.max(1, Math.ceil(filteredTokens.length / pageSize));
   const currentPage = Math.min(page, totalPages);
@@ -129,11 +395,11 @@ export default function TokenPage() {
     setError('');
 
     try {
-      const [tokenResult, profileResult] = await Promise.all([listTokens(), getProfile()]);
+      const [tokenResult, profileResult] = await Promise.all([listTokens(language), getProfile(language)]);
       setTokens(tokenResult.items);
       setAvailableModels(profileResult.user.availableModels);
-    } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : '加载令牌失败');
+    } catch {
+      setError(copy.loadFailed);
       router.replace('/login');
     } finally {
       setIsLoading(false);
@@ -187,7 +453,7 @@ export default function TokenPage() {
     setError('');
     setMessage('');
 
-    const quotaValue = normalizeQuotaUsd(form.quotaBaseTokens);
+    const quotaValue = normalizeQuotaUsd(form.quotaBaseTokens, copy);
     if (quotaValue instanceof Error) {
       setError(quotaValue.message);
       return;
@@ -205,22 +471,22 @@ export default function TokenPage() {
       };
 
       if (dialogMode === 'edit') {
-        const result = await updateToken(editingTokenId, payload);
-        setMessage(`令牌 ${result.token.name} 已修改`);
+        const result = await updateToken(editingTokenId, payload, language);
+        setMessage(copy.tokenUpdated(result.token.name));
       } else {
-        const result = await createToken(payload);
+        const result = await createToken(payload, language);
         setOneTimeKey({
           tokenId: result.token.id,
           tokenName: result.token.name,
           apiKey: result.apiKey
         });
-        setMessage('令牌已新增，完整密钥只显示这一次');
+        setMessage(copy.tokenCreated);
       }
 
       closeDialog();
       await loadTokenPage();
-    } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : '令牌保存失败');
+    } catch {
+      setError(copy.saveFailed);
     } finally {
       setIsSaving(false);
     }
@@ -232,16 +498,16 @@ export default function TokenPage() {
     setBusyTokenId(token.id);
 
     try {
-      const result = await resetToken(token.id);
+      const result = await resetToken(token.id, language);
       setOneTimeKey({
         tokenId: result.token.id,
         tokenName: result.token.name,
         apiKey: result.apiKey
       });
-      setMessage('令牌已重置，完整密钥只显示这一次');
+      setMessage(copy.resetTokenSuccess);
       await loadTokenPage();
-    } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : '重置令牌失败');
+    } catch {
+      setError(copy.resetFailed);
     } finally {
       setBusyTokenId('');
     }
@@ -251,22 +517,22 @@ export default function TokenPage() {
     setError('');
     setMessage('');
 
-    if (!window.confirm('确认删除这个令牌？删除后不能再用于 API 鉴权。')) {
+    if (!window.confirm(copy.deleteConfirm)) {
       return;
     }
 
     setBusyTokenId(tokenId);
 
     try {
-      await deleteToken(tokenId);
+      await deleteToken(tokenId, language);
       if (oneTimeKey?.tokenId === tokenId) {
         setOneTimeKey(null);
       }
       setSelectedIds((current) => current.filter((id) => id !== tokenId));
-      setMessage('令牌已删除');
+      setMessage(copy.deleted);
       await loadTokenPage();
-    } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : '删除令牌失败');
+    } catch {
+      setError(copy.deleteFailed);
     } finally {
       setBusyTokenId('');
     }
@@ -277,11 +543,11 @@ export default function TokenPage() {
     setMessage('');
 
     if (selectedIds.length === 0) {
-      setError('请先选择令牌');
+      setError(copy.selectTokenFirst);
       return;
     }
 
-    if (!window.confirm(`确认删除选中的 ${selectedIds.length} 个令牌？`)) {
+    if (!window.confirm(copy.batchDeleteConfirm(selectedIds.length))) {
       return;
     }
 
@@ -289,14 +555,14 @@ export default function TokenPage() {
 
     try {
       for (const tokenId of selectedIds) {
-        await deleteToken(tokenId);
+        await deleteToken(tokenId, language);
       }
       setOneTimeKey((current) => (current && selectedIds.includes(current.tokenId) ? null : current));
       setSelectedIds([]);
-      setMessage('选中令牌已删除');
+      setMessage(copy.batchDeleted);
       await loadTokenPage();
-    } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : '批量删除失败');
+    } catch {
+      setError(copy.batchDeleteFailed);
     } finally {
       setBusyTokenId('');
     }
@@ -309,9 +575,9 @@ export default function TokenPage() {
 
     try {
       await navigator.clipboard.writeText(oneTimeKey.apiKey);
-      setMessage('完整密钥已复制');
+      setMessage(copy.copiedFullKey);
     } catch {
-      setError('复制失败，请手动选中');
+      setError(copy.copyFailed);
     }
   }
 
@@ -326,19 +592,19 @@ export default function TokenPage() {
 
   async function copyTokenInfo(token: ApiToken) {
     const fullKey = oneTimeKey?.tokenId === token.id ? oneTimeKey.apiKey : null;
-    const text = fullKey ?? (await revealTokenKey(token.id)).apiKey;
+    const text = fullKey ?? (await revealTokenKey(token.id, language)).apiKey;
 
     try {
       await navigator.clipboard.writeText(text);
-      setMessage('完整密钥已复制');
-    } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : '复制失败，请重置令牌后再复制');
+      setMessage(copy.copiedFullKey);
+    } catch {
+      setError(copy.copyFullKeyFailed);
     }
   }
 
   async function copyClaudeConfigForToken(token: ApiToken) {
     const fullKey = oneTimeKey?.tokenId === token.id ? oneTimeKey.apiKey : null;
-    const apiKey = fullKey ?? (await revealTokenKey(token.id)).apiKey;
+    const apiKey = fullKey ?? (await revealTokenKey(token.id, language)).apiKey;
     await copyClaudeConfig(apiKey, token);
   }
 
@@ -348,24 +614,34 @@ export default function TokenPage() {
 
     try {
       await navigator.clipboard.writeText(config);
-      setMessage('Claude Code 配置已复制');
-    } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : '复制失败');
+      setMessage(copy.copyClaudeConfigSuccess);
+    } catch {
+      setError(copy.copyFailed);
     }
   }
 
   function exportTokens() {
-    const header = ['令牌名称', '计费方式', '状态', '可用模型', '消耗额度', '剩余额度', '创建时间', '最后使用时间', '过期时间'];
+    const header = [
+      copy.table.name,
+      copy.table.billing,
+      copy.table.status,
+      copy.table.availableModels,
+      copy.table.used,
+      copy.table.remainingQuota,
+      copy.table.createdAt,
+      copy.table.lastUsedAt,
+      copy.table.expiresAt
+    ];
     const rows = filteredTokens.map((token) => [
       token.name,
-      '按量优先',
-      getTokenEffectiveState(token).label,
-      formatModelScope(token),
+      copy.billingMode,
+      getTokenEffectiveState(token, copy).label,
+      formatModelScope(token, copy),
       formatBillingUsd(token.usedCents),
-      formatRemainingQuota(token),
-      formatDate(token.createdAt) ?? '-',
-      formatDate(token.lastUsedAt) ?? '-',
-      formatDate(token.expiresAt) ?? '永不过期'
+      formatRemainingQuota(token, copy),
+      formatDate(token.createdAt, language) ?? '-',
+      formatDate(token.lastUsedAt, language) ?? '-',
+      formatDate(token.expiresAt, language) ?? copy.neverExpires
     ]);
     const csv = [header, ...rows].map((row) => row.map(quoteCsvCell).join(',')).join('\n');
     const blob = new Blob([`\ufeff${csv}`], { type: 'text/csv;charset=utf-8' });
@@ -393,18 +669,18 @@ export default function TokenPage() {
       <section className="token-management-page">
         <form className="token-filter-panel" onSubmit={applyFilters}>
           <label>
-            令牌名称：
+            {copy.filters.name}
             <input
               onChange={(event) => setDraftFilters((current) => ({ ...current, name: event.target.value }))}
-              placeholder="请输入"
+              placeholder={copy.filters.namePlaceholder}
               type="search"
               value={draftFilters.name}
             />
           </label>
           <label>
-            可用模型：
+            {copy.filters.model}
             <select onChange={(event) => setDraftFilters((current) => ({ ...current, model: event.target.value }))} value={draftFilters.model}>
-              <option value="">全部模型</option>
+              <option value="">{copy.allModels}</option>
               {modelFilterOptions.map((model) => (
                 <option key={model} value={model}>
                   {model}
@@ -413,22 +689,22 @@ export default function TokenPage() {
             </select>
           </label>
           <label>
-            状态：
+            {copy.filters.status}
             <select onChange={(event) => setDraftFilters((current) => ({ ...current, status: event.target.value }))} value={draftFilters.status}>
-              <option value="all">全部状态</option>
-              <option value="active">正常</option>
-              <option value="disabled">已禁用</option>
-              <option value="expired">已过期</option>
-              <option value="quota_exhausted">额度用尽</option>
+              <option value="all">{copy.allStatuses}</option>
+              <option value="active">{copy.statusLabels.active}</option>
+              <option value="disabled">{copy.statusLabels.disabled}</option>
+              <option value="expired">{copy.statusLabels.expired}</option>
+              <option value="quota_exhausted">{copy.statusLabels.quota_exhausted}</option>
             </select>
           </label>
           <div className="token-filter-actions">
             <button className="ghost-button" onClick={resetFilters} type="button">
-              重置
+              {copy.reset}
             </button>
             <button className="primary-button" type="submit">
               <SearchOutlined />
-              查询
+              {copy.search}
             </button>
           </div>
         </form>
@@ -444,13 +720,13 @@ export default function TokenPage() {
             </div>
             <button className="ghost-button compact-button" onClick={() => void copyOneTimeKey()} type="button">
               <CopyOutlined />
-              复制完整密钥
+              {copy.copyFullKey}
             </button>
             <button className="ghost-button compact-button" onClick={() => void copyOneTimeClaudeConfig()} type="button">
               <CopyOutlined />
               Claude
             </button>
-            <button className="icon-button" onClick={() => setOneTimeKey(null)} title="关闭" type="button">
+            <button className="icon-button" onClick={() => setOneTimeKey(null)} title={copy.close} type="button">
               <CloseOutlined />
             </button>
           </section>
@@ -458,26 +734,26 @@ export default function TokenPage() {
 
         <section className="token-table-panel">
           <div className="token-table-header">
-            <h1>令牌管理</h1>
+            <h1>{copy.title}</h1>
             <div className="token-table-toolbar">
               <button className={`ghost-button compact-button ${isMultiSelect ? 'active' : ''}`} onClick={toggleMultiSelect} type="button">
-                多选
+                {copy.multiSelect}
               </button>
               {isMultiSelect ? (
                 <button className="ghost-button compact-button" disabled={busyTokenId === 'batch' || selectedCount === 0} onClick={() => void handleBatchDelete()} type="button">
                   <DeleteOutlined />
-                  删除选中
+                  {copy.deleteSelected}
                 </button>
               ) : null}
               <button className="ghost-button compact-button" onClick={exportTokens} type="button">
                 <DownloadOutlined />
-                导出
+                {copy.export}
               </button>
               <button className="primary-button compact-button" onClick={openCreateDialog} type="button">
                 <PlusOutlined />
-                新增
+                {copy.createToken}
               </button>
-              <button className="icon-button" disabled={isLoading} onClick={() => void loadTokenPage()} title="刷新" type="button">
+              <button className="icon-button" disabled={isLoading} onClick={() => void loadTokenPage()} title={copy.refresh} type="button">
                 <ReloadOutlined />
               </button>
             </div>
@@ -487,17 +763,17 @@ export default function TokenPage() {
             <table className="admin-table token-table simple-token-table">
               <thead>
                 <tr>
-                  {isMultiSelect ? <th>选择</th> : null}
-                  <th>令牌名称</th>
-                  <th>计费方式</th>
-                  <th>状态</th>
-                  <th>可用模型</th>
-                  <th>已消费</th>
-                  <th>剩余额度</th>
-                  <th>创建时间</th>
-                  <th>最后使用时间</th>
-                  <th>过期时间</th>
-                  <th>操作</th>
+                  {isMultiSelect ? <th>{copy.select}</th> : null}
+                  <th>{copy.table.name}</th>
+                  <th>{copy.table.billing}</th>
+                  <th>{copy.table.status}</th>
+                  <th>{copy.table.availableModels}</th>
+                  <th>{copy.table.used}</th>
+                  <th>{copy.table.remainingQuota}</th>
+                  <th>{copy.table.createdAt}</th>
+                  <th>{copy.table.lastUsedAt}</th>
+                  <th>{copy.table.expiresAt}</th>
+                  <th>{copy.table.actions}</th>
                 </tr>
               </thead>
               <tbody>
@@ -506,7 +782,7 @@ export default function TokenPage() {
                     {isMultiSelect ? (
                       <td>
                         <input
-                          aria-label={`选择 ${token.name}`}
+                          aria-label={copy.selectToken(token.name)}
                           checked={selectedIds.includes(token.id)}
                           onChange={() => toggleSelected(token.id)}
                           type="checkbox"
@@ -518,24 +794,24 @@ export default function TokenPage() {
                       <small className="table-note">{token.keyPreview}</small>
                     </td>
                     <td>
-                      <span className="status-pill status-pill-warning">按量优先</span>
+                      <span className="status-pill status-pill-warning">{copy.billingMode}</span>
                     </td>
-                    <td>{renderTokenState(token)}</td>
-                    <td>{renderModelScope(token)}</td>
+                    <td>{renderTokenState(token, copy)}</td>
+                    <td>{renderModelScope(token, copy)}</td>
                     <td>{formatBillingUsd(token.usedCents)}</td>
-                    <td>{formatRemainingQuota(token)}</td>
-                    <td>{formatDate(token.createdAt)}</td>
-                    <td>{formatDate(token.lastUsedAt) ?? '-'}</td>
-                    <td>{formatDate(token.expiresAt) ?? '永不过期'}</td>
+                    <td>{formatRemainingQuota(token, copy)}</td>
+                    <td>{formatDate(token.createdAt, language)}</td>
+                    <td>{formatDate(token.lastUsedAt, language) ?? '-'}</td>
+                    <td>{formatDate(token.expiresAt, language) ?? copy.neverExpires}</td>
                     <td>
                       <div className="token-icon-actions">
-                        <button className="icon-button compact-icon-button" onClick={() => void copyTokenInfo(token)} title="复制完整密钥" type="button">
+                        <button className="icon-button compact-icon-button" onClick={() => void copyTokenInfo(token)} title={copy.copyFullKey} type="button">
                           <CopyOutlined />
                         </button>
                         <button
                           className="ghost-button compact-button"
                           onClick={() => void copyClaudeConfigForToken(token)}
-                          title="复制 Claude Code 配置"
+                          title={copy.copyClaudeConfig}
                           type="button"
                         >
                           Claude
@@ -544,21 +820,21 @@ export default function TokenPage() {
                           className="icon-button compact-icon-button"
                           disabled={busyTokenId === token.id}
                           onClick={() => void handleDelete(token.id)}
-                          title="删除"
+                          title={copy.delete}
                           type="button"
                         >
                           <DeleteOutlined />
                         </button>
                         <button
                           className="icon-button compact-icon-button"
-                          disabled={busyTokenId === token.id || getTokenEffectiveState(token).state !== 'active'}
+                          disabled={busyTokenId === token.id || getTokenEffectiveState(token, copy).state !== 'active'}
                           onClick={() => void handleReset(token)}
-                          title="重置密钥"
+                          title={copy.resetKey}
                           type="button"
                         >
                           <SyncOutlined />
                         </button>
-                        <button className="icon-button compact-icon-button" onClick={() => openEditDialog(token)} title="修改" type="button">
+                        <button className="icon-button compact-icon-button" onClick={() => openEditDialog(token)} title={copy.edit} type="button">
                           <EditOutlined />
                         </button>
                       </div>
@@ -567,7 +843,7 @@ export default function TokenPage() {
                 ))}
                 {!isLoading && pageTokens.length === 0 ? (
                   <tr>
-                    <td colSpan={isMultiSelect ? 11 : 10}>暂无令牌</td>
+                    <td colSpan={isMultiSelect ? 11 : 10}>{copy.empty}</td>
                   </tr>
                 ) : null}
               </tbody>
@@ -576,17 +852,17 @@ export default function TokenPage() {
 
           <div className="token-pagination">
             <span>
-              第 {filteredTokens.length === 0 ? 0 : pageStart + 1}-{Math.min(pageStart + pageSize, filteredTokens.length)} 条/总共 {filteredTokens.length} 条
+              {copy.pagination(filteredTokens.length === 0 ? 0 : pageStart + 1, Math.min(pageStart + pageSize, filteredTokens.length), filteredTokens.length)}
             </span>
             <button className="ghost-button compact-button" disabled={currentPage <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))} type="button">
-              上一页
+              {copy.previousPage}
             </button>
             <span className="token-page-number">{currentPage}</span>
             <button className="ghost-button compact-button" disabled={currentPage >= totalPages} onClick={() => setPage((current) => Math.min(totalPages, current + 1))} type="button">
-              下一页
+              {copy.nextPage}
             </button>
             <select
-              aria-label="每页条数"
+              aria-label={copy.pageSizeAria}
               onChange={(event) => {
                 setPageSize(Number(event.target.value));
                 setPage(1);
@@ -595,7 +871,7 @@ export default function TokenPage() {
             >
               {pageSizeOptions.map((option) => (
                 <option key={option} value={option}>
-                  {option} 条/页
+                  {copy.pageRows(option)}
                 </option>
               ))}
             </select>
@@ -606,36 +882,36 @@ export default function TokenPage() {
           <div className="token-dialog-backdrop" role="presentation">
             <form className="token-dialog" onSubmit={handleSaveToken}>
               <div className="token-dialog-header">
-                <h2>{dialogMode === 'edit' ? '修改令牌' : '新增令牌'}</h2>
-                <button className="icon-button" onClick={closeDialog} title="关闭" type="button">
+                <h2>{dialogMode === 'edit' ? copy.editToken : copy.createToken}</h2>
+                <button className="icon-button" onClick={closeDialog} title={copy.close} type="button">
                   <CloseOutlined />
                 </button>
               </div>
               <label>
-                令牌名称
+                {copy.form.name}
                 <input
                   maxLength={80}
                   minLength={2}
                   onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
-                  placeholder="请输入令牌名称"
+                  placeholder={copy.form.namePlaceholder}
                   required
                   value={form.name}
                 />
               </label>
               <div className="form-row">
                 <label>
-                  额度（人民币，可空）
+                  {copy.form.quota}
                   <input
                     min={0}
                     onChange={(event) => setForm((current) => ({ ...current, quotaBaseTokens: event.target.value }))}
-                    placeholder="留空表示不限制"
+                    placeholder={copy.form.quotaPlaceholder}
                     step={0.000001}
                     type="number"
                     value={form.quotaBaseTokens}
                   />
                 </label>
                 <label>
-                  过期时间
+                  {copy.form.expiresAt}
                   <input
                     onChange={(event) => setForm((current) => ({ ...current, expiresAt: event.target.value }))}
                     type="datetime-local"
@@ -644,14 +920,14 @@ export default function TokenPage() {
                 </label>
               </div>
               <fieldset className="token-model-checkboxes">
-                <legend>可用模型</legend>
+                <legend>{copy.form.models}</legend>
                 <label>
                   <input
                     checked={form.modelNames.length === 0}
                     onChange={() => setForm((current) => ({ ...current, modelNames: [] }))}
                     type="checkbox"
                   />
-                  全部可用模型
+                  {copy.allUsableModels}
                 </label>
                 {availableModels.map((model) => (
                   <label key={model.model}>
@@ -665,22 +941,22 @@ export default function TokenPage() {
                 ))}
               </fieldset>
               <label>
-                备注
+                {copy.form.note}
                 <textarea
                   maxLength={240}
                   onChange={(event) => setForm((current) => ({ ...current, note: event.target.value }))}
-                  placeholder="可空"
+                  placeholder={copy.form.notePlaceholder}
                   rows={3}
                   value={form.note}
                 />
               </label>
               <div className="token-dialog-actions">
                 <button className="ghost-button" disabled={isSaving} onClick={closeDialog} type="button">
-                  取消
+                  {copy.cancel}
                 </button>
                 <button className="primary-button" disabled={isSaving} type="submit">
                   <SaveOutlined />
-                  {isSaving ? '保存中' : '保存'}
+                  {isSaving ? copy.saving : copy.save}
                 </button>
               </div>
             </form>
@@ -700,12 +976,12 @@ export default function TokenPage() {
   }
 }
 
-function normalizeQuotaUsd(value: string) {
-  return parseBillingUsdInput(value, '额度');
+function normalizeQuotaUsd(value: string, copy: TokenCopy) {
+  return parseBillingUsdInput(value, copy.quotaLabel);
 }
 
-function renderTokenState(token: ApiToken) {
-  const effectiveState = getTokenEffectiveState(token);
+function renderTokenState(token: ApiToken, copy: TokenCopy) {
+  const effectiveState = getTokenEffectiveState(token, copy);
 
   if (effectiveState.state === 'active') {
     return <span className="status-pill status-pill-success">{effectiveState.label}</span>;
@@ -718,33 +994,33 @@ function renderTokenState(token: ApiToken) {
   return <span className="status-pill status-pill-muted">{effectiveState.label}</span>;
 }
 
-function getTokenEffectiveState(token: ApiToken) {
+function getTokenEffectiveState(token: ApiToken, copy: TokenCopy) {
   if (token.status === 'disabled') {
-    return { state: 'disabled', label: '已禁用' };
+    return { state: 'disabled', label: copy.statusLabels.disabled };
   }
 
   if (token.status === 'deleted') {
-    return { state: 'deleted', label: '已删除' };
+    return { state: 'deleted', label: copy.statusLabels.deleted };
   }
 
   if (token.expiresAt && new Date(token.expiresAt) <= new Date()) {
-    return { state: 'expired', label: '已过期' };
+    return { state: 'expired', label: copy.statusLabels.expired };
   }
 
   if (typeof token.quotaCents === 'number' && token.usedCents >= token.quotaCents) {
-    return { state: 'quota_exhausted', label: '额度用尽' };
+    return { state: 'quota_exhausted', label: copy.statusLabels.quota_exhausted };
   }
 
   if (token.status === 'active') {
-    return { state: 'active', label: '正常' };
+    return { state: 'active', label: copy.statusLabels.active };
   }
 
   return { state: token.status, label: token.status };
 }
 
-function renderModelScope(token: ApiToken) {
+function renderModelScope(token: ApiToken, copy: TokenCopy) {
   if (token.modelNames.length === 0) {
-    return <span className="status-pill status-pill-warning">无限制</span>;
+    return <span className="status-pill status-pill-warning">{copy.noLimit}</span>;
   }
 
   return (
@@ -754,24 +1030,24 @@ function renderModelScope(token: ApiToken) {
   );
 }
 
-function formatModelScope(token: ApiToken) {
-  return token.modelNames.length === 0 ? '无限制' : token.modelNames.join(', ');
+function formatModelScope(token: ApiToken, copy: TokenCopy) {
+  return token.modelNames.length === 0 ? copy.noLimit : token.modelNames.join(', ');
 }
 
-function formatRemainingQuota(token: ApiToken) {
+function formatRemainingQuota(token: ApiToken, copy: TokenCopy) {
   if (token.quotaCents === null || token.quotaCents === undefined) {
-    return '无限制';
+    return copy.noLimit;
   }
 
   return formatBillingUsd(Math.max(0, token.quotaCents - token.usedCents));
 }
 
-function formatDate(value?: string | null) {
+function formatDate(value: string | null | undefined, language: LanguageCode) {
   if (!value) {
     return null;
   }
 
-  return new Intl.DateTimeFormat('zh-CN', {
+  return new Intl.DateTimeFormat(language, {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit'

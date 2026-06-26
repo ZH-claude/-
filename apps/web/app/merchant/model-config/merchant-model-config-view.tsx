@@ -27,6 +27,7 @@ import {
   updateUpstreamModel,
   type AdminGroup,
   type AdminModelPrice,
+  type TranslationMap,
   type UpstreamModelMapping,
   type UpstreamProvider
 } from '../../lib/admin-api';
@@ -87,9 +88,11 @@ export function MerchantModelConfigView({
   const [mappings, setMappings] = useState<UpstreamModelMapping[]>([]);
   const [modelName, setModelName] = useState('');
   const [displayName, setDisplayName] = useState('');
+  const [displayNameTranslations, setDisplayNameTranslations] = useState('');
   const [modelStatus, setModelStatus] = useState<ModelStatus>('active');
   const [modelGroupIds, setModelGroupIds] = useState<string[]>([]);
   const [editingModelId, setEditingModelId] = useState<string | null>(null);
+  const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
   const [mappingProviderId, setMappingProviderId] = useState('');
   const [mappingProviderName, setMappingProviderName] = useState('');
   const [mappingProviderKind, setMappingProviderKind] = useState<UpstreamProvider['kind']>('generic');
@@ -129,6 +132,10 @@ export function MerchantModelConfigView({
   const editingModel = useMemo(
     () => models.find((model) => model.id === editingModelId) ?? null,
     [editingModelId, models]
+  );
+  const selectedModel = useMemo(
+    () => models.find((model) => model.id === selectedModelId) ?? null,
+    [models, selectedModelId]
   );
   const selectedMapping = useMemo(
     () => mappings.find((mapping) => mapping.id === selectedMappingId) ?? null,
@@ -188,6 +195,8 @@ export function MerchantModelConfigView({
       setMappings(configResult.upstreamModels);
       const searchParams = typeof window === 'undefined' ? new URLSearchParams() : new URLSearchParams(window.location.search);
       const requestedModel = searchParams.get('model') ?? '';
+      const selectedModelFromUrl = searchParams.get('selectedModel');
+      const selectedMappingFromUrl = searchParams.get('mapping') ?? searchParams.get('selected');
       const savedState = searchParams.get('saved') ?? '';
       const nextActiveGroupIds = configResult.groups
         .filter((group) => group.status === 'active')
@@ -214,10 +223,28 @@ export function MerchantModelConfigView({
       if (!editingMappingId && !nextProvider && nextPublicModel) {
         setMappingProviderName((current) => current || defaultProviderName(nextPublicModel));
       }
-      if (savedState === 'model' && requestedModel) {
-        setMessage(`客户模型 ${requestedModel} 已发布，请继续给它绑定上游线路。`);
-      } else if (savedState === 'route' && requestedModel) {
-        setMessage(`模型 ${requestedModel} 的线路已保存，列表已刷新。`);
+      if (selectedModelFromUrl) {
+        const matchingModel = configResult.models.find((model) => model.id === selectedModelFromUrl);
+        setSelectedModelId(matchingModel ? matchingModel.id : null);
+      } else if (requestedModel) {
+        const requestedModelEntity = configResult.models.find((model) => model.model === requestedModel);
+        if (requestedModelEntity) {
+          setSelectedModelId(requestedModelEntity.id);
+        }
+      }
+
+      if (selectedMappingFromUrl) {
+        const matchingMapping = configResult.upstreamModels.find((mapping) => mapping.id === selectedMappingFromUrl);
+        setSelectedMappingId(matchingMapping ? matchingMapping.id : null);
+      }
+
+      const selectedModelName = selectedModelFromUrl
+        ? configResult.models.find((model) => model.id === selectedModelFromUrl)?.model
+        : requestedModel;
+      if (savedState === 'model' && selectedModelName) {
+        setMessage(`客户模型 ${selectedModelName} 已发布，请继续给它绑定上游线路。`);
+      } else if (savedState === 'route' && selectedModelName) {
+        setMessage(`模型 ${selectedModelName} 的线路已保存，列表已刷新。`);
       }
     } catch (nextError) {
       const nextMessage = nextError instanceof Error ? nextError.message : '模型配置加载失败';
@@ -249,15 +276,18 @@ export function MerchantModelConfigView({
         ? await updateModelPrice(editingModelId, payload)
         : await createModelPrice(payload);
 
+      setSelectedModelId(saved.id);
+      setMessage(`客户模型 ${saved.model} 已保存，列表已刷新。`);
       resetModelForm();
-      await loadData();
       if (!wasEditing) {
-        router.push(`/merchant/model-routes?model=${encodeURIComponent(saved.model)}&saved=model`);
-        router.refresh();
+        router.push(
+          `/merchant/model-routes?model=${encodeURIComponent(saved.model)}&selectedModel=${encodeURIComponent(saved.id)}&saved=model`
+        );
         return;
       }
 
-      setMessage(`客户模型 ${saved.model} 已保存，列表已刷新。`);
+      replaceArchiveUrl(`/merchant/model-config?selectedModel=${encodeURIComponent(saved.id)}&saved=model`);
+      await loadData();
       document.getElementById('merchant-model-list')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : '模型保存失败');
@@ -270,6 +300,7 @@ export function MerchantModelConfigView({
     return {
       model: modelName.trim(),
       displayName: displayName.trim() || undefined,
+      translations: parseModelDisplayNameTranslations(displayNameTranslations),
       status: modelStatus,
       groupIds
     };
@@ -396,14 +427,27 @@ export function MerchantModelConfigView({
       );
       const targetId = editingMappingId ?? duplicateMapping?.id ?? null;
       const saved = targetId ? await updateUpstreamModel(targetId, payload) : await createUpstreamModel(payload);
+      const savedModel = models.find((model) => model.model === saved.publicModel);
 
+      setSelectedMappingId(saved.id);
+      if (savedModel) {
+        setSelectedModelId(savedModel.id);
+      }
       setMessage(`线路已保存：${saved.publicModel} 只会走 ${saved.providerName} / ${saved.upstreamModel}。同名客户模型的其它启用线路已自动停用。`);
-      resetMappingForm();
+      resetMappingForm(true);
+      const routeParams = new URLSearchParams({
+        model: saved.publicModel,
+        mapping: saved.id,
+        selected: saved.id,
+        saved: 'route'
+      });
+      if (savedModel?.id) {
+        routeParams.set('selectedModel', savedModel.id);
+      }
+      replaceArchiveUrl(`/merchant/model-routes?${routeParams.toString()}`);
       await loadData();
-      router.replace(`/merchant/model-routes?model=${encodeURIComponent(saved.publicModel)}&saved=route`);
-      router.refresh();
       window.setTimeout(() => {
-        document.getElementById('merchant-model-routes-list')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        document.getElementById('merchant-model-route-saved')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }, 0);
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : '线路保存失败');
@@ -415,21 +459,33 @@ export function MerchantModelConfigView({
   function beginEditModel(model: AdminModelPrice) {
     setError('');
     setMessage('');
+    setSelectedModelId(model.id);
     setEditingModelId(model.id);
     setModelName(model.model);
     setDisplayName(model.displayName ?? '');
+    setDisplayNameTranslations(stringifyModelTranslations(model.translations));
     setModelStatus(model.status === 'disabled' ? 'disabled' : 'active');
     setModelGroupIds(model.groups.length ? model.groups.map((group) => group.id) : activeGroupIds);
     document.getElementById('merchant-model-publish')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
+  function selectModel(model: AdminModelPrice) {
+    setError('');
+    setMessage('');
+    setSelectedModelId(model.id);
+    replaceArchiveUrl(`/merchant/model-config?selectedModel=${encodeURIComponent(model.id)}`);
+    window.setTimeout(() => {
+      document.getElementById('merchant-model-saved')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 0);
+  }
+
   function beginCreateMapping(model: AdminModelPrice) {
     if (!isRoutesPage) {
       router.push(`/merchant/model-routes?model=${encodeURIComponent(model.model)}`);
-      router.refresh();
       return;
     }
 
+    setSelectedMappingId(null);
     resetMappingForm();
     setMappingPublicModel(model.model);
     setMappingProviderId('');
@@ -462,8 +518,7 @@ export function MerchantModelConfigView({
         resetModelForm();
       }
       await loadData();
-      router.replace(`/merchant/model-config?updated=status&model=${encodeURIComponent(saved.model)}`);
-      router.refresh();
+      replaceArchiveUrl(`/merchant/model-config?updated=status&model=${encodeURIComponent(saved.model)}`);
       setMessage(`模型 ${saved.model} 已${actionText}，列表已刷新。`);
       window.setTimeout(() => {
         document.getElementById('merchant-model-list')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -494,8 +549,7 @@ export function MerchantModelConfigView({
         resetModelForm();
       }
       await loadData();
-      router.replace(`/merchant/model-config?deleted=1&model=${encodeURIComponent(deleted.model)}`);
-      router.refresh();
+      replaceArchiveUrl(`/merchant/model-config?deleted=1&model=${encodeURIComponent(deleted.model)}`);
       setMessage(`模型 ${deleted.model} 已删除，列表已刷新。`);
       window.setTimeout(() => {
         document.getElementById('merchant-model-list')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -534,17 +588,40 @@ export function MerchantModelConfigView({
     document.getElementById('merchant-model-routes')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
+  function selectMapping(mapping: UpstreamModelMapping) {
+    setError('');
+    setMessage('');
+    setSelectedMappingId(mapping.id);
+    const params = new URLSearchParams({
+      model: mapping.publicModel,
+      mapping: mapping.id,
+      selected: mapping.id
+    });
+    const matchingModel = models.find((model) => model.model === mapping.publicModel);
+    if (matchingModel?.id) {
+      params.set('selectedModel', matchingModel.id);
+      setSelectedModelId(matchingModel.id);
+    }
+    replaceArchiveUrl(`/merchant/model-routes?${params.toString()}`);
+    window.setTimeout(() => {
+      document.getElementById('merchant-model-route-saved')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 0);
+  }
+
   function resetModelForm() {
     setEditingModelId(null);
     setModelName('');
     setDisplayName('');
+    setDisplayNameTranslations('');
     setModelStatus('active');
     setModelGroupIds(activeGroupIds);
   }
 
-  function resetMappingForm() {
+  function resetMappingForm(preserveSelected = false) {
     setEditingMappingId(null);
-    setSelectedMappingId(null);
+    if (!preserveSelected) {
+      setSelectedMappingId(null);
+    }
     setMappingPublicModel(models[0]?.model ?? '');
     setMappingProviderId('');
     setMappingProviderName(defaultProviderName(models[0]?.model));
@@ -569,6 +646,12 @@ export function MerchantModelConfigView({
   async function handleLogout() {
     await logout().catch(() => undefined);
     router.replace('/login');
+  }
+
+  function replaceArchiveUrl(url: string) {
+    if (typeof window !== 'undefined') {
+      window.history.replaceState(null, '', url);
+    }
   }
 
   function handleMappingProviderChange(providerId: string) {
@@ -688,6 +771,20 @@ export function MerchantModelConfigView({
               </select>
             </label>
 
+            <label className="full-width-field">
+              Display name translations JSON
+              <textarea
+                data-qa="merchant-model-display-name-translations"
+                onChange={(event) => setDisplayNameTranslations(event.target.value)}
+                placeholder='{"es-ES":{"displayName":"Nombre del modelo","_locked":true,"_status":"human_reviewed"}}'
+                rows={5}
+                value={displayNameTranslations}
+              />
+            </label>
+            <p className="form-note full-width-field">
+              Saved translations drive the user-side model marketplace and pricing API when a user selects another language.
+            </p>
+
             <div className="form-actions full-width-field">
               <button className="primary-button" disabled={isModelSaving || !activeGroupIds.length} type="submit">
                 <SaveOutlined />
@@ -721,18 +818,30 @@ export function MerchantModelConfigView({
               <tbody>
                 {models.map((model) => {
                   const isActionBusy = modelActionId === model.id;
+                  const isSelected = selectedModelId === model.id;
                   const isActive = model.status === 'active';
 
                   return (
-                    <tr key={model.id}>
+                    <tr
+                      className={isSelected ? 'active-row' : undefined}
+                      data-model-id={model.id}
+                      data-qa="merchant-model-row"
+                      key={model.id}
+                    >
                       <td>
                         <strong>{model.model}</strong>
                         <small className="table-note">{model.displayName || '-'}</small>
+                        {countModelDisplayNameTranslations(model.translations) ? (
+                          <small className="table-note">Translations {countModelDisplayNameTranslations(model.translations)}</small>
+                        ) : null}
                       </td>
                       <td>{formatNumber(model.upstreamMappings.length)}</td>
                       <td>{formatStatus(model.status)}</td>
                       <td>
                         <div className="table-actions">
+                          <button className="ghost-button compact-button" disabled={isActionBusy} onClick={() => selectModel(model)} type="button">
+                            查看
+                          </button>
                           <button className="ghost-button compact-button" disabled={isActionBusy} onClick={() => beginEditModel(model)} type="button">
                             <EditOutlined />
                             修改
@@ -763,6 +872,61 @@ export function MerchantModelConfigView({
             </table>
           </div>
         </section>
+        {selectedModel ? (
+          <section
+            className="admin-panel config-detail-panel"
+            data-qa="merchant-model-saved"
+            data-selected-model-id={selectedModel.id}
+            id="merchant-model-saved"
+          >
+            <div className="config-detail-header">
+              <div className="panel-title">
+                <EyeOutlined />
+                <h2>模型保存档案</h2>
+              </div>
+              <button className="ghost-button compact-button" onClick={() => setSelectedModelId(null)} type="button">
+                <CloseOutlined />
+                关闭
+              </button>
+            </div>
+            <dl className="config-detail-list config-detail-list-wide">
+              <div>
+                <dt>客户模型</dt>
+                <dd>{selectedModel.model}</dd>
+              </div>
+              <div>
+                <dt>展示名称</dt>
+                <dd>{selectedModel.displayName || '-'}</dd>
+              </div>
+              <div className="full-width-field">
+                <dt>Display name translations</dt>
+                <dd data-qa="merchant-model-translation-archive">
+                  <pre>{stringifyModelTranslations(selectedModel.translations) || '-'}</pre>
+                </dd>
+              </div>
+              <div>
+                <dt>状态</dt>
+                <dd>{formatStatus(selectedModel.status)}</dd>
+              </div>
+              <div>
+                <dt>可用用户组</dt>
+                <dd>{selectedModel.groups.length ? selectedModel.groups.map((group) => group.name).join(', ') : '-'}</dd>
+              </div>
+              <div>
+                <dt>绑定线路</dt>
+                <dd>{formatNumber(selectedModel.upstreamMappings.length)}</dd>
+              </div>
+              <div>
+                <dt>记录 ID</dt>
+                <dd>{selectedModel.id}</dd>
+              </div>
+              <div>
+                <dt>保存时间</dt>
+                <dd>{formatOptionalDate(selectedModel.updatedAt)}</dd>
+              </div>
+            </dl>
+          </section>
+        ) : null}
         </>
         ) : null}
 
@@ -777,10 +941,10 @@ export function MerchantModelConfigView({
           <p className="form-note">
             一个客户模型只启用一条线路。这里填写上游 URL、密钥、真实上游模型名和输入/输出价格；保存后会刷新下方线路列表。
           </p>
-          <form className="auth-form mapping-form" onSubmit={handleSaveMapping}>
+          <form className="auth-form mapping-form" data-qa="merchant-model-route-form" onSubmit={handleSaveMapping}>
             <label>
               客户模型
-              <select onChange={(event) => setMappingPublicModel(event.target.value)} required value={mappingPublicModel}>
+              <select data-qa="merchant-model-route-public-model" onChange={(event) => setMappingPublicModel(event.target.value)} required value={mappingPublicModel}>
                 <option value="">选择客户模型</option>
                 {models.map((model) => (
                   <option key={model.id} value={model.model}>
@@ -791,7 +955,7 @@ export function MerchantModelConfigView({
             </label>
             <label>
               已保存上游（可选）
-              <select onChange={(event) => handleMappingProviderChange(event.target.value)} value={mappingProviderId}>
+              <select data-qa="merchant-model-route-provider" onChange={(event) => handleMappingProviderChange(event.target.value)} value={mappingProviderId}>
                 <option value="">新建或手动填写</option>
                 {upstreams.map((upstream) => (
                   <option key={upstream.id} value={upstream.id}>
@@ -802,7 +966,7 @@ export function MerchantModelConfigView({
             </label>
             <label>
               上游类型
-              <select onChange={(event) => handleMappingProviderKindChange(event.target.value as UpstreamProvider['kind'])} value={mappingProviderKind}>
+              <select data-qa="merchant-model-route-provider-kind" onChange={(event) => handleMappingProviderKindChange(event.target.value as UpstreamProvider['kind'])} value={mappingProviderKind}>
                 <option value="generic">OpenAI 兼容</option>
                 <option value="deepseek">DeepSeek</option>
                 <option value="relay">中转站</option>
@@ -810,33 +974,33 @@ export function MerchantModelConfigView({
             </label>
             <label>
               上游名称
-              <input maxLength={80} minLength={2} onChange={(event) => setMappingProviderName(event.target.value)} required value={mappingProviderName} />
+              <input data-qa="merchant-model-route-provider-name" maxLength={80} minLength={2} onChange={(event) => setMappingProviderName(event.target.value)} required value={mappingProviderName} />
             </label>
             <label>
               上游 Base URL
-              <input maxLength={2048} minLength={8} onChange={(event) => setMappingProviderBaseUrl(event.target.value)} placeholder="例如：https://api.example.com" required type="url" value={mappingProviderBaseUrl} />
+              <input data-qa="merchant-model-route-provider-base-url" maxLength={2048} minLength={8} onChange={(event) => setMappingProviderBaseUrl(event.target.value)} placeholder="例如：https://api.example.com" required type="url" value={mappingProviderBaseUrl} />
             </label>
             <label>
               上游密钥
-              <input maxLength={512} minLength={mappingProviderId ? undefined : 8} onChange={(event) => setMappingProviderApiKey(event.target.value)} placeholder={mappingProviderId ? '不填则沿用已保存密钥' : '新上游必填'} required={!mappingProviderId} type="password" value={mappingProviderApiKey} />
+              <input data-qa="merchant-model-route-provider-api-key" maxLength={512} minLength={mappingProviderId ? undefined : 8} onChange={(event) => setMappingProviderApiKey(event.target.value)} placeholder={mappingProviderId ? '不填则沿用已保存密钥' : '新上游必填'} required={!mappingProviderId} type="password" value={mappingProviderApiKey} />
             </label>
             <label>
               真实上游模型名
-              <input maxLength={120} minLength={2} onChange={(event) => setMappingUpstreamModel(event.target.value)} placeholder="例如：deepseek-chat / claude-opus-4-8" required value={mappingUpstreamModel} />
+              <input data-qa="merchant-model-route-upstream-model" maxLength={120} minLength={2} onChange={(event) => setMappingUpstreamModel(event.target.value)} placeholder="例如：deepseek-chat / claude-opus-4-8" required value={mappingUpstreamModel} />
             </label>
             <label>
               超时时间（毫秒）
-              <input max={30000} min={1000} onChange={(event) => setMappingTimeoutMs(event.target.value)} required step={500} type="number" value={mappingTimeoutMs} />
+              <input data-qa="merchant-model-route-timeout-ms" max={30000} min={1000} onChange={(event) => setMappingTimeoutMs(event.target.value)} required step={500} type="number" value={mappingTimeoutMs} />
             </label>
             {effectiveMappingProviderKind === 'deepseek' ? (
               <>
                 <label>
                   输入价格（美元 / 1M tokens）
-                  <input min={0} onChange={(event) => setMappingInputTokensPer1k(event.target.value)} required step="0.001" type="number" value={mappingInputTokensPer1k} />
+                  <input data-qa="merchant-model-route-input-price" min={0} onChange={(event) => setMappingInputTokensPer1k(event.target.value)} required step="0.001" type="number" value={mappingInputTokensPer1k} />
                 </label>
                 <label>
                   输出价格（美元 / 1M tokens）
-                  <input min={0} onChange={(event) => setMappingOutputTokensPer1k(event.target.value)} required step="0.001" type="number" value={mappingOutputTokensPer1k} />
+                  <input data-qa="merchant-model-route-output-price" min={0} onChange={(event) => setMappingOutputTokensPer1k(event.target.value)} required step="0.001" type="number" value={mappingOutputTokensPer1k} />
                 </label>
               </>
             ) : null}
@@ -844,8 +1008,9 @@ export function MerchantModelConfigView({
               <>
                 <label>
                   上游输入价格 / 100万 token
-                  <input
-                    min="0"
+                    <input
+                      data-qa="merchant-model-route-upstream-input-price"
+                      min="0"
                     onChange={(event) => setMappingUpstreamInputPricePerMillion(event.target.value)}
                     placeholder="例如：5"
                     required
@@ -856,8 +1021,9 @@ export function MerchantModelConfigView({
                 </label>
                 <label>
                   上游输出价格 / 100万 token
-                  <input
-                    min="0"
+                    <input
+                      data-qa="merchant-model-route-upstream-output-price"
+                      min="0"
                     onChange={(event) => setMappingUpstreamOutputPricePerMillion(event.target.value)}
                     placeholder="例如：30"
                     required
@@ -868,15 +1034,16 @@ export function MerchantModelConfigView({
                 </label>
                 <label>
                   上游币种
-                  <select onChange={(event) => setMappingUpstreamCurrency(event.target.value as 'CNY' | 'USD')} value={mappingUpstreamCurrency}>
+                  <select data-qa="merchant-model-route-upstream-currency" onChange={(event) => setMappingUpstreamCurrency(event.target.value as 'CNY' | 'USD')} value={mappingUpstreamCurrency}>
                     <option value="CNY">人民币</option>
                     <option value="USD">美元</option>
                   </select>
                 </label>
                 <label>
                   加价比例
-                  <input
-                    min="0"
+                    <input
+                      data-qa="merchant-model-route-margin-percent"
+                      min="0"
                     onChange={(event) => setMappingMarginPercent(event.target.value)}
                     placeholder="默认 10"
                     step="0.0001"
@@ -888,6 +1055,7 @@ export function MerchantModelConfigView({
                   <label>
                     美元转人民币汇率
                     <input
+                      data-qa="merchant-model-route-exchange-rate"
                       min="0.000001"
                       onChange={(event) => setMappingUpstreamExchangeRate(event.target.value)}
                       step="0.000001"
@@ -902,11 +1070,11 @@ export function MerchantModelConfigView({
               <>
                 <label>
                   输入价格（美元 / 1M tokens）
-                  <input min={0} onChange={(event) => setMappingInputTokensPer1k(event.target.value)} required step="0.001" type="number" value={mappingInputTokensPer1k} />
+                  <input data-qa="merchant-model-route-input-price" min={0} onChange={(event) => setMappingInputTokensPer1k(event.target.value)} required step="0.001" type="number" value={mappingInputTokensPer1k} />
                 </label>
                 <label>
                   输出价格（美元 / 1M tokens）
-                  <input min={0} onChange={(event) => setMappingOutputTokensPer1k(event.target.value)} required step="0.001" type="number" value={mappingOutputTokensPer1k} />
+                  <input data-qa="merchant-model-route-output-price" min={0} onChange={(event) => setMappingOutputTokensPer1k(event.target.value)} required step="0.001" type="number" value={mappingOutputTokensPer1k} />
                 </label>
               </>
             ) : null}
@@ -920,7 +1088,7 @@ export function MerchantModelConfigView({
             ) : null}
             <label>
               状态
-              <select onChange={(event) => setMappingStatus(event.target.value as ModelStatus)} value={mappingStatus}>
+              <select data-qa="merchant-model-route-status" onChange={(event) => setMappingStatus(event.target.value as ModelStatus)} value={mappingStatus}>
                 <option value="active">启用</option>
                 <option value="disabled">停用</option>
               </select>
@@ -928,6 +1096,7 @@ export function MerchantModelConfigView({
             <label className="full-width-field">
               上游附加提示词
               <textarea
+                data-qa="merchant-model-route-prompt"
                 maxLength={4000}
                 onChange={(event) => setMappingPrompt(event.target.value)}
                 placeholder="例如：当用户询问模型身份时，按客户模型名称回答。"
@@ -936,16 +1105,16 @@ export function MerchantModelConfigView({
               />
             </label>
             <label className="checkbox-label">
-              <input checked={mappingSupportsStream} onChange={(event) => setMappingSupportsStream(event.target.checked)} type="checkbox" />
+              <input checked={mappingSupportsStream} data-qa="merchant-model-route-supports-stream" onChange={(event) => setMappingSupportsStream(event.target.checked)} type="checkbox" />
               支持流式输出
             </label>
             <div className="form-actions full-width-field">
-              <button className="primary-button" disabled={isMappingSaving || !models.length} type="submit">
+              <button className="primary-button" data-qa="merchant-model-route-submit" disabled={isMappingSaving || !models.length} type="submit">
                 <SaveOutlined />
                 {isMappingSaving ? '保存中' : editingMappingId ? '保存线路修改' : '保存线路'}
               </button>
               {editingMappingId ? (
-                <button className="ghost-button" disabled={isMappingSaving} onClick={resetMappingForm} type="button">
+                <button className="ghost-button" disabled={isMappingSaving} onClick={() => resetMappingForm()} type="button">
                   <CloseOutlined />
                   取消修改
                 </button>
@@ -970,7 +1139,12 @@ export function MerchantModelConfigView({
               </thead>
               <tbody>
                 {mappings.map((mapping) => (
-                  <tr className={selectedMappingId === mapping.id ? 'active-row' : undefined} key={mapping.id}>
+                  <tr
+                    className={selectedMappingId === mapping.id ? 'active-row' : undefined}
+                    data-qa="merchant-model-route-row"
+                    data-mapping-id={mapping.id}
+                    key={mapping.id}
+                  >
                     <td>{mapping.publicModel}</td>
                     <td>
                       {mapping.providerName}
@@ -984,7 +1158,7 @@ export function MerchantModelConfigView({
                     <td>{formatStatus(mapping.status)}</td>
                     <td>
                       <div className="table-actions">
-                        <button className="ghost-button compact-button" onClick={() => setSelectedMappingId(mapping.id)} type="button">
+                        <button className="ghost-button compact-button" onClick={() => selectMapping(mapping)} type="button">
                           查看
                         </button>
                         <button className="ghost-button compact-button" onClick={() => beginEditMapping(mapping)} type="button">
@@ -1006,11 +1180,19 @@ export function MerchantModelConfigView({
         </section>
 
         {selectedMapping ? (
-          <section className="admin-panel config-detail-panel">
+          <section
+            className="admin-panel config-detail-panel"
+            data-qa="merchant-model-route-detail"
+            data-selected-mapping-id={selectedMapping.id}
+            data-selected-provider-id={selectedMapping.providerId}
+            data-selected-public-model={selectedMapping.publicModel}
+            data-selected-upstream-model={selectedMapping.upstreamModel}
+            id="merchant-model-route-saved"
+          >
             <div className="config-detail-header">
               <div className="panel-title">
                 <EyeOutlined />
-                <h2>线路详情</h2>
+                <h2>线路保存档案</h2>
               </div>
               <button className="ghost-button compact-button" onClick={() => setSelectedMappingId(null)} type="button">
                 <CloseOutlined />
@@ -1037,6 +1219,14 @@ export function MerchantModelConfigView({
               <div>
                 <dt>扣费规则</dt>
                 <dd>{formatRoutePricing(selectedMapping)}</dd>
+              </div>
+              <div>
+                <dt>记录 ID</dt>
+                <dd>{selectedMapping.id}</dd>
+              </div>
+              <div>
+                <dt>保存时间</dt>
+                <dd>{formatOptionalDate(selectedMapping.updatedAt)}</dd>
               </div>
               <div className="full-width-field">
                 <dt>上游附加提示词</dt>
@@ -1072,6 +1262,71 @@ function keepValidIds(current: string[], groups: AdminGroup[], fallback: string[
   return nextIds.length ? nextIds : fallback;
 }
 
+function parseModelDisplayNameTranslations(value: string): TranslationMap | null {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    throw new Error('Model display name translations must be valid JSON.');
+  }
+
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('Model display name translations must be a language-keyed object.');
+  }
+
+  const nextTranslations: TranslationMap = {};
+  for (const [language, record] of Object.entries(parsed as Record<string, unknown>)) {
+    if (!language.trim()) {
+      throw new Error('Model display name translation language code cannot be empty.');
+    }
+
+    if (typeof record === 'string') {
+      nextTranslations[language] = { displayName: record };
+      continue;
+    }
+
+    if (!record || typeof record !== 'object' || Array.isArray(record)) {
+      throw new Error(`Model display name translation for ${language} must be a string or object.`);
+    }
+
+    const nextRecord: Record<string, string | boolean> = {};
+    for (const [key, entryValue] of Object.entries(record as Record<string, unknown>)) {
+      if (typeof entryValue === 'string' || typeof entryValue === 'boolean') {
+        nextRecord[key] = entryValue;
+      }
+    }
+
+    if (typeof nextRecord.displayName !== 'string' || !nextRecord.displayName.trim()) {
+      throw new Error(`Model display name translation for ${language} must include displayName.`);
+    }
+
+    nextTranslations[language] = nextRecord;
+  }
+
+  return nextTranslations;
+}
+
+function stringifyModelTranslations(translations: TranslationMap | null | undefined) {
+  if (!translations || !Object.keys(translations).length) {
+    return '';
+  }
+
+  return JSON.stringify(translations, null, 2);
+}
+
+function countModelDisplayNameTranslations(translations: TranslationMap | null | undefined) {
+  if (!translations) {
+    return 0;
+  }
+
+  return Object.values(translations).filter((record) => typeof record?.displayName === 'string' && record.displayName.trim()).length;
+}
+
 function defaultProviderName(model?: string) {
   const normalizedModel = model?.trim();
   return normalizedModel ? `${DEFAULT_UPSTREAM_NAME_PREFIX}-${normalizedModel}` : DEFAULT_UPSTREAM_NAME_PREFIX;
@@ -1093,6 +1348,19 @@ function parseWholeNumber(value: string, label: string) {
 
 function formatNumber(value: number) {
   return new Intl.NumberFormat('zh-CN').format(value);
+}
+
+function formatOptionalDate(value: string | null | undefined) {
+  if (!value) {
+    return '-';
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return date.toLocaleString('zh-CN', { hour12: false });
 }
 
 function formatChargePer1k(value: number | null | undefined) {

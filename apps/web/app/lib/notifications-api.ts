@@ -1,3 +1,5 @@
+import { createApiClientError } from './api-error-copy';
+
 export type NotificationDeliveryStatus = 'sent' | 'failed';
 export type NotificationEventType =
   | 'test'
@@ -68,21 +70,21 @@ export type UpdateNotificationSettingsPayload = {
 
 const API_BASE_URL = '/api';
 
-export async function getNotificationSettings() {
-  return request<NotificationSettingsResponse>('/notifications/settings');
+export async function getNotificationSettings(language?: string) {
+  return request<NotificationSettingsResponse>('/notifications/settings', {}, language);
 }
 
-export async function updateNotificationSettings(payload: UpdateNotificationSettingsPayload) {
+export async function updateNotificationSettings(payload: UpdateNotificationSettingsPayload, language?: string) {
   return request<NotificationSettingsResponse>('/notifications/settings', {
     method: 'PUT',
     body: payload
-  });
+  }, language);
 }
 
-export async function testWebhookNotification() {
+export async function testWebhookNotification(language?: string) {
   return request<{ delivery: NotificationDelivery }>('/notifications/test-webhook', {
     method: 'POST'
-  });
+  }, language);
 }
 
 async function request<T>(
@@ -90,11 +92,16 @@ async function request<T>(
   options: {
     method?: 'GET' | 'POST' | 'PUT';
     body?: Record<string, unknown>;
-  } = {}
+  } = {},
+  language?: string
 ) {
   const headers: Record<string, string> = {
     Accept: 'application/json'
   };
+
+  if (language) {
+    headers['Accept-Language'] = language;
+  }
 
   if (options.body) {
     headers['Content-Type'] = 'application/json';
@@ -110,11 +117,7 @@ async function request<T>(
   const data = await response.json().catch(() => null);
 
   if (!response.ok) {
-    const message =
-      data && typeof data === 'object' && 'message' in data
-        ? String((data as { message: unknown }).message)
-        : `请求失败：${response.status}`;
-    throw new Error(`${response.status}: ${message}`);
+    throw createApiClientError(language, response.status, data);
   }
 
   return data as T;
